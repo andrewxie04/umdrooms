@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/logo192.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#161412" />
+    <meta name="application-name" content="Rooms" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Rooms" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
+    <meta
+      name="description"
+      content="Rooms — find open classrooms, study rooms, dining halls, and parking across the University of Maryland campus, live on a 3D map."
+    />
+    <!--
+      NOTE: the legacy CRA app's strict CSP <meta> is intentionally NOT ported
+      here — script-src 'self' would break Vite dev (react-refresh preamble +
+      HMR websocket). Re-apply CSP as Netlify response headers in Stage 3.
+    -->
+    <!--
+      Preload the two big runtime datasets so their downloads start with the
+      HTML parse instead of after the JS bundle boots (~7.5MB + ~2MB raw;
+      much smaller over the wire with Netlify's brotli). `crossorigin` must
+      stay OFF to match the same-origin fetch() calls, or the preload is
+      wasted and fetched twice.
+    -->
+    <link rel="preload" href="/buildings_data.json" as="fetch" />
+    <link rel="preload" href="/campus-data.json" as="fetch" />
+    <title>Rooms — UMD Campus Map</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -15,9 +15,11 @@ import { safeStorageGet, safeStorageSet } from './storage';
 
 const loadSidebar = () => import('./Sidebar');
 const loadCampusMap = () => import('./Map');
+const loadEditorialApp = () => import('./EditorialApp');
 
 const Sidebar = lazy(loadSidebar);
 const CampusMap = lazy(loadCampusMap);
+const EditorialApp = lazy(loadEditorialApp);
 
 const EMPTY_DAY_FETCH_STATE = {
   status: 'idle',
@@ -153,6 +155,17 @@ const App = () => {
       dining: true,
     };
   });
+
+  const [designMode, setDesignMode] = useState(() => {
+    const saved = safeStorageGet('designMode');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) { /* corrupted */ }
+    }
+    return 'classic'; // 'classic' or 'editorial'
+  });
+
   const [testudoSprites, setTestudoSprites] = useState([]);
 
   const [userLocation, setUserLocation] = useState(null);
@@ -621,6 +634,14 @@ const App = () => {
     []
   );
 
+  const toggleDesignMode = useCallback(() => {
+    setDesignMode((prev) => {
+      const next = prev === 'classic' ? 'editorial' : 'classic';
+      safeStorageSet('designMode', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   const toggleFavoriteBuilding = useCallback((building) => {
     setFavoriteBuildings((prev) => {
       const exists = prev.some((f) => f.code === building.code);
@@ -685,6 +706,43 @@ const App = () => {
     }
   }, []);
 
+  // Render Editorial design if designMode is 'editorial'
+  if (designMode === 'editorial') {
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <EditorialApp
+          buildingsData={combinedBuildingsData}
+          selectedBuilding={selectedBuilding}
+          onBuildingSelect={handleBuildingSelect}
+          selectedRoomId={selectedRoomId}
+          onRoomSelect={handleRoomSelect}
+          selectedStartDateTime={selectedStartDateTime}
+          selectedEndDateTime={selectedEndDateTime}
+          onStartDateTimeChange={handleStartDateTimeChange}
+          onEndDateTimeChange={handleEndDateTimeChange}
+          viewMode={viewMode}
+          darkMode={darkMode}
+          toggleDarkMode={toggleDarkMode}
+          designMode={designMode}
+          toggleDesignMode={toggleDesignMode}
+          favoriteBuildings={favoriteBuildings}
+          favoriteRooms={favoriteRooms}
+          diningHalls={diningHalls}
+          selectedDining={selectedDining}
+          onDiningSelect={handleDiningSelect}
+          navigateTarget={navigateTarget}
+          onNavigateComplete={() => setNavigateTarget(null)}
+          userLocation={userLocation}
+          mapResetToken={mapResetToken}
+          mapVisibility={mapVisibility}
+          durationFilter={durationFilter}
+          onParkingSelect={handleParkingSelect}
+        />
+      </Suspense>
+    );
+  }
+
+  // Classic design (default)
   return (
     <div className={`app-container ${darkMode ? 'dark-mode' : ''}`}>
       <Suspense fallback={<SidebarFallback />}>
@@ -703,6 +761,8 @@ const App = () => {
           onEndDateTimeChange={handleEndDateTimeChange}
           darkMode={darkMode}
           toggleDarkMode={toggleDarkMode}
+          designMode={designMode}
+          toggleDesignMode={toggleDesignMode}
           favoriteBuildings={favoriteBuildings}
           favoriteRooms={favoriteRooms}
           toggleFavoriteBuilding={toggleFavoriteBuilding}

@@ -1,0 +1,31 @@
+{
+  "id": "/",
+  "short_name": "Rooms",
+  "name": "Rooms — UMD Campus Map",
+  "description": "Find open classrooms, study rooms, dining halls, and parking across the University of Maryland campus, live on a 3D map.",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#161412",
+  "background_color": "#161412"
+}

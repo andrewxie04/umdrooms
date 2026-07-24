@@ -147,6 +147,8 @@ const Sidebar = ({
   onEndDateTimeChange,
   darkMode,
   toggleDarkMode,
+  designMode,
+  toggleDesignMode,
   favoriteBuildings,
   favoriteRooms,
   toggleFavoriteBuilding,
@@ -2231,6 +2233,13 @@ const Sidebar = ({
           >
             GitHub Repo
           </a>
+          <button
+            className="about-card-link"
+            onClick={() => { playToggleHaptic(); toggleDesignMode(); }}
+            style={{ marginTop: 8, fontSize: 11, opacity: 0.6 }}
+          >
+            {Icon.layers} {designMode === 'classic' ? 'Try Editorial UI' : 'Classic UI'}
+          </button>
         </div>
       </div>
     );

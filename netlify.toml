@@ -1,7 +1,36 @@
+# Netlify build config for the Rooms redesign (Vite app in rooms-redesign/).
+#
+# `base` makes Netlify run installs/build inside rooms-redesign; `publish`
+# and `functions` are resolved relative to that base, hence `dist` and
+# `../netlify/functions` (the functions directory stays at the repo root,
+# unchanged). Netlify auto-installs the app's own package-lock deps in base.
+
 [build]
+  base = "rooms-redesign"
   command = "npm run build"
-  publish = "build"
-  functions = "netlify/functions"
+  publish = "dist"
+  functions = "../netlify/functions"
 
 [functions."scheduled-rebuild"]
   schedule = "0 10 * * *"
+
+# Security headers. CSP is ported from the legacy CRA app's <meta> (dropped
+# for Vite dev). The map is now a self-hosted three.js campus renderer (no
+# external tile/font/api hosts), so connect-src only lists the UMD data
+# endpoints and same-origin Netlify functions.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://25live.collegenet.com https://umd.libcal.com https://nutrition.umd.edu https://docs.google.com https://script.googleusercontent.com https://clarknet.eng.umd.edu https://book1button.umd.edu; worker-src 'self' blob:; child-src 'self' blob:;"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(self), camera=(), microphone=()"
+
+# Vite bundles under /assets are content-hashed — safe to cache forever.
+# (Everything else keeps Netlify's default etag revalidation, which is what
+# the big runtime JSONs want: repeat visits get 304s instead of re-downloads.)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
