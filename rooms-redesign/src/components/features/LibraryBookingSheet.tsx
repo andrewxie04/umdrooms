@@ -156,6 +156,30 @@ interface BrowseState {
 const EMPTY_BROWSE: BrowseState = { status: 'idle', room: null, error: null };
 
 // ---------------------------------------------------------------------------
+// In-app booking is DISABLED (2026). UMD LibCal now requires SSO login to
+// reserve — its booking-form / submit endpoints redirect anonymous sessions
+// to /spaces/auth (verified live). Worse, the flow placed a transient LibCal
+// hold via booking/add just to read duration options, which the patron then
+// tripped over when finishing on LibCal. So we keep the availability browser
+// (read-only, no hold) and hand off to the room's LibCal page to reserve.
+//
+// The entire legacy in-app booking flow below is preserved but gated behind
+// this flag — flip it back to true to re-enable if LibCal ever reopens
+// anonymous booking. (Everything referenced by that flow stays imported so
+// the code keeps compiling.)
+const IN_APP_BOOKING_ENABLED = false;
+
+/** Deep link to the room's LibCal page for the browsed date (where the patron
+ * signs in and reserves). Falls back to the plain space page. */
+function libcalBookingUrl(rawRoom: any, dateKey: string): string | null {
+  const base = rawRoom?.libcal?.booking_url;
+  if (!base) return null;
+  if (!dateKey) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}date=${dateKey}`;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers (ported)
 // ---------------------------------------------------------------------------
 
@@ -486,8 +510,13 @@ export function LibraryBookingSheet() {
 
   if (!isRoom || !isLibCal) return null;
 
-  const bookingUrl = rawRoom?.libcal?.booking_url;
+  const bookingUrl = libcalBookingUrl(rawRoom, browseKey);
   const holdMessage = compactHoldMessage(booking.holdMessage);
+  const openLibCal = () => {
+    if (!bookingUrl) return;
+    playSelectionHaptic();
+    window.open(bookingUrl, '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <PanelFrame
@@ -525,17 +554,19 @@ export function LibraryBookingSheet() {
           </GhostButton>
         ) : null}
         {bookingUrl ? (
-          <GhostButton
-            onClick={() => {
-              playSelectionHaptic();
-              window.open(bookingUrl, '_blank', 'noopener,noreferrer');
-            }}
-          >
+          <GhostButton onClick={openLibCal}>
             Open in LibCal
             <ExternalLink className="h-3.5 w-3.5" />
           </GhostButton>
         ) : null}
       </div>
+
+      {!IN_APP_BOOKING_ENABLED ? (
+        <p className="mt-3 rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          UMD LibCal requires you to sign in to reserve. Browse available times
+          below, then finish on LibCal with your UMD login.
+        </p>
+      ) : null}
 
       {/* Date browser */}
       <div className="mt-5">
@@ -558,7 +589,7 @@ export function LibraryBookingSheet() {
       </div>
 
       {/* Bookable blocks */}
-      <SectionHeader>Bookable Times</SectionHeader>
+      <SectionHeader>{IN_APP_BOOKING_ENABLED ? 'Bookable Times' : 'Available Times'}</SectionHeader>
       {blocks.length ? (
         <div className="space-y-2">
           {blocks.map((block: any, idx: number) => {
@@ -591,10 +622,17 @@ export function LibraryBookingSheet() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => startBooking(block)}
-                  className="shrink-0 rounded-lg bg-umd-red px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                  onClick={IN_APP_BOOKING_ENABLED ? () => startBooking(block) : openLibCal}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-umd-red px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
                 >
-                  Book
+                  {IN_APP_BOOKING_ENABLED ? (
+                    'Book'
+                  ) : (
+                    <>
+                      Reserve
+                      <ExternalLink className="h-3 w-3" />
+                    </>
+                  )}
                 </button>
               </div>
             );
@@ -607,8 +645,9 @@ export function LibraryBookingSheet() {
         />
       )}
 
-      {/* Booking card */}
-      {booking.status !== 'idle' && booking.roomId === selectedRoomId ? (
+      {/* Booking card — legacy in-app booking flow, gated off (see
+          IN_APP_BOOKING_ENABLED). Preserved for easy re-enable. */}
+      {IN_APP_BOOKING_ENABLED && booking.status !== 'idle' && booking.roomId === selectedRoomId ? (
         <div className="mt-5 rounded-2xl border border-border bg-card p-4 shadow-sm">
           <SectionHeader className="mt-0">Reserve In App</SectionHeader>
 
