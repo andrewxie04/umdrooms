@@ -81,6 +81,14 @@ const CODE_ADDS = [
   { id: 'way/1499355421', addCode: 'AJC' },
 ];
 
+/** OSM height tags that are LiDAR maxima (antennas/penthouses), not wall
+ * height — they render (and highlight) as comically tall blocks. */
+const HEIGHT_FIXES = [
+  // AJC main mass: tagged 38.41; the building is 5 lab floors. 20 matches
+  // the a-james-clark-hall landmark module's spec height.
+  { id: 'way/1499355421', height: 20 },
+];
+
 const QUERY = `[out:json][timeout:120];relation(id:${PATCHES.map((p) => p.id).join(',')});out geom;`;
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
@@ -167,6 +175,15 @@ for (const add of CODE_ADDS) {
     b.umdCode = add.addCode;
     changed += 1;
     console.log(`  ~ ${add.id}: tagged umdCode ${add.addCode}`);
+  }
+}
+
+for (const fix of HEIGHT_FIXES) {
+  const b = data.buildings.find((x) => x.id === fix.id);
+  if (b && b.height !== fix.height) {
+    console.log(`  ~ ${fix.id}: height ${b.height} -> ${fix.height}`);
+    b.height = fix.height;
+    changed += 1;
   }
 }
 
