@@ -158,10 +158,10 @@ export const PARKING_HIGHLIGHT_TARGETS = {
   'Lot 9': { areaIndices: [7] },
   'Lot 11': { areaIndices: [9] },
   // Lot 16 is the parking lining the Fraternity Row loop road, fragmented in
-  // OSM into the road-following winding polygons (309/306/310) plus the long
-  // thin aisle strips down the west side (97/98). The compact rectangles
-  // 71/69/443 are separate adjacent bays, NOT Lot 16.
-  'Lot 16': { areaIndices: [309, 306, 310, 97, 98] },
+  // OSM. The long arms are the west aisle strips (97/98) and the east winding
+  // polygons (309/306); 310 + 69 close the south/SE bend and 71 the north
+  // corner, so the highlight reads as the full U loop rather than two bars.
+  'Lot 16': { areaIndices: [309, 306, 310, 71, 69, 97, 98] },
 };
 
 export function getParkingReferenceDate(viewMode, selectedStartDateTime) {
