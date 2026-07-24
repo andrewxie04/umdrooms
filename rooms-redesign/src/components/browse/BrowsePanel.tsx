@@ -2,10 +2,15 @@
 // tabs, then either the building list or the building detail, with a
 // full-panel error state (retry runs the store's init pipeline again).
 // Rendered by AppShell inside the desktop panel or the mobile drawer.
+//
+// Mobile: the building detail takes over the whole sheet — the header /
+// search / tabs / filter chrome would otherwise eat most of the sheet height
+// and leave a sliver for the rooms list. Back restores the browse chrome.
 
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCampusStore } from '@/lib/store';
+import { useMediaQuery } from '@/components/shell/useMediaQuery';
 import { AppHeader } from './AppHeader';
 import { SearchBar } from './SearchBar';
 import { ModeTabs } from './ModeTabs';
@@ -16,8 +21,18 @@ export function BrowsePanel() {
   const loading = useCampusStore((s) => s.loading);
   const selected = useCampusStore((s) => s.selected);
   const init = useCampusStore((s) => s.init);
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
 
   const showDetail = selected?.kind === 'building' || selected?.kind === 'room';
+
+  // Mobile detail view: no browse chrome, all height to the rooms.
+  if (showDetail && !isDesktop && loading.status !== 'error') {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <BuildingDetail />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

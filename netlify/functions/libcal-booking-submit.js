@@ -1,4 +1,5 @@
 const {
+  LIBCAL_AUTH_REQUIRED,
   badRequest,
   formatError,
   json,
@@ -44,6 +45,13 @@ exports.handler = async (event) => {
       successHtml: result.html || '',
     });
   } catch (error) {
+    if (error?.message === LIBCAL_AUTH_REQUIRED) {
+      return json(200, {
+        authRequired: true,
+        message:
+          'UMD LibCal now requires you to sign in before reserving. Continue on LibCal to finish booking this room.',
+      });
+    }
     return json(502, {
       error: 'Failed to submit the LibCal booking',
       details: formatError(error, 'Unknown LibCal submit error'),

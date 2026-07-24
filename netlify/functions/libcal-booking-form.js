@@ -1,4 +1,5 @@
 const {
+  LIBCAL_AUTH_REQUIRED,
   badRequest,
   buildBookingFormPayload,
   formatError,
@@ -51,6 +52,16 @@ exports.handler = async (event) => {
       submitLabel: parsed.submitLabel,
     });
   } catch (error) {
+    // LibCal now gates the booking form behind SSO — return a structured
+    // signal so the client can offer the "reserve on LibCal" fallback
+    // instead of surfacing a raw error.
+    if (error?.message === LIBCAL_AUTH_REQUIRED) {
+      return json(200, {
+        authRequired: true,
+        message:
+          'UMD LibCal now requires you to sign in before reserving. Continue on LibCal to finish booking this room.',
+      });
+    }
     return json(502, {
       error: 'Failed to load the LibCal booking form',
       details: formatError(error, 'Unknown LibCal booking form error'),

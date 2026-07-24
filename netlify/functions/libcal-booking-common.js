@@ -19,6 +19,13 @@ const LIBCAL_BOOKING_SUBMIT_URL = `${LIBCAL_BASE_URL}/ajax/space/book`;
 const REQUEST_TIMEOUT_MS = 15000;
 const BOOKING_METHOD = '17';
 
+// Sentinel thrown when LibCal gates a step behind SSO login. As of 2026 UMD
+// LibCal redirects the booking-form (/ajax/space/times) and submit steps to
+// /spaces/auth for anonymous sessions, so the in-app booking flow can no
+// longer complete without the patron's own credentials. Callers map this to
+// a graceful "reserve on LibCal" fallback rather than a cryptic error.
+const LIBCAL_AUTH_REQUIRED = 'LIBCAL_AUTH_REQUIRED';
+
 function json(statusCode, body) {
   return {
     statusCode,
@@ -283,6 +290,12 @@ async function fetchBookingDetailsHtml(sessionFetch, booking) {
     throw new Error(payload.error);
   }
 
+  // LibCal now redirects anonymous sessions to /spaces/auth here — the form
+  // is only served to logged-in patrons. Signal the auth gate to callers.
+  if (payload?.redirect) {
+    throw new Error(LIBCAL_AUTH_REQUIRED);
+  }
+
   if (!payload?.html) {
     throw new Error('LibCal did not return booking form HTML.');
   }
@@ -505,12 +518,16 @@ async function submitBooking({ bookingContext, fieldValues }) {
   if (payload?.error) {
     throw new Error(payload.error);
   }
+  if (payload?.redirect) {
+    throw new Error(LIBCAL_AUTH_REQUIRED);
+  }
 
   return payload;
 }
 
 module.exports = {
   BOOKING_METHOD,
+  LIBCAL_AUTH_REQUIRED,
   createInitialBooking,
   createSessionFetch,
   LIBCAL_ALLSPACES_URL,

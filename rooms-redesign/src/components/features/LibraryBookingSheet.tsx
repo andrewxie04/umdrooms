@@ -104,6 +104,7 @@ type BookingStatus =
   | 'form-ready'
   | 'submitting'
   | 'success'
+  | 'auth-required'
   | 'error';
 
 interface BookingState {
@@ -122,6 +123,7 @@ interface BookingState {
   submitLabel: string;
   showForm: boolean;
   successHtml: string;
+  authMessage: string;
   error: string | null;
 }
 
@@ -141,6 +143,7 @@ const EMPTY_BOOKING: BookingState = {
   submitLabel: 'Submit Booking',
   showForm: false,
   successHtml: '',
+  authMessage: '',
   error: null,
 };
 
@@ -400,6 +403,19 @@ export function LibraryBookingSheet() {
         booking.startDateTime,
         booking.endDateTime
       );
+      // LibCal now requires SSO before serving the booking form — fall back
+      // to finishing the reservation on LibCal itself.
+      if (response?.authRequired) {
+        setBooking((prev) => ({
+          ...prev,
+          status: 'auth-required',
+          authMessage:
+            response?.message ||
+            'UMD LibCal now requires you to sign in before reserving. Continue on LibCal to finish booking.',
+          error: null,
+        }));
+        return;
+      }
       setBooking((prev) => ({
         ...prev,
         status: 'form-ready',
@@ -439,6 +455,18 @@ export function LibraryBookingSheet() {
     setBooking((prev) => ({ ...prev, status: 'submitting', error: null }));
     try {
       const response: any = await submitLibCalBooking(booking.bookingContext, booking.fieldValues);
+      if (response?.authRequired) {
+        playErrorHaptic();
+        setBooking((prev) => ({
+          ...prev,
+          status: 'auth-required',
+          authMessage:
+            response?.message ||
+            'UMD LibCal now requires you to sign in before reserving. Continue on LibCal to finish booking.',
+          error: null,
+        }));
+        return;
+      }
       playSuccessHaptic();
       setBooking((prev) => ({
         ...prev,
@@ -601,6 +629,28 @@ export function LibraryBookingSheet() {
           {booking.status === 'error' ? (
             <div className="mt-2 flex gap-2">
               <GhostButton onClick={() => setBooking(EMPTY_BOOKING)}>Cancel</GhostButton>
+            </div>
+          ) : null}
+
+          {booking.status === 'auth-required' ? (
+            <div className="space-y-3">
+              <p className="rounded-xl border border-status-opening-soon/40 bg-status-opening-soon/10 px-3 py-2.5 text-xs leading-relaxed text-foreground/90">
+                {booking.authMessage}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {bookingUrl ? (
+                  <PrimaryButton
+                    onClick={() => {
+                      playSelectionHaptic();
+                      window.open(bookingUrl, '_blank', 'noopener,noreferrer');
+                    }}
+                  >
+                    Reserve on LibCal
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </PrimaryButton>
+                ) : null}
+                <GhostButton onClick={() => setBooking(EMPTY_BOOKING)}>Cancel</GhostButton>
+              </div>
             </div>
           ) : null}
 
