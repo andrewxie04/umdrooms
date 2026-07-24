@@ -817,18 +817,9 @@ export default function CampusMap3D() {
 
       <MapLegendChip3D />
 
-      {/* Campus geometry is ODbL OpenStreetMap data — attribution required. On
-          desktop the chip shifts right to clear the 420px floating panel; on
-          mobile it lifts above the bottom sheet's 15% peek (AppShell
-          SNAP_PEEK = 0.15 -> 15dvh). */}
-      <a
-        href="https://www.openstreetmap.org/copyright"
-        target="_blank"
-        rel="noreferrer"
-        className="absolute bottom-3 left-2.5 z-10 rounded-md border border-border bg-card/80 px-2 py-1 text-[10px] text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground max-lg:bottom-[calc(15dvh+12px)] lg:left-[27.75rem]"
-      >
-        © OpenStreetMap contributors
-      </a>
+      {/* NOTE: OpenStreetMap attribution removed per request. Campus geometry
+          is still ODbL OSM data, which requires visible attribution — restore
+          the "© OpenStreetMap contributors" link here to stay compliant. */}
 
       {loadingStatus === 'idle' || loadingStatus === 'loading' ? (
         <div className="pointer-events-none absolute left-3 top-3 z-10">
