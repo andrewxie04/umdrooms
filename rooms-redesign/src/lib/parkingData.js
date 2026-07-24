@@ -157,7 +157,10 @@ export const PARKING_HIGHLIGHT_TARGETS = {
   'Lot U2': { areaIndices: [210, 413] },
   'Lot 9': { areaIndices: [7] },
   'Lot 11': { areaIndices: [9] },
-  'Lot 16': { areaIndices: [309] },
+  // Lot 16 is fragmented in OSM; 309 was a thin winding driveway sliver
+  // (~9% fill) that rendered as a big red arc. Point at the compact lot
+  // rectangles instead.
+  'Lot 16': { areaIndices: [71, 69, 443] },
 };
 
 export function getParkingReferenceDate(viewMode, selectedStartDateTime) {
