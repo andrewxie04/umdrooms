@@ -76,19 +76,19 @@ export const PARKING_RULES = {
       lat: 38.981826,
       lng: -76.945571,
       description: 'South campus near Van Munching Hall',
-      status: 'Paid 24/7 or requires specific permit',
+      status: 'Paid 24/7 · Specific permits only',
     },
     'Union Lane Garage': {
       lat: 38.98841,
       lng: -76.945847,
       description: 'Central campus next to Stamp Student Union',
-      status: 'Paid 24/7 or requires specific permit',
+      status: 'Paid 24/7 · Specific permits only',
     },
     'Regents Drive Garage': {
       lat: 38.989729,
       lng: -76.94146,
       description: 'Central campus, ground levels',
-      status: 'Paid 24/7 or requires specific permit',
+      status: 'Paid 24/7 · Specific permits only',
     },
   },
 };
