@@ -161,7 +161,7 @@ export const PARKING_HIGHLIGHT_TARGETS = {
   // OSM. The long arms are the west aisle strips (97/98) and the east winding
   // polygons (309/306); 310 + 69 close the south/SE bend and 71 the north
   // corner, so the highlight reads as the full U loop rather than two bars.
-  'Lot 16': { areaIndices: [309, 306, 310, 71, 69, 97, 98] },
+  'Lot 16': { areaIndices: [309, 306, 310, 97, 98] },
 };
 
 export function getParkingReferenceDate(viewMode, selectedStartDateTime) {
