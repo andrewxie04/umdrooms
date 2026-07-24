@@ -64,6 +64,12 @@ const PATCHES = [
     umdCode: 'EDU',
     height: 11,
   },
+  {
+    id: 9681971,
+    name: 'Biosciences Research Building',
+    umdCode: 'BRB',
+    height: 11,
+  },
 ];
 
 /** Buildings whose bake-assigned umdCode belongs to a different building. */
@@ -79,6 +85,11 @@ const CODE_ADDS = [
   // A. James Clark Hall = named angled-prow way/363185813 (which carries
   // AJC from the bake) + this unnamed main mass.
   { id: 'way/1499355421', addCode: 'AJC' },
+  // Buildings whose UMD code never got assigned by the bake (OSM name
+  // differs from the UMD name): tag them so highlight matches by code
+  // instead of relying on the nearest-centroid fallback.
+  { id: 'way/23546586', addCode: 'MTH' }, // William E. Kirwan Hall = Math
+  { id: 'way/23888747', addCode: 'PHY' }, // John S. Toll Physics
 ];
 
 /** OSM height tags that are LiDAR maxima (antennas/penthouses), not wall
