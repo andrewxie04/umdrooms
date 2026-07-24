@@ -15,6 +15,8 @@
 // the FIRST code match, so a stale/wrong holder shadows the real building):
 //   - way/24924848  Animal Science Service Building — drops 'ANS'
 //   - way/23543940  Cambridge Hall                  — drops 'CCC'
+// …and tags extra ways of multi-way buildings (way/1499355421 -> 'AJC') so
+// the whole complex highlights.
 //
 // (The Clarice has its own older patch: scripts/patch-clarice.mjs.)
 //
@@ -68,6 +70,15 @@ const PATCHES = [
 const CODE_FIXES = [
   { id: 'way/24924848', dropCode: 'ANS' }, // Animal Science Service Building
   { id: 'way/23543940', dropCode: 'CCC' }, // Cambridge Hall
+];
+
+/** One real building split across several OSM ways: tag the extra parts with
+ * the same umdCode so code-driven UI (the selection highlight collects ALL
+ * code matches) covers the whole complex. */
+const CODE_ADDS = [
+  // A. James Clark Hall = named angled-prow way/363185813 (which carries
+  // AJC from the bake) + this unnamed main mass.
+  { id: 'way/1499355421', addCode: 'AJC' },
 ];
 
 const QUERY = `[out:json][timeout:120];relation(id:${PATCHES.map((p) => p.id).join(',')});out geom;`;
@@ -147,6 +158,15 @@ for (const fix of CODE_FIXES) {
     delete b.umdCode;
     changed += 1;
     console.log(`  ~ ${fix.id}: dropped bogus umdCode ${fix.dropCode}`);
+  }
+}
+
+for (const add of CODE_ADDS) {
+  const b = data.buildings.find((x) => x.id === add.id);
+  if (b && b.umdCode !== add.addCode) {
+    b.umdCode = add.addCode;
+    changed += 1;
+    console.log(`  ~ ${add.id}: tagged umdCode ${add.addCode}`);
   }
 }
 

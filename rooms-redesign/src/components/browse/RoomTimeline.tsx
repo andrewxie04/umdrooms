@@ -29,6 +29,13 @@ function toPct(hour: number): number {
   return ((hour - DAY_START) / DAY_SPAN) * 100;
 }
 
+/** Computer-lab feeds emit hourly 50-minute slices (11:00–11:50, 12:00–12:50,
+ * …) — without merging, the bar renders comb-teeth stripes with fake
+ * 10-minute "free" gaps. Same-label neighbors within this gap fuse into one
+ * continuous block; distinct back-to-back classes stay separate (their gap is
+ * 0, but different labels keep their own hover titles). */
+const MERGE_GAP_HOURS = 0.25;
+
 function useBusyBlocks(room: RoomEntry, activeDateKey: string): HourBlock[] {
   return useMemo(() => {
     const events = Array.isArray(room.events) ? room.events : [];
@@ -49,7 +56,17 @@ function useBusyBlocks(room: RoomEntry, activeDateKey: string): HourBlock[] {
       });
     }
     blocks.sort((a, b) => a.start - b.start);
-    return blocks;
+    // Fuse same-label slices separated by the feed's artificial gaps.
+    const merged: HourBlock[] = [];
+    for (const block of blocks) {
+      const prev = merged[merged.length - 1];
+      if (prev && prev.label === block.label && block.start - prev.end <= MERGE_GAP_HOURS) {
+        prev.end = Math.max(prev.end, block.end);
+      } else {
+        merged.push({ ...block });
+      }
+    }
+    return merged;
   }, [room.events, activeDateKey]);
 }
 

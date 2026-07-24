@@ -683,13 +683,16 @@ export async function createCampusScene(
   };
 
   const setHighlight = (t: { lng: number; lat: number; code?: string }): void => {
-    // Match by UMD code first, then nearest footprint centroid to the point.
-    let match: CampusData['buildings'][number] | undefined;
+    // Match by UMD code first — ALL footprints carrying the code, since some
+    // buildings are mapped as several OSM ways (e.g. AJC = main mass + the
+    // angled prow) — then fall back to the nearest footprint centroid.
+    let matches: CampusData['buildings'][number][] = [];
     if (t.code) {
       const code = t.code.toUpperCase();
-      match = data.buildings.find((b) => b.umdCode?.toUpperCase() === code);
+      matches = data.buildings.filter((b) => b.umdCode?.toUpperCase() === code);
     }
-    if (!match) {
+    let match: CampusData['buildings'][number] | undefined;
+    if (matches.length === 0) {
       const p = proj.toLocal(t.lng, t.lat);
       let best = Infinity;
       for (const b of data.buildings) {
@@ -710,10 +713,15 @@ export async function createCampusScene(
         }
       }
       if (best > 80) match = undefined; // nothing plausibly at this point
+      if (match) matches = [match];
     }
     clearHighlight();
-    if (!match) return;
-    const geom = buildingSolidGeometry(match, proj);
+    if (matches.length === 0) return;
+    const parts = matches
+      .map((m) => buildingSolidGeometry(m, proj))
+      .filter((g): g is NonNullable<typeof g> => Boolean(g));
+    if (parts.length === 0) return;
+    const geom = parts.length === 1 ? parts[0] : mergeAll(parts);
     if (!geom) return;
     highlightMesh = new THREE.Mesh(geom, highlightMat);
     highlightMesh.renderOrder = 2; // over contact shadows, under the pulse ring
