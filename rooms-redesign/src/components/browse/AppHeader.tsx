@@ -1,7 +1,7 @@
 // browse/AppHeader.tsx — 'Rooms' wordmark + subtitle, dark-mode toggle,
 // legend button, and map overlay toggle chips.
 
-import { BookOpen, Car, GraduationCap, Info, Moon, Star, Sun, UtensilsCrossed } from 'lucide-react';
+import { BookOpen, Car, Clock, GraduationCap, Info, Moon, Star, Sun, UtensilsCrossed } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCampusStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -16,11 +16,31 @@ const OVERLAY_CHIPS: { key: OverlayKind; label: string; icon: typeof GraduationC
 
 export function AppHeader() {
   const darkMode = useCampusStore((s) => s.darkMode);
-  const toggleDarkMode = useCampusStore((s) => s.toggleDarkMode);
+  const darkModeAuto = useCampusStore((s) => s.darkModeAuto);
+  const setTimePreference = useCampusStore((s) => s.setTimePreference);
   const setLegendOpen = useCampusStore((s) => s.setLegendOpen);
   const setFavoritesOpen = useCampusStore((s) => s.setFavoritesOpen);
   const activeOverlays = useCampusStore((s) => s.activeOverlays);
   const toggleOverlay = useCampusStore((s) => s.toggleOverlay);
+
+  // 3-state time control: Realtime (follows the sun) -> Day -> Night ->
+  // Realtime. Manual Day/Night never sticks forever — one more click always
+  // brings realtime back without a refresh.
+  const timeState: 'auto' | 'day' | 'night' = darkModeAuto
+    ? 'auto'
+    : darkMode
+      ? 'night'
+      : 'day';
+  const cycleTimePreference = () => {
+    setTimePreference(timeState === 'auto' ? 'day' : timeState === 'day' ? 'night' : 'auto');
+  };
+  const timeLabel =
+    timeState === 'auto'
+      ? 'Realtime (follows the sun) — switch to Day'
+      : timeState === 'day'
+        ? 'Day (manual) — switch to Night'
+        : 'Night (manual) — switch back to Realtime';
+  const TimeIcon = timeState === 'auto' ? Clock : timeState === 'day' ? Sun : Moon;
 
   return (
     <header className="shrink-0 border-b border-border/60 px-4 pb-3 pt-4">
@@ -54,11 +74,20 @@ export function AppHeader() {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={toggleDarkMode}
-            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            onClick={cycleTimePreference}
+            aria-label={timeLabel}
+            title={timeLabel}
+            data-time-state={timeState}
+            className="relative"
           >
-            {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            <TimeIcon className="size-4" />
+            {timeState === 'auto' && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-emerald-500"
+                title="Realtime sync on"
+              />
+            )}
           </Button>
         </div>
       </div>

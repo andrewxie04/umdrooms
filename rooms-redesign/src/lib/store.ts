@@ -93,6 +93,11 @@ export interface CampusStore {
   /** Solar-cycle hook: sets darkMode WITHOUT persisting it and without
    * clearing darkModeAuto. Only the manual toggleDarkMode() persists. */
   setDarkModeAuto(dark: boolean): void;
+  /** 3-state time preference: 'auto' follows the real solar cycle (clears any
+   * manual override; the sunThemeTimer keeps darkMode synced to the sun);
+   * 'day'/'night' are manual overrides that persist darkMode and stop the
+   * solar sync until the user returns to 'auto'. */
+  setTimePreference(pref: 'auto' | 'day' | 'night'): void;
   toggleFavorite(key: string): void;
   requestFlyTo(t: MapFlyTarget): void;
   clearFlyTo(): void;
@@ -956,6 +961,19 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
   setDarkModeAuto: (dark) => {
     if (get().darkMode === dark) return;
     set({ darkMode: dark }); // solar-driven; not persisted, keeps darkModeAuto
+  },
+
+  setTimePreference: (pref) => {
+    if (pref === 'auto') {
+      // Back to realtime: clear the manual override. darkMode itself is left
+      // alone — the sunThemeTimer / immediate syncThemeFromSun snaps it to
+      // the real sun within a frame, so there is no theme flash.
+      if (!get().darkModeAuto) set({ darkModeAuto: true });
+      return;
+    }
+    const dark = pref === 'night';
+    safeStorageSet('darkMode', JSON.stringify(dark));
+    set({ darkMode: dark, darkModeAuto: false }); // manual override
   },
 
   toggleFavorite: (key) => {

@@ -14,6 +14,7 @@ import { useEffect } from 'react';
 import CampusMap3D from './components/map3d/CampusMap3D';
 import { AppShell, PanelRouter } from './components/shell';
 import { BootLoader } from './components/features';
+import EasterEggs from './components/features/EasterEggs';
 import { useCampusStore } from './lib/store';
 import { useDarkModeSync } from './lib/useDarkModeSync';
 
@@ -78,6 +79,7 @@ export default function App() {
         <PanelRouter />
       </AppShell>
       <BootLoader />
+      <EasterEggs />
     </div>
   );
 }

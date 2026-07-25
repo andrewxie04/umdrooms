@@ -1,16 +1,17 @@
 // src/components/map3d/scene/geometry.ts
 //
 // Builds the static campus geometry from campus-data.json. Everything is
-// merged per category (ground / buildings / roads / areas+waterways / trees /
-// contact shadows / lamp poles / lamp heads / shrubs) so the whole campus
-// renders in ~10 draw calls. Local frame:
+// merged per category (ground / buildings / roads / areas / water+waterways /
+// trees / contact shadows / lamp poles / lamp heads / shrubs) so the whole
+// campus renders in ~10 draw calls. Local frame:
 // x = east, z = south, y = up, ground at y = 0 (see projection.ts).
 //
-// Vertical stacking uses decimeter steps (grass .10 < sport .12 < water/
-// fountain/pool .14 < waterway ribbons .15 < parking .16 < contact shadows
-// .18 < path .2 < service .3 < road .4): visually identical to the contract's
-// centimeter steps but robust against depth-buffer precision at 4km viewing
-// distances.
+// Vertical stacking uses decimeter steps (grass .10 < sport .12 < water stack
+// .136–.154 < parking .16 < contact shadows .18 < path .2 < service .3 <
+// road .4): visually identical to the contract's centimeter steps but robust
+// against depth-buffer precision at 4km viewing distances. Water/fountain/
+// pool polygons live in their OWN merged mesh (see buildWater) so scene.ts
+// can give them a dedicated glint material.
 
 import * as THREE from 'three';
 import {
@@ -41,7 +42,7 @@ export interface CampusGeometries {
   contactShadows: THREE.BufferGeometry;
   /** Merged lamp poles (thin dark cylinders), bases at y = 0. Plain material. */
   lampPoles: THREE.BufferGeometry;
-  /** Merged lamp head spheres at ~3.3m — scene.ts drives the warm glow. */
+  /** Merged lamp head spheres at ~5.6m — scene.ts drives the warm glow. */
   lampHeads: THREE.BufferGeometry;
   /** Merged ground-glow discs under every lamp (flat circles at LAMP_POOL_Y);
    * scene.ts maps a radial-gradient texture onto them and drives opacity. */
@@ -49,6 +50,11 @@ export interface CampusGeometries {
   /** Merged lit-window facade quads (deterministic lit subset only, positions
    * only — no normals/uv/color); scene.ts drives the warm glow opacity. */
   windows: THREE.BufferGeometry;
+  /** Merged water/fountain/pool polygons + waterway ribbons, pulled out of
+   * the flat areas mesh so scene.ts can use a dedicated MeshPhongMaterial
+   * (soft sun/moon glint). Baked vertex colors: teal shore -> deep-blue
+   * middle gradient stack + a darker shore-outline ring. */
+  water: THREE.BufferGeometry;
   /** Merged squashed-icosahedron shrubs, vertex-colored muted greens. */
   shrubs: THREE.BufferGeometry;
   /** Merged low-poly parked cars in the parking lots (see cars.ts) —
@@ -65,7 +71,7 @@ const AREA_Y: Record<AreaKind, number> = {
   pool: 0.14,
   parking: 0.16,
 };
-const WATERWAY_Y = 0.15; // above water-area polygons (.14), below parking (.16)
+const WATERWAY_Y = 0.15; // top of the water stack (.134–.149), below parking (.16)
 const CONTACT_SHADOW_Y = 0.18; // above parking (.16), below paths (.20)
 const ROAD_Y: Record<RoadKind, number> = { path: 0.2, service: 0.3, road: 0.4 };
 const MIN_ROAD_WIDTH = 2.4; // meters — keeps paths legible from 2km out
@@ -349,7 +355,8 @@ function buildRoads(data: CampusData, proj: Projection): THREE.BufferGeometry {
 // ---------------------------------------------------------------------------
 // Waterways — river/canal/stream/ditch/drain ribbons in the shared water blue
 // at WATERWAY_Y (Paint Branch river along the east edge is width 10). Merged
-// into the `areas` mesh by buildAreas, so no scene.ts change is needed.
+// into the dedicated `water` mesh by buildWater so rivers share the glint
+// material — no scene.ts change beyond the one water mesh.
 // ---------------------------------------------------------------------------
 
 function buildWaterways(data: CampusData, proj: Projection): THREE.BufferGeometry {
@@ -375,13 +382,15 @@ function buildWaterways(data: CampusData, proj: Projection): THREE.BufferGeometr
 }
 
 // ---------------------------------------------------------------------------
-// Areas — flat ShapeGeometry polygons, kind-tinted, y-staggered. Waterway
-// ribbons ride along in the same merged mesh (same flat vertex-colored look).
+// Areas — flat ShapeGeometry polygons, kind-tinted, y-staggered. Water-kind
+// polygons (water/fountain/pool) are EXCLUDED here — they get their own
+// merged mesh + glint material (see buildWater below).
 // ---------------------------------------------------------------------------
 
 function buildAreas(data: CampusData, proj: Projection): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   for (const area of data.areas) {
+    if (area.kind === 'water' || area.kind === 'fountain' || area.kind === 'pool') continue;
     if (!area.polygon || area.polygon.length < 3) continue;
     const pts = ringToShapePoints(area.polygon, proj);
     if (pts.length < 3) continue;
@@ -390,20 +399,111 @@ function buildAreas(data: CampusData, proj: Projection): THREE.BufferGeometry {
     geom.translate(0, AREA_Y[area.kind] ?? AREA_Y.grass, 0);
     parts.push(withColor(geom, COLORS[area.kind] ?? COLORS.grass));
   }
+  return mergeAll(parts);
+}
+
+// ---------------------------------------------------------------------------
+// Water — water/fountain/pool polygons pulled OUT of the flat areas mesh into
+// their own merged geometry so scene.ts can give them a dedicated
+// MeshPhongMaterial (moderate shininess -> soft sun glint by day, cool moon
+// glint at night; day/night comes free from the palette-driven lights).
+//
+// Crafted-but-stylized recipe per polygon:
+//   1. Gradient stack: WATER_LAYERS concentric copies scaled about the
+//      polygon centroid (a cheap chamfer/inset 'depth' approximation), each
+//      inner copy lifted one 3mm step so it draws cleanly over the layer
+//      beneath. Baked vertex colors lerp light teal (shoreline) -> deeper
+//      blue (middle).
+//   2. Shore outline: a thin darker ring hugging the polygon edge (a flat
+//      quad strip between the edge and a ~1.4m-inset copy), selling the
+//      waterline against the grass.
+// Waterway ribbons join this mesh too, so Paint Branch picks up the same
+// glint. All layers sit between sport (.12) and parking (.16), 3mm apart —
+// depth-safe at 4km viewing distances.
+// ---------------------------------------------------------------------------
+
+const WATER_BASE_Y = 0.134; // above sport (.12), clear of grass (.10)
+const WATER_LAYER_STEP = 0.003; // per-gradient-layer lift (mm-scale, depth-safe)
+const WATER_LAYERS = 5; // concentric inset copies per polygon
+const WATER_INSET_FRACTION = 0.17; // each layer scales in by this much
+const WATER_SHORE_WIDTH = 1.4; // meters — darker outline ring along the edge
+const WATER_COLORS = {
+  shore: new THREE.Color(0x9ec9d8), // light teal at the shoreline
+  deep: new THREE.Color(0x4c83b2), // deeper blue toward the middle
+  ring: new THREE.Color(0x3f6e92), // darker shore outline
+};
+
+function buildWater(data: CampusData, proj: Projection): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const area of data.areas) {
+    if (area.kind !== 'water' && area.kind !== 'fountain' && area.kind !== 'pool') continue;
+    if (!area.polygon || area.polygon.length < 3) continue;
+    const pts = ringToShapePoints(area.polygon, proj);
+    if (pts.length < 3) continue;
+    const { cx, cy } = centroidOf(pts);
+
+    // Gradient stack: outermost copy = full polygon at the base tier, each
+    // inner copy scaled toward the centroid and lifted one step.
+    for (let i = 0; i < WATER_LAYERS; i++) {
+      const f = 1 - i * WATER_INSET_FRACTION; // 1.0, .83, .66, .49, .32
+      const color = WATER_COLORS.shore
+        .clone()
+        .lerp(WATER_COLORS.deep, i / (WATER_LAYERS - 1));
+      const scaled =
+        i === 0
+          ? pts
+          : pts.map((p) => new THREE.Vector2(cx + (p.x - cx) * f, cy + (p.y - cy) * f));
+      const geom = new THREE.ShapeGeometry(new THREE.Shape(scaled), 1);
+      geom.rotateX(-Math.PI / 2);
+      geom.translate(0, WATER_BASE_Y + i * WATER_LAYER_STEP, 0);
+      parts.push(withColor(geom, color));
+    }
+
+    // Shore outline ring: flat quad strip between the polygon edge and an
+    // inset copy (fixed ~1.4m inward, clamped for tiny fountain basins).
+    // ringToShapePoints guarantees CCW, so (outer_a, outer_b, inner_b) /
+    // (outer_a, inner_b, inner_a) gives +y normals after the shape->world
+    // z-flip (same winding the ribbon builder relies on).
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const colors: number[] = [];
+    const y = WATER_BASE_Y + WATER_LAYERS * WATER_LAYER_STEP;
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % n];
+      const da = Math.hypot(a.x - cx, a.y - cy) || 1;
+      const db = Math.hypot(b.x - cx, b.y - cy) || 1;
+      const insetA = Math.min(WATER_SHORE_WIDTH, da * 0.4);
+      const insetB = Math.min(WATER_SHORE_WIDTH, db * 0.4);
+      const iax = a.x + ((cx - a.x) / da) * insetA;
+      const iaz = -(a.y + ((cy - a.y) / da) * insetA); // shape y = north -> world z = -north
+      const ibx = b.x + ((cx - b.x) / db) * insetB;
+      const ibz = -(b.y + ((cy - b.y) / db) * insetB);
+      pushTri(positions, normals, colors, y, WATER_COLORS.ring, a.x, -a.y, b.x, -b.y, ibx, ibz);
+      pushTri(positions, normals, colors, y, WATER_COLORS.ring, a.x, -a.y, ibx, ibz, iax, iaz);
+    }
+    parts.push(buildRibbonGeometry(positions, normals, colors));
+  }
+  // Waterway ribbons ride along so rivers share the same glint material.
   const waterways = buildWaterways(data, proj);
   if ((waterways.getAttribute('position')?.count ?? 0) > 0) parts.push(waterways);
   return mergeAll(parts);
 }
 
 // ---------------------------------------------------------------------------
-// Trees — tiny two-cone low-poly pines (only ~24, decorative).
+// Trees — two-cone low-poly pines (only ~24, decorative). Scaled ~1.8x up
+// from the original tiny pines so canopies read at whole-campus zoom; the
+// deterministic per-tree hash jitter is preserved.
 // ---------------------------------------------------------------------------
+
+const TREE_SCALE = 1.8; // campus-wide enlargement (canopy radius AND height)
 
 function buildTrees(data: CampusData, proj: Projection): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   data.trees.forEach(([lng, lat], i) => {
     const p = proj.toLocal(lng, lat);
-    const s = 0.85 + 0.3 * hash01(`tree:${i}`);
+    const s = (0.85 + 0.3 * hash01(`tree:${i}`)) * TREE_SCALE;
     const lower = new THREE.ConeGeometry(2.6 * s, 5.5 * s, 6);
     lower.translate(p.x, 2.75 * s, p.z);
     parts.push(withColor(lower, COLORS.tree));
@@ -429,11 +529,11 @@ function buildTrees(data: CampusData, proj: Projection): THREE.BufferGeometry {
 const LAMP_SPACING = 28; // meters between samples along a line (denser for a warmer night)
 const LAMP_DEDUPE = 12; // meters — min distance between any two lamps
 const LAMP_CAP = 820;
-const LAMP_POLE_HEIGHT = 4.3; // ~1.35x — reads properly at campus zoom
-const LAMP_HEAD_Y = 4.42; // sphere center — overlaps the pole top slightly
+const LAMP_POLE_HEIGHT = 5.5; // second enlargement — reads clearly at campus zoom
+const LAMP_HEAD_Y = 5.62; // sphere center — overlaps the pole top slightly
 const LAMP_EDGE_OFFSET = 0.9; // meters beyond the ribbon half-width
 /** Warm ground-glow pool under each lamp (scene.ts textures + fades it). */
-const LAMP_POOL_RADIUS = 5.4;
+const LAMP_POOL_RADIUS = 6.5;
 const LAMP_POOL_Y = 0.45; // above roads (.4) so the pool never clips pavement
 
 interface LampPoint {
@@ -531,10 +631,10 @@ function buildLamps(data: CampusData, proj: Projection): LampGeometries {
   const poleParts: THREE.BufferGeometry[] = [];
   const headParts: THREE.BufferGeometry[] = [];
   for (const p of accepted) {
-    const pole = new THREE.CylinderGeometry(0.07, 0.11, LAMP_POLE_HEIGHT, 5);
+    const pole = new THREE.CylinderGeometry(0.09, 0.14, LAMP_POLE_HEIGHT, 5);
     pole.translate(p.x, LAMP_POLE_HEIGHT / 2, p.z);
     poleParts.push(pole);
-    const head = new THREE.SphereGeometry(0.32, 6, 5);
+    const head = new THREE.SphereGeometry(0.45, 6, 5);
     head.translate(p.x, LAMP_HEAD_Y, p.z);
     headParts.push(head);
   }
@@ -810,6 +910,7 @@ export function buildSceneGeometries(data: CampusData, proj: Projection): Campus
     buildings: buildBuildings(data, proj),
     roads: buildRoads(data, proj),
     areas: buildAreas(data, proj),
+    water: buildWater(data, proj),
     trees: buildTrees(data, proj),
     contactShadows: buildContactShadows(data, proj),
     lampPoles: lamps.poles,

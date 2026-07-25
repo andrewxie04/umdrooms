@@ -323,3 +323,103 @@ export function buildParkedCars(data: CampusData, proj: Projection): THREE.Buffe
 export function buildDrivingCarGeometry(): THREE.BufferGeometry {
   return makeCarGeometry(new THREE.Color(0xffffff));
 }
+
+// -- easter-egg geometry builders -------------------------------------------------
+// Appended for the EasterEggs module (eastereggs.ts): a Shuttle-UM bus and a
+// low-poly driving turtle. Same conventions as the driving car above — merged
+// vertex-colored geometry, base at y = 0, forward = +z.
+
+/**
+ * Shuttle-UM bus: ~11 x 2.5 x 3 m white box body with a blue beltline stripe
+ * and a dark glass band, forward = +z. Rendered as a plain Mesh (single bus).
+ */
+export function buildBusGeometry(): THREE.BufferGeometry {
+  const white = new THREE.Color(0xf2f3f4);
+  const blue = new THREE.Color(0x2456a6); // Shuttle-UM blue
+  const glass = new THREE.Color(0x23272b);
+  const dark = new THREE.Color(0x3a3d40); // bumper skirt
+
+  const parts: THREE.BufferGeometry[] = [];
+  const L = 11;
+  const W = 2.5;
+  const H = 3.0;
+
+  // Main body slab.
+  const body = new THREE.BoxGeometry(W, H - 0.9, L);
+  body.translate(0, 0.4 + (H - 0.9) / 2, 0);
+  parts.push(withColor(body, white));
+
+  // Blue beltline stripe (thin proud shell around the lower body).
+  const stripe = new THREE.BoxGeometry(W + 0.04, 0.5, L + 0.04);
+  stripe.translate(0, 1.0, 0);
+  parts.push(withColor(stripe, blue));
+
+  // Dark glass band under the roof line.
+  const windows = new THREE.BoxGeometry(W + 0.04, 0.8, L * 0.82);
+  windows.translate(0, H - 0.75, -0.2);
+  parts.push(withColor(windows, glass));
+
+  // Windshield.
+  const windshield = new THREE.BoxGeometry(W - 0.3, 0.9, 0.1);
+  windshield.translate(0, H - 0.85, L / 2 - 0.02);
+  parts.push(withColor(windshield, glass));
+
+  // Bumper skirt.
+  const skirt = new THREE.BoxGeometry(W + 0.02, 0.4, L + 0.02);
+  skirt.translate(0, 0.2, 0);
+  parts.push(withColor(skirt, dark));
+
+  return mergeGeometries(parts, false) ?? new THREE.BufferGeometry();
+}
+
+/**
+ * Low-poly turtle — the Turtle Mode stand-in for the driving cars. Dome shell
+ * + head + tail nub + four stubby legs, dark greens, base at y = 0, forward =
+ * +z, footprint roughly car-sized (~2.4 x 3.6 m) so the existing car matrices
+ * read correctly. All vertex colors are fully saturated so an all-white
+ * per-instance tint (set while turtle mode is active) shows them as-is.
+ */
+export function buildDrivingTurtleGeometry(): THREE.BufferGeometry {
+  const shell = new THREE.Color(0x2f4f2a); // dark moss green
+  const shellRim = new THREE.Color(0x243d20);
+  const skin = new THREE.Color(0x4a6b3a); // lighter olive
+
+  const parts: THREE.BufferGeometry[] = [];
+
+  // Dome shell: sphere squashed flat, lower half clipped by the ground.
+  const dome = new THREE.SphereGeometry(1.35, 10, 7);
+  dome.scale(0.95, 0.62, 1.3);
+  dome.translate(0, 0.55, -0.2);
+  parts.push(withColor(dome, shell));
+
+  // Shell rim skirt.
+  const rim = new THREE.CylinderGeometry(1.42, 1.5, 0.28, 12);
+  rim.scale(0.95, 1, 1.3);
+  rim.translate(0, 0.42, -0.2);
+  parts.push(withColor(rim, shellRim));
+
+  // Head poking forward.
+  const head = new THREE.SphereGeometry(0.42, 8, 6);
+  head.translate(0, 0.55, 1.85);
+  parts.push(withColor(head, skin));
+
+  // Tail nub.
+  const tail = new THREE.ConeGeometry(0.18, 0.5, 6);
+  tail.rotateX(Math.PI / 2);
+  tail.translate(0, 0.35, -2.05);
+  parts.push(withColor(tail, skin));
+
+  // Four stubby legs.
+  for (const [lx, lz] of [
+    [-0.95, 0.95],
+    [0.95, 0.95],
+    [-0.95, -1.35],
+    [0.95, -1.35],
+  ] as const) {
+    const leg = new THREE.BoxGeometry(0.45, 0.4, 0.6);
+    leg.translate(lx, 0.2, lz);
+    parts.push(withColor(leg, skin));
+  }
+
+  return mergeGeometries(parts, false) ?? new THREE.BufferGeometry();
+}

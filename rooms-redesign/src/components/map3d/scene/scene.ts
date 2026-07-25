@@ -16,6 +16,7 @@ import type { CameraPose } from './controls';
 import { buildSceneGeometries, buildingSolidGeometry } from './geometry';
 import { extrudeFootprint, mergeAll, outsetRing, ringToShapePoints } from './geom-utils';
 import { buildDrivingCarGeometry } from './cars';
+import { initEasterEggs } from './eastereggs';
 import { PaletteController } from './palette';
 import { createProjection } from './projection';
 import type { CampusData, CampusSceneHandle } from './types';
@@ -69,7 +70,7 @@ const LAMP_GLOW_OFF_ELEV = 6;
 /** …and reach full warm glow at/below this one (just past golden hour). */
 const LAMP_GLOW_FULL_ELEV = -3;
 /** Peak emissiveIntensity for the #ffd9a0 head material at night. */
-const LAMP_GLOW_MAX = 1.85;
+const LAMP_GLOW_MAX = 2.6;
 /** Peak opacity for the warm ground-glow pools under each lamp at night. */
 const LAMP_POOL_MAX_OPACITY = 0.3;
 /** Min visible change before the material is touched (dirty-check friendly). */
@@ -124,6 +125,9 @@ export interface CampusSceneHandleV2 extends CampusSceneHandle {
    * meters, phi = polar angle from +y (radians), theta = bearing of the view
    * direction (radians, clockwise from north). */
   getPose(): { x: number; z: number; distance: number; phi: number; theta: number };
+  /** Easter egg: Turtle Mode — swaps the driving fleet to crawling turtles
+   * for 60s (auto-restores). Optional so older handles stay assignable. */
+  setTurtleMode?(active: boolean): void;
 }
 
 /** Compact NOAA-style solar approximation (accurate to ~1 arcminute for this
@@ -260,9 +264,21 @@ export async function createCampusScene(
   roads.receiveShadow = true;
   const areas = new THREE.Mesh(geoms.areas, flatMat);
   areas.receiveShadow = true;
+  // Water: dedicated merged mesh (water/fountain/pool polygons + waterway
+  // ribbons, vertex-colored shore->deep gradient + shore ring baked in
+  // geometry.ts). A subtle MeshPhongMaterial gives a soft specular glint from
+  // the palette-driven sun by day and the cool moonlight at night — no
+  // shaders, no per-frame work.
+  const waterMat = new THREE.MeshPhongMaterial({
+    vertexColors: true,
+    shininess: 55, // moderate — a soft broad glint, not a hard sparkle
+    specular: new THREE.Color(0xd8e4ec), // pale neutral glint (warm sun / cool moon tint it)
+  });
+  const water = new THREE.Mesh(geoms.water, waterMat);
+  water.receiveShadow = true;
   const trees = new THREE.Mesh(geoms.trees, flatMat);
   trees.castShadow = true;
-  scene.add(ground, buildings, roads, areas, trees);
+  scene.add(ground, buildings, roads, areas, water, trees);
 
   // Campus lamps: ONE merged dark-pole mesh + ONE merged head mesh. The head
   // material carries the warm #ffd9a0 glow — its emissiveIntensity is driven
@@ -992,6 +1008,30 @@ export async function createCampusScene(
   resizeObserver.observe(container);
   applySize();
 
+  // -- easter eggs (hook region) ---------------------------------------------------
+  // Self-contained module (scene/eastereggs.ts): Testudo statue + click
+  // raycast, Lake Artemesia duck, Shuttle-UM bus, turtle mode, 2AM stillness.
+  // Initialized after every dependency above exists; updated in the render
+  // loop AFTER updateTimeOfDay; disposed with the scene.
+  const easterEggs = initEasterEggs({
+    scene,
+    camera,
+    canvas,
+    proj,
+    data,
+    carBodies,
+    carHeadlights,
+    headlightMat,
+    driveCars,
+    windowMat,
+    lampHeadMat,
+    lampPoolMat,
+    initialTimeMode: timeMode,
+    markDirty: () => {
+      needsRender = true;
+    },
+  });
+
   // -- render loop ------------------------------------------------------------------------
   let disposed = false;
   let rafId = 0;
@@ -1014,6 +1054,9 @@ export async function createCampusScene(
     if (updateTimeOfDay(dt)) needsRender = true;
     // Driving cars: per-frame matrix updates; mark dirty while anything moves.
     if (updateDrivingCars(dt, nowMs / 1000)) needsRender = true;
+    // Easter eggs: runs after updateTimeOfDay so 2AM dimming post-multiplies
+    // the freshly-written lamp/window values.
+    if (easterEggs.update(dt)) needsRender = true;
 
     if (pulse.active) {
       const phase = ((nowMs - pulse.startMs) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
@@ -1151,6 +1194,9 @@ export async function createCampusScene(
       resizeObserver.disconnect();
       controls.dispose();
       frameCallbacks.clear();
+      easterEggs.dispose(); // restores car geometry/count before disposal below
+      delete (window as unknown as Record<string, unknown>).__campusScene;
+      delete (window as unknown as Record<string, unknown>).__campusEggs;
       // InstancedMesh instance buffers aren't covered by geometry/material
       // disposal in the traverse below.
       if (carBodies) carBodies.dispose();
@@ -1168,6 +1214,20 @@ export async function createCampusScene(
       renderer.forceContextLoss();
       canvas.remove();
     },
+  };
+
+  // -- easter-egg handle wiring ---------------------------------------------------
+  // Wrap (never edit) the time-mode setter so the eggs track the active mode
+  // without touching the time-mode region; expose turtle mode + a dev handle.
+  const baseSetTimeMode = handle.setTimeMode.bind(handle);
+  handle.setTimeMode = (mode: SceneTimeMode): void => {
+    baseSetTimeMode(mode);
+    easterEggs.setTimeMode(mode);
+  };
+  handle.setTurtleMode = easterEggs.setTurtleMode;
+  (window as unknown as Record<string, unknown>).__campusScene = handle;
+  (window as unknown as Record<string, unknown>).__campusEggs = {
+    debug: easterEggs.debug,
   };
 
   rafId = requestAnimationFrame(renderFrame);

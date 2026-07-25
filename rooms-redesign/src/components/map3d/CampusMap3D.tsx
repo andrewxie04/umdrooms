@@ -531,6 +531,21 @@ export default function CampusMap3D() {
     };
     const sunThemeTimer = window.setInterval(syncThemeFromSun, 15000);
 
+    /** Long-idle / backgrounded tabs pause rAF and timers, so the sun the
+     * scene last computed can be hours stale when the user returns. On
+     * visibility regain, force an immediate solar resync (setTimeMode('auto')
+     * recomputes realSun now) and snap the UI theme too. */
+    const onVisibilityResync = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      const s = useCampusStore.getState();
+      if (!s.darkModeAuto) return;
+      handleRef.current?.setTimeMode('auto'); // idempotent realtime resync
+      syncThemeFromSun();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityResync);
+    }
+
     const applySelection = (fly: boolean) => {
       const s = useCampusStore.getState();
       const h = handleRef.current;
@@ -635,6 +650,9 @@ export default function CampusMap3D() {
       }
       if (s.darkMode !== prev.darkMode || s.darkModeAuto !== prev.darkModeAuto) {
         syncTimeMode();
+        // Returning to Realtime: snap the UI theme to the real sun right away
+        // instead of waiting up to 15s for the sunThemeTimer.
+        if (s.darkModeAuto && !prev.darkModeAuto) syncThemeFromSun();
       }
       if (s.flyTo && s.flyTo !== prev.flyTo) {
         const t = s.flyTo;
@@ -703,6 +721,9 @@ export default function CampusMap3D() {
       disposed = true;
       unsubscribe();
       window.clearInterval(sunThemeTimer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityResync);
+      }
       frameOffRef.current?.();
       frameOffRef.current = null;
       if (watchIdRef.current != null && typeof navigator !== 'undefined' && navigator.geolocation) {
