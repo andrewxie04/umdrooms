@@ -577,6 +577,13 @@ const LAMP_POOL_Y = 0.45; // above roads (.4) so the pool never clips pavement
  * unison (a power cut, not a dying bulb). Poles still merge with the rest;
  * only the head and its ground pool are separated. */
 const LAMP_FLICKER_COUNT = 5;
+/** Restrict the stutterers to lamps near the campus core. `accepted` is sorted
+ * by HASH, so simply striding it picks spatially random lamps — the first cut
+ * put all five 660-1340m from the default view, i.e. permanently off-screen.
+ * Mirrors HOME_VIEW in scene.ts (kept local to avoid an import cycle). */
+const LAMP_FLICKER_CORE_LNG = -76.94496;
+const LAMP_FLICKER_CORE_LAT = 38.9864;
+const LAMP_FLICKER_CORE_RADIUS = 420; // meters — comfortably inside the default view
 
 interface LampPoint {
   x: number;
@@ -676,14 +683,25 @@ function buildLamps(data: CampusData, proj: Projection): LampGeometries {
   accepted.sort((a, b) => a.h - b.h);
   if (accepted.length > LAMP_CAP) accepted.length = LAMP_CAP;
 
-  // Pick the stutterers by hash, spread across the accepted list rather than
-  // clustered (accepted is already in hash order, so stride evenly through it).
+  // Pick the stutterers from lamps near the campus core, then stride the
+  // candidate list (still hash-ordered, so the five land in different places
+  // rather than side by side on one path).
   const flickerIdx = new Set<number>();
-  if (accepted.length > LAMP_FLICKER_COUNT) {
-    const stride = Math.floor(accepted.length / LAMP_FLICKER_COUNT);
-    for (let i = 0; i < LAMP_FLICKER_COUNT; i++) {
-      const base = i * stride;
-      flickerIdx.add(base + (Math.floor(hash01(`lampflicker:${i}`) * stride) % stride));
+  {
+    const core = proj.toLocal(LAMP_FLICKER_CORE_LNG, LAMP_FLICKER_CORE_LAT);
+    const candidates: number[] = [];
+    accepted.forEach((p, i) => {
+      if (Math.hypot(p.x - core.x, p.z - core.z) < LAMP_FLICKER_CORE_RADIUS) candidates.push(i);
+    });
+    // Fall back to the whole campus if the core somehow has too few lamps.
+    const poolIdx =
+      candidates.length >= LAMP_FLICKER_COUNT ? candidates : accepted.map((_, i) => i);
+    if (poolIdx.length >= LAMP_FLICKER_COUNT) {
+      const stride = Math.floor(poolIdx.length / LAMP_FLICKER_COUNT);
+      for (let i = 0; i < LAMP_FLICKER_COUNT; i++) {
+        const offset = Math.floor(hash01(`lampflicker:${i}`) * stride) % stride;
+        flickerIdx.add(poolIdx[i * stride + offset]);
+      }
     }
   }
 
