@@ -146,7 +146,18 @@ const BLOOM_LAMBDA = 0.5; // ease rate, matches the 2AM feel
 
 // -- 8. SQUIRRELS -----------------------------------------------------------------
 const SQUIRREL_COUNT = 16;
-const SQUIRREL_SCALE = 1.6; // stylized upscale, same reasoning as the cars
+/** Distance-compensated scale. A fixed upscale cannot work here: the source
+ * geometry is ~1m tall, and at the default camera distance (~1557m) that is
+ * 1.1 SCREEN PIXELS — invisible. Sizing them to read at that range instead
+ * (~8m) makes them taller than a house when you zoom in. So the scale tracks
+ * camera distance and clamps at both ends: natural up close, ~6px through the
+ * mid range, capped far out so they never become landmarks. Reference: a
+ * driving car reads ~5.5px at the default view. */
+const SQUIRREL_SCALE_PER_METER = 0.0055;
+const SQUIRREL_SCALE_MIN = 2.0; // ~18px at MIN_DISTANCE, still squirrel-shaped
+const SQUIRREL_SCALE_MAX = 8.0; // ~5.6px at HOME_VIEW, on par with the cars
+/** Rescale/redraw threshold on camera distance (meters). */
+const SQUIRREL_CAM_EPS = 2;
 /** Dart-and-freeze: they hold still far longer than they move. */
 const SQUIRREL_FREEZE_MIN = 2.2;
 const SQUIRREL_FREEZE_MAX = 7.0;
@@ -178,6 +189,10 @@ function hash01(id: string): number {
 const scratchV3 = new THREE.Vector3();
 const scratchQuat = new THREE.Quaternion();
 const scratchScale = new THREE.Vector3(1, 1, 1);
+/** Squirrels rescale per frame with camera distance, so they get their own
+ * scratch — sharing scratchScale would resize the bus (which composes with
+ * whatever the vector last held). */
+const scratchSquirrelScale = new THREE.Vector3(1, 1, 1);
 const scratchM4 = new THREE.Matrix4();
 const scratchYAxis = new THREE.Vector3(0, 1, 0);
 const scratchNdc = new THREE.Vector2();
@@ -706,8 +721,9 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
     bus = new THREE.Mesh(busGeom, new THREE.MeshLambertMaterial({ vertexColors: true }));
     bus.castShadow = true;
     // Stylized 1.6x (11m -> ~17.6m) so the bus is unmissable at campus zoom.
-    // scratchScale is module scratch used ONLY for the bus matrix compose.
-    scratchScale.set(1.6, 1.6, 1.6);
+    // Re-applied every frame in the update below rather than set once here:
+    // scratchScale is shared module scratch, and trusting it to keep this
+    // value between frames is how the bus quietly inherits someone else's.
     scene.add(bus);
     disposables.push(bus.geometry, bus.material as THREE.Material);
     busS = hash01('bus:s') * busRoute.length;
@@ -1052,9 +1068,18 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
     s.targetZ = s.homeZ + Math.sin(a) * r;
   };
 
+  let lastSquirrelCamY = -1;
   const updateSquirrels = (dt: number, nowSec: number): boolean => {
     if (!squirrelMesh || squirrels.length === 0) return false;
     let moved = false;
+    // Zooming rescales them even when nobody is running, so treat a camera
+    // move as a reason to redraw. Height is a good stand-in for orbit
+    // distance and needs no reach into the controls.
+    const camY = camera.position.y;
+    if (Math.abs(camY - lastSquirrelCamY) > SQUIRREL_CAM_EPS) {
+      lastSquirrelCamY = camY;
+      moved = true;
+    }
     for (let i = 0; i < squirrels.length; i++) {
       const s = squirrels[i];
       let hop = 0;
@@ -1087,10 +1112,21 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
           moved = true;
         }
       }
-      scratchV3.set(s.x, hop, s.z);
+      // Per-instance camera distance so squirrels near the screen edge at a
+      // steep pitch don't shrink relative to ones under the cursor.
+      const dxC = camera.position.x - s.x;
+      const dyC = camera.position.y;
+      const dzC = camera.position.z - s.z;
+      const camDist = Math.sqrt(dxC * dxC + dyC * dyC + dzC * dzC);
+      const scale = THREE.MathUtils.clamp(
+        camDist * SQUIRREL_SCALE_PER_METER,
+        SQUIRREL_SCALE_MIN,
+        SQUIRREL_SCALE_MAX,
+      );
+      scratchV3.set(s.x, hop * scale, s.z);
       scratchQuat.setFromAxisAngle(scratchYAxis, s.heading);
-      scratchScale.set(SQUIRREL_SCALE, SQUIRREL_SCALE, SQUIRREL_SCALE);
-      scratchM4.compose(scratchV3, scratchQuat, scratchScale);
+      scratchSquirrelScale.set(scale, scale, scale);
+      scratchM4.compose(scratchV3, scratchQuat, scratchSquirrelScale);
       squirrelMesh.setMatrixAt(i, scratchM4);
     }
     squirrelMesh.instanceMatrix.needsUpdate = true;
@@ -1163,6 +1199,7 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
         scratchYAxis,
         Math.atan2(busSample.fx * busDir, busSample.fz * busDir),
       );
+      scratchScale.set(1.6, 1.6, 1.6); // owned here, not inherited
       scratchM4.compose(scratchV3, scratchQuat, scratchScale);
       bus.matrixAutoUpdate = false;
       bus.matrix.copy(scratchM4);
