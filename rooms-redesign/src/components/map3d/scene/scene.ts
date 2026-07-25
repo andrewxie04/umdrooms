@@ -71,6 +71,12 @@ const LAMP_GLOW_OFF_ELEV = 6;
 const LAMP_GLOW_FULL_ELEV = -3;
 /** Peak emissiveIntensity for the #ffd9a0 head material at night. */
 const LAMP_GLOW_MAX = 2.6;
+/** Fraction of each flicker lamp's cycle spent stuttering; the rest is steady.
+ * Small on purpose — a lamp that flickers constantly reads as broken chrome
+ * rather than a detail you notice once and enjoy. */
+const FLICKER_BURST_FRACTION = 0.09;
+/** How much of the head's dip the ground pool follows (0 = steady pool). */
+const FLICKER_POOL_RESPONSE = 0.5;
 /** Peak opacity for the warm ground-glow pools under each lamp at night. */
 const LAMP_POOL_MAX_OPACITY = 0.3;
 /** Min visible change before the material is touched (dirty-check friendly). */
@@ -316,6 +322,59 @@ export async function createCampusScene(
   lampPools.renderOrder = 1; // over the flat fills, with the contact shadows
   lampPools.visible = false; // until the first dusk ramp
   scene.add(lampPools);
+
+  // -- flickering lamps ------------------------------------------------------
+  // A handful of lamps with a bad ballast. geometry.ts held these out of the
+  // merged head/pool meshes so each can own its material: the shared material
+  // would blink all ~820 lamps in lockstep, reading as a power cut. Driven in
+  // updateLampFlicker AFTER the easter eggs, so 2AM dimming still applies.
+  interface FlickerLamp {
+    head: THREE.Mesh;
+    pool: THREE.Mesh;
+    headMat: THREE.MeshLambertMaterial;
+    poolMat: THREE.MeshBasicMaterial;
+    /** Per-lamp constants so no two stutter together. */
+    period: number;
+    phase: number;
+    rate: number;
+    depth: number;
+  }
+  const flickerLamps: FlickerLamp[] = geoms.lampFlickerHeads.map((headGeom, i) => {
+    const headMat = lampHeadMat.clone();
+    const poolMat = lampPoolMat.clone();
+    poolMat.map = lampPoolTexture; // clone() keeps the ref, but be explicit
+    const head = new THREE.Mesh(headGeom, headMat);
+    const pool = new THREE.Mesh(geoms.lampFlickerGlow[i], poolMat);
+    pool.renderOrder = 1;
+    pool.visible = false;
+    scene.add(head, pool);
+    const h = (s: string): number => {
+      let x = 2166136261;
+      const id = `flick:${i}:${s}`;
+      for (let k = 0; k < id.length; k++) {
+        x ^= id.charCodeAt(k);
+        x = Math.imul(x, 16777619);
+      }
+      x ^= x >>> 13;
+      x = Math.imul(x, 0x5bd1e995);
+      x ^= x >>> 15;
+      return (x >>> 0) / 4294967296;
+    };
+    return {
+      head,
+      pool,
+      headMat,
+      poolMat,
+      period: 8 + h('p') * 10, // a burst every 8–18s
+      phase: h('ph'),
+      // Stutter speed. Kept at 5–9 Hz deliberately: fast enough to read as a
+      // failing ballast, slow enough to stay clear of strobe territory, and
+      // comfortably sampled at 60fps (a 20Hz+ wave aliased into a different
+      // pattern at every framerate).
+      rate: 5 + h('r') * 4,
+      depth: 0.1 + h('d') * 0.15, // how dark the low part of the stutter goes
+    };
+  });
 
   // Lit windows: ONE merged mesh of facade quads (geometry.ts bakes only the
   // deterministic 25–45% lit subset per building). The unlit warm material
@@ -1003,7 +1062,60 @@ export async function createCampusScene(
     return changed;
   };
 
+  /**
+   * Drives the bad-ballast lamps. Baseline is whatever the SHARED lamp
+   * materials ended up at this frame (sun ramp, then any 2AM dimming), so a
+   * flicker lamp is never brighter than its steady neighbours — it only ever
+   * drops below them.
+   *
+   * Shape: mostly steady, with a short stutter burst every 6–15s. Inside a
+   * burst a fast square-ish wave drops the lamp to `depth`, which is what a
+   * failing fixture actually looks like — not a sine wave.
+   */
+  const updateLampFlicker = (nowSec: number): boolean => {
+    if (flickerLamps.length === 0) return false;
+    const baseIntensity = lampHeadMat.emissiveIntensity;
+    const basePool = lampPoolMat.opacity;
+    const lit = baseIntensity > LAMP_GLOW_EPS;
+    let changed = false;
+    for (const f of flickerLamps) {
+      let factor = 1;
+      if (lit) {
+        const t = (nowSec / f.period + f.phase) % 1;
+        if (t < FLICKER_BURST_FRACTION) {
+          const bt = t / FLICKER_BURST_FRACTION; // 0..1 through the burst
+          // Envelope so the burst fades in/out instead of starting mid-stutter.
+          const env = Math.sin(bt * Math.PI);
+          const wave = Math.sin(bt * f.rate * Math.PI * 2);
+          if (wave < 0) factor = 1 - (1 - f.depth) * env;
+        }
+      }
+      const wantIntensity = baseIntensity * factor;
+      // The ground pool is a ~13m disc — a lot of screen area up close — and
+      // real spill light is diffuse anyway, so it only follows part of the
+      // way down. Keeps the effect on the bulb, not the whole street.
+      const wantPool = basePool * (1 - (1 - factor) * FLICKER_POOL_RESPONSE);
+      if (Math.abs(f.headMat.emissiveIntensity - wantIntensity) > LAMP_GLOW_EPS) {
+        f.headMat.emissiveIntensity = wantIntensity;
+        changed = true;
+      }
+      if (Math.abs(f.poolMat.opacity - wantPool) > LAMP_GLOW_EPS) {
+        f.poolMat.opacity = wantPool;
+        changed = true;
+      }
+      // Match the shared pool's visibility gate so day frames cost nothing.
+      const poolVisible = wantPool > LAMP_GLOW_EPS;
+      if (f.pool.visible !== poolVisible) {
+        f.pool.visible = poolVisible;
+        changed = true;
+      }
+      f.headMat.color.copy(lampHeadMat.color);
+    }
+    return changed;
+  };
+
   updateTimeOfDay(0); // apply the initial palette + light before first render
+  updateLampFlicker(0);
 
   // -- sizing ---------------------------------------------------------------------------
   let needsRender = true;
@@ -1071,6 +1183,9 @@ export async function createCampusScene(
     // Easter eggs: runs after updateTimeOfDay so 2AM dimming post-multiplies
     // the freshly-written lamp/window values.
     if (easterEggs.update(dt)) needsRender = true;
+    // Flicker last: it reads the FINAL shared-lamp values as its baseline, so
+    // the bad ballasts dim with everything else at 2AM instead of blazing on.
+    if (updateLampFlicker(nowMs / 1000)) needsRender = true;
 
     if (pulse.active) {
       const phase = ((nowMs - pulse.startMs) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;

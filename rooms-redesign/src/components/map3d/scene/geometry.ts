@@ -49,6 +49,12 @@ export interface CampusGeometries {
   /** Merged ground-glow discs under every lamp (flat circles at LAMP_POOL_Y);
    * scene.ts maps a radial-gradient texture onto them and drives opacity. */
   lampGlow: THREE.BufferGeometry;
+  /** The few stuttering lamps, kept OUT of lampHeads/lampGlow so scene.ts can
+   * give each its own material and flicker them independently — the shared
+   * material would otherwise blink every lamp on campus in lockstep. Index i
+   * of each array is the same lamp. */
+  lampFlickerHeads: THREE.BufferGeometry[];
+  lampFlickerGlow: THREE.BufferGeometry[];
   /** Merged lit-window facade quads (deterministic lit subset only, positions
    * only — no normals/uv/color); scene.ts drives the warm glow opacity. */
   windows: THREE.BufferGeometry;
@@ -565,6 +571,12 @@ const LAMP_EDGE_OFFSET = 0.9; // meters beyond the ribbon half-width
 /** Warm ground-glow pool under each lamp (scene.ts textures + fades it). */
 const LAMP_POOL_RADIUS = 6.5;
 const LAMP_POOL_Y = 0.45; // above roads (.4) so the pool never clips pavement
+/** A few lamps on campus have a bad ballast and stutter. They are HELD OUT of
+ * the merged head/glow geometry and returned individually, because every
+ * other lamp shares one material — flickering that would blink all 820 in
+ * unison (a power cut, not a dying bulb). Poles still merge with the rest;
+ * only the head and its ground pool are separated. */
+const LAMP_FLICKER_COUNT = 5;
 
 interface LampPoint {
   x: number;
@@ -578,6 +590,12 @@ interface LampGeometries {
   heads: THREE.BufferGeometry;
   /** Accepted lamp positions (world meters) — reused for path-edge shrubs. */
   points: LampPoint[];
+  /** The stuttering lamps, one head geometry each (excluded from `heads`). */
+  flickerHeads: THREE.BufferGeometry[];
+  /** Matching ground pools, one per flicker lamp (excluded from lampGlow). */
+  flickerGlow: THREE.BufferGeometry[];
+  /** Indices into `points` that were held out — buildLampGlow skips these. */
+  flickerIndices: Set<number>;
 }
 
 function buildLamps(data: CampusData, proj: Projection): LampGeometries {
@@ -658,33 +676,65 @@ function buildLamps(data: CampusData, proj: Projection): LampGeometries {
   accepted.sort((a, b) => a.h - b.h);
   if (accepted.length > LAMP_CAP) accepted.length = LAMP_CAP;
 
+  // Pick the stutterers by hash, spread across the accepted list rather than
+  // clustered (accepted is already in hash order, so stride evenly through it).
+  const flickerIdx = new Set<number>();
+  if (accepted.length > LAMP_FLICKER_COUNT) {
+    const stride = Math.floor(accepted.length / LAMP_FLICKER_COUNT);
+    for (let i = 0; i < LAMP_FLICKER_COUNT; i++) {
+      const base = i * stride;
+      flickerIdx.add(base + (Math.floor(hash01(`lampflicker:${i}`) * stride) % stride));
+    }
+  }
+
   const poleParts: THREE.BufferGeometry[] = [];
   const headParts: THREE.BufferGeometry[] = [];
-  for (const p of accepted) {
+  const flickerHeads: THREE.BufferGeometry[] = [];
+  const flickerGlow: THREE.BufferGeometry[] = [];
+  accepted.forEach((p, i) => {
     const pole = new THREE.CylinderGeometry(0.09, 0.14, LAMP_POLE_HEIGHT, 5);
     pole.translate(p.x, LAMP_POLE_HEIGHT / 2, p.z);
     poleParts.push(pole);
     const head = new THREE.SphereGeometry(0.45, 6, 5);
     head.translate(p.x, LAMP_HEAD_Y, p.z);
-    headParts.push(head);
-  }
-  return { poles: mergeAll(poleParts), heads: mergeAll(headParts), points: accepted };
+    if (flickerIdx.has(i)) {
+      flickerHeads.push(head);
+      flickerGlow.push(lampGlowDisc(p));
+    } else {
+      headParts.push(head);
+    }
+  });
+  return {
+    poles: mergeAll(poleParts),
+    heads: mergeAll(headParts),
+    points: accepted,
+    flickerHeads,
+    flickerGlow,
+    flickerIndices: flickerIdx,
+  };
+}
+
+/** One ground-glow disc, shared by the merged pass and the flicker lamps. */
+function lampGlowDisc(p: LampPoint): THREE.BufferGeometry {
+  const disc = new THREE.CircleGeometry(LAMP_POOL_RADIUS, 20);
+  disc.rotateX(-Math.PI / 2);
+  disc.translate(p.x, LAMP_POOL_Y, p.z);
+  // KEEP uv: scene.ts maps a radial-gradient texture through it (uv spans
+  // the unit square per disc, so each disc samples the full glow falloff).
+  return disc.index ? disc.toNonIndexed() : disc;
 }
 
 /** Flat ground-glow discs under every accepted lamp. Merged into ONE
  * geometry; scene.ts applies a radial-gradient texture and drives opacity
  * from sun elevation (invisible by day, soft warm pools at night). */
-function buildLampGlow(points: LampPoint[]): THREE.BufferGeometry {
+function buildLampGlow(points: LampPoint[], skip: Set<number>): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  for (const p of points) {
-    const disc = new THREE.CircleGeometry(LAMP_POOL_RADIUS, 20);
-    disc.rotateX(-Math.PI / 2);
-    disc.translate(p.x, LAMP_POOL_Y, p.z);
-    const flat = disc.index ? disc.toNonIndexed() : disc;
-    // KEEP uv: scene.ts maps a radial-gradient texture through it (uv spans
-    // the unit square per disc, so each disc samples the full glow falloff).
-    parts.push(flat);
-  }
+  points.forEach((p, i) => {
+    // Flicker lamps carry their own pool so it can dim with the head; leaving
+    // one here too would keep a steady pool glowing under the stutter.
+    if (skip.has(i)) return;
+    parts.push(lampGlowDisc(p));
+  });
   return mergeAll(parts);
 }
 
@@ -954,7 +1004,9 @@ export function buildSceneGeometries(data: CampusData, proj: Projection): Campus
     contactShadows: buildContactShadows(data, proj),
     lampPoles: lamps.poles,
     lampHeads: lamps.heads,
-    lampGlow: buildLampGlow(lamps.points),
+    lampGlow: buildLampGlow(lamps.points, lamps.flickerIndices),
+    lampFlickerHeads: lamps.flickerHeads,
+    lampFlickerGlow: lamps.flickerGlow,
     windows: buildWindows(data, proj),
     shrubs: buildShrubs(data, proj, lamps.points),
     parkedCars: buildParkedCars(data, proj),
