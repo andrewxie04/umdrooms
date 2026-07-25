@@ -190,7 +190,10 @@ const SQUIRREL_HOP_HZ = 3.2; // little vertical bounce while darting
 const SQUIRREL_HOP_AMP = 0.09;
 
 const TWOAM_WINDOW_FACTOR = 0.12; // lit-window opacity floor
-const TWOAM_LAMP_FACTOR = 0.25; // lamp head/pool/headlight factor
+/** Lamp head/pool/headlight factor at full 2AM stillness. Raised 0.25 -> 0.4
+ * to give the Mall's late-night flicker set room to swing — the stutter is a
+ * multiplier on top of this, so at 0.25 its dips landed too dim to read. */
+const TWOAM_LAMP_FACTOR = 0.4;
 const TWOAM_LAMBDA = 0.6; // ease rate in/out of the still window
 const TWOAM_NOSE_GLOW = 0.35; // faint permanent nose glow at 2AM
 
