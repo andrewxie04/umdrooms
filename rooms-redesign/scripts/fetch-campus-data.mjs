@@ -10,22 +10,6 @@
  *
  * Usage: node scripts/fetch-campus-data.mjs
  * No dependencies — Node 20+ (global fetch).
- *
- * KNOWN GAP — relation-tagged buildings are dropped by this bake:
- * the Overpass query below matches ways tagged `building=*` directly, so
- * buildings mapped as multipolygon relations (tags on the relation, untagged
- * outer ways) never make it into campus-data.json. Known victims:
- *   - The Clarice Smith Performing Arts Center — relation 9660599
- *     (outer way 23547877) — hand-patched via scripts/patch-clarice.mjs
- *   - Physical Sciences Complex (PSC) — relation 2909990
- *   - Chemistry Building (CHM) — relation 2063641,
- *     Animal Science/Agricultural Engineering (ANS) — relation 20447083,
- *     unnamed wing by Chemical/Nuclear Engineering — relation 20447085 —
- *     hand-patched via scripts/patch-missing-relations.mjs
- * Re-running this script would silently drop them again; if you ever re-bake,
- * re-run scripts/patch-clarice.mjs AND scripts/patch-missing-relations.mjs
- * afterwards (or extend the query to resolve relations). DO NOT re-run the
- * full bake casually.
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
@@ -59,6 +43,7 @@ const QL = `
 [out:json][timeout:120];
 (
   way["building"](${S},${W},${N},${E});
+  relation["building"](${S},${W},${N},${E});
   way["highway"](${S},${W},${N},${E});
   way["landuse"="grass"](${S},${W},${N},${E});
   way["leisure"~"^(park|garden|pitch|track|tennis_court)$"](${S},${W},${N},${E});
@@ -255,6 +240,78 @@ function matchUmdCode(osmName, metadata, distinctive) {
   return oTok.every((t) => uTok.has(t)) ? code : null;
 }
 
+// ---- Stitching OSM relation outer ways into rings -------------------------
+const near = (a, b) => Math.abs(a[0] - b[0]) < 1e-7 && Math.abs(a[1] - b[1]) < 1e-7;
+
+function stitchRings(members) {
+  const segs = members.filter((m) => Array.isArray(m.geometry) && m.geometry.length > 0).map((m) => m.geometry.map((g) => [R7(g.lon), R7(g.lat)]));
+  const rings = [];
+  while (segs.length > 0) {
+    const ring = segs.shift().slice();
+    let grew = true;
+    while (grew && segs.length > 0) {
+      grew = false;
+      for (let i = 0; i < segs.length; i++) {
+        const s = segs[i];
+        const head = ring[0];
+        const tail = ring[ring.length - 1];
+        if (near(tail, s[0])) ring.push(...s.slice(1));
+        else if (near(tail, s[s.length - 1])) ring.push(...s.slice(0, -1).reverse());
+        else if (near(head, s[s.length - 1])) ring.unshift(...s.slice(0, -1));
+        else if (near(head, s[0])) ring.unshift(...s.slice(1).reverse());
+        else continue;
+        segs.splice(i, 1);
+        grew = true;
+        break;
+      }
+    }
+    if (ring.length > 1 && near(ring[0], ring[ring.length - 1])) ring.pop();
+    if (ring.length >= 3) rings.push(ring);
+  }
+  return rings;
+}
+
+function extractRelationRings(relation) {
+  const outers = (relation.members || []).filter((m) => (m.role === 'outer' || m.role === '') && m.geometry);
+  if (outers.length === 0) return null;
+  const rings = stitchRings(outers);
+  return rings.length > 0 ? rings[0] : null;
+}
+
+function extractHoles(relation) {
+  const inners = (relation.members || []).filter((m) => m.role === 'inner' && m.geometry);
+  return inners.length > 0 ? stitchRings(inners) : [];
+}
+
+const RELATION_OVERRIDES = new Map([
+  [9660599, { id: 'way/23547877', name: 'The Clarice Smith Performing Arts Center', umdCode: 'PAC', height: 15 }],
+  [2063641, { name: 'Chemistry Building', umdCode: 'CHM', height: 11 }],
+  [20447083, { name: 'Animal Science/Agricultural Engineering Building', umdCode: 'ANS', height: 7.42 }],
+  [20447085, { height: 11.65 }],
+  [9692235, { name: 'Benjamin Building', umdCode: 'EDU', height: 11 }],
+  [9681971, { name: 'Biosciences Research Building', umdCode: 'BRB', height: 11 }],
+  [8676516, { name: 'The Varsity', height: 24, levels: 6 }],
+]);
+
+const CODE_FIXES = [
+  { id: 'way/24924848', dropCode: 'ANS' },
+  { id: 'way/23543940', dropCode: 'CCC' },
+];
+
+const CODE_ADDS = [
+  { id: 'way/1499355421', addCode: 'AJC' },
+  { id: 'way/23546586', addCode: 'MTH' },
+  { id: 'way/23888747', addCode: 'PHY' },
+];
+
+const HEIGHT_FIXES = [
+  { id: 'way/1499355421', height: 20 },
+];
+
+const AREA_WIDEN = [
+  { label: 'McKeldin Mall fountain', kind: 'water', lat: 38.98599, lng: -76.94186, factor: 1.4 },
+];
+
 // ---- Main ------------------------------------------------------------------
 async function main() {
   const metadata = JSON.parse(await readFile(METADATA_JSON, 'utf8'));
@@ -343,6 +400,26 @@ async function main() {
     }
 
     if (el.type === 'relation') {
+      if (tags.building || RELATION_OVERRIDES.has(el.id)) {
+        const override = RELATION_OVERRIDES.get(el.id) || {};
+        const ring = extractRelationRings(el);
+        if (!ring || ring.length < 3) { skippedRelations++; continue; }
+        const holes = extractHoles(el);
+        const name = override.name ?? tags.name ?? null;
+        const b = {
+          id: override.id ?? `relation/${el.id}`,
+          name,
+          footprint: ring,
+          height: override.height ?? parseHeight(tags),
+          levels: override.levels ?? parseLevels(tags),
+        };
+        if (holes.length > 0) b.holes = holes;
+        const code = override.umdCode ?? matchUmdCode(name, metadata, distinctive);
+        if (code) b.umdCode = code;
+        buildings.push(b);
+        continue;
+      }
+
       const k = areaKind(tags);
       if (!k) continue;
       const outer = (el.members ?? []).filter((m) => m.type === 'way' && (m.role === 'outer' || m.role === '') && Array.isArray(m.geometry));
@@ -350,6 +427,36 @@ async function main() {
       const ring = cleanRing(outer[0].geometry);
       if (ring.length >= 3) areas.push({ kind: k, polygon: ring });
       else skippedRelations++;
+    }
+  }
+
+  // ---- Post-bake fixes & overrides -------------------------------------------
+  for (const fix of CODE_FIXES) {
+    const b = buildings.find((x) => x.id === fix.id);
+    if (b && b.umdCode === fix.dropCode) delete b.umdCode;
+  }
+  for (const add of CODE_ADDS) {
+    const b = buildings.find((x) => x.id === add.id);
+    if (b) b.umdCode = add.addCode;
+  }
+  for (const hFix of HEIGHT_FIXES) {
+    const b = buildings.find((x) => x.id === hFix.id);
+    if (b) b.height = hFix.height;
+  }
+  for (const widen of AREA_WIDEN) {
+    const mPerLng = M_PER_DEG_LAT * Math.cos((widen.lat * Math.PI) / 180);
+    for (const area of areas) {
+      if (area.kind !== widen.kind) continue;
+      const poly = area.polygon || [];
+      if (poly.length < 3) continue;
+      const cLng = poly.reduce((s, p) => s + p[0], 0) / poly.length;
+      const cLat = poly.reduce((s, p) => s + p[1], 0) / poly.length;
+      if (Math.hypot((cLng - widen.lng) * mPerLng, (cLat - widen.lat) * M_PER_DEG_LAT) < 200) {
+        area.polygon = poly.map(([lng, lat]) => [
+          R7(cLng + (lng - cLng) * widen.factor),
+          R7(cLat + (lat - cLat) * widen.factor),
+        ]);
+      }
     }
   }
 

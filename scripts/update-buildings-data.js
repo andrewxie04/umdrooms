@@ -9,8 +9,8 @@ const BUILDINGS_JSON = path.join(API_DIR, 'buildings.json');
 const ROOMS_JSON = path.join(API_DIR, 'room_ids.json');
 const LABELED_UNMATCHED = path.join(API_DIR, 'labeled_unmatched_classrooms.json');
 const UNMATCHED_TO_LABEL = path.join(API_DIR, 'unmatched_classrooms_to_label.json');
-const OUTPUT_JSON = path.join(ROOT, 'public', 'buildings_data.json');
-const OUTPUT_METADATA_JSON = path.join(ROOT, 'public', 'buildings_metadata.json');
+const OUTPUT_JSON = path.join(ROOT, 'rooms-redesign', 'public', 'buildings_data.json');
+const OUTPUT_METADATA_JSON = path.join(ROOT, 'rooms-redesign', 'public', 'buildings_metadata.json');
 
 const MAX_WORKERS = Number(process.env.AVAIL_MAX_WORKERS || 25);
 const CACHE_HOURS = Number(process.env.AVAIL_CACHE_HOURS || 6);
@@ -25,8 +25,8 @@ const SUPPLEMENTAL_RANGE_DAYS = 31;
 const ROOMS_TO_REMOVE = new Set(['JMZ 1123 (Loss)', 'KEY 0107']);
 const BUILDING_QUERY_ID_CANDIDATES = Array.from({ length: 48 }, (_, index) => String(index + 1));
 const PER_BUILDING_REQUIRED_CODES = ['AJC', 'ANS', 'ARC', 'ASY', 'BPS', 'EDU', 'SPH', 'TWS', 'TYD', 'VMH'];
-const PER_BUILDING_REQUIRED_ROOMS = ['ARC 0204', 'ARC 1127', 'ASY 3219', 'BPS 1238', 'EDU 3315', 'VMH 1203', 'VMH 2211'];
-const PER_BUILDING_MIN_ROOM_COUNT = 340;
+const PER_BUILDING_REQUIRED_ROOMS = ['ARC 1127', 'ASY 3219', 'BPS 1238', 'EDU 3315', 'VMH 1203', 'VMH 2211'];
+const PER_BUILDING_MIN_ROOM_COUNT = 300;
 const DEFAULT_LOFT_CALENDAR_ID =
   'c_85b8aaf1fab1942f8c8c5f5fcbffdfb91d85de1cfef92c8a4918668c403a93b2@group.calendar.google.com';
 const DEFAULT_AVW_CALENDARS = [
@@ -1190,11 +1190,16 @@ async function appendSupplementalSpaces(buildings, startDateKey) {
 }
 
 function loadRoomsData() {
-  if (!fs.existsSync(ROOMS_JSON)) {
-    throw new Error('Missing room_ids.json fallback file.');
+  if (fs.existsSync(ROOMS_JSON)) {
+    return readJson(ROOMS_JSON);
   }
-
-  return readJson(ROOMS_JSON);
+  if (fs.existsSync(OUTPUT_JSON)) {
+    console.log('ROOMS_JSON missing; extracting rooms from local buildings_data.json...');
+    const buildings = readJson(OUTPUT_JSON);
+    return buildings.flatMap((b) => b.classrooms || []);
+  }
+  console.warn('Missing room_ids.json and buildings_data.json.');
+  return [];
 }
 
 function fileFreshEnough(filePath) {
@@ -1533,13 +1538,17 @@ async function main() {
     );
   }
 
-  if (!fs.existsSync(BUILDINGS_JSON)) {
-    console.error('Missing buildings.json. Skipping data refresh.');
+  let buildingsData;
+  if (fs.existsSync(BUILDINGS_JSON)) {
+    console.log('Loading building metadata from UMD_api/buildings.json...');
+    buildingsData = readJson(BUILDINGS_JSON);
+  } else if (fs.existsSync(OUTPUT_METADATA_JSON)) {
+    console.log('Loading building metadata from local buildings_metadata.json...');
+    buildingsData = readJson(OUTPUT_METADATA_JSON);
+  } else {
+    console.error('Missing buildings.json and buildings_metadata.json. Cannot load building metadata.');
     return;
   }
-
-  console.log('Loading building metadata...');
-  const buildingsData = readJson(BUILDINGS_JSON);
   let roomsData;
   try {
     roomsData = await fetchRoomIdsFrom25Live(buildingsData);

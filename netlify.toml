@@ -11,6 +11,16 @@
   publish = "dist"
   functions = "../netlify/functions"
 
+# availability-building.js reads buildings_data.json off disk via
+# path.join(__dirname, …). The bundler's static analysis usually catches that,
+# but the data file moved (root public/ -> rooms-redesign/public/) when the
+# legacy CRA app was deleted, so declare it explicitly — if it is ever missing
+# the function degrades SILENTLY (empty inventory -> every request 400s ->
+# frontend quietly serves stale bundled availability). Path is relative to
+# `base`, i.e. rooms-redesign/public/buildings_data.json.
+[functions]
+  included_files = ["public/buildings_data.json"]
+
 [functions."scheduled-rebuild"]
   schedule = "0 10 * * *"
 

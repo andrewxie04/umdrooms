@@ -15,6 +15,7 @@ import CampusMap3D from './components/map3d/CampusMap3D';
 import { AppShell, PanelRouter } from './components/shell';
 import { BootLoader } from './components/features';
 import EasterEggs from './components/features/EasterEggs';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useCampusStore } from './lib/store';
 import { useDarkModeSync } from './lib/useDarkModeSync';
 
@@ -71,15 +72,17 @@ export default function App() {
   }, [loadingStatus, pendingDeepLink]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-background text-foreground">
-      <div className="absolute inset-0">
-        <CampusMap3D />
+    <ErrorBoundary>
+      <div className="relative h-full w-full overflow-hidden bg-background text-foreground">
+        <div className="absolute inset-0">
+          <CampusMap3D />
+        </div>
+        <AppShell>
+          <PanelRouter />
+        </AppShell>
+        <BootLoader />
+        <EasterEggs />
       </div>
-      <AppShell>
-        <PanelRouter />
-      </AppShell>
-      <BootLoader />
-      <EasterEggs />
-    </div>
+    </ErrorBoundary>
   );
 }

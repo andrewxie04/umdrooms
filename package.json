@@ -2,51 +2,16 @@
   "name": "mapbox-web",
   "version": "0.1.0",
   "private": true,
-  "dependencies": {
-    "@emotion/react": "^11.13.3",
-    "@emotion/styled": "^11.13.0",
-    "@testing-library/jest-dom": "^5.17.0",
-    "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0",
-    "bzzz": "^0.1.1",
-    "cheerio": "^1.2.0",
-    "date-fns": "^4.1.0",
-    "date-fns-tz": "^3.2.0",
-    "dompurify": "^3.3.3",
-    "mapbox-gl": "^3.7.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
-  },
   "scripts": {
-    "update-data": "node scripts/update-buildings-data.js",
-    "prestart": "node scripts/update-buildings-data.js",
-    "start": "react-scripts start",
-    "prebuild": "node scripts/update-buildings-data.js",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "dev": "npm run dev --prefix rooms-redesign",
+    "start": "npm run dev --prefix rooms-redesign",
+    "build": "npm run build --prefix rooms-redesign",
+    "test": "npm test --prefix rooms-redesign",
+    "bake:campus": "npm run bake:campus --prefix rooms-redesign",
+    "update-data": "node scripts/update-buildings-data.js"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  },
-  "devDependencies": {
-    "@babel/plugin-proposal-private-property-in-object": "^7.21.11"
+  "//dependencies": "Runtime deps for netlify/functions/* ONLY (the frontend has its own package.json in rooms-redesign/). Netlify's function bundler resolves requires from the nearest package.json above the function file, i.e. this one — dropping cheerio here breaks dining-status and the libcal-booking-* functions at deploy time.",
+  "dependencies": {
+    "cheerio": "^1.2.0"
   }
 }

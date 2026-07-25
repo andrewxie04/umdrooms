@@ -3,11 +3,13 @@ const path = require('path');
 
 const TIMEOUT_MS = 10000;
 const ROOM_CONCURRENCY = 12;
-const TRUSTED_BUILDINGS_PATH = path.join(__dirname, '../../public/buildings_data.json');
+const PRIMARY_BUILDINGS_PATH = path.join(__dirname, '../../rooms-redesign/public/buildings_data.json');
+const FALLBACK_BUILDINGS_PATH = path.join(__dirname, '../../public/buildings_data.json');
 
 function loadTrustedBuildings() {
   try {
-    return JSON.parse(fs.readFileSync(TRUSTED_BUILDINGS_PATH, 'utf8'));
+    const targetPath = fs.existsSync(PRIMARY_BUILDINGS_PATH) ? PRIMARY_BUILDINGS_PATH : FALLBACK_BUILDINGS_PATH;
+    return JSON.parse(fs.readFileSync(targetPath, 'utf8'));
   } catch (error) {
     console.error('Failed to load trusted building inventory:', error);
     return [];

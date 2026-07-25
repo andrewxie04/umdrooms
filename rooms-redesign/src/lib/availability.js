@@ -58,7 +58,7 @@ function isLibCalRoom(room) {
 }
 
 export function isSupplementalRoom(room) {
-  return room?.source === 'supplemental' && room?.supplemental;
+  return Boolean(room?.source === 'supplemental' && room?.supplemental);
 }
 
 function getSupplementalHours(room) {
@@ -402,6 +402,10 @@ export function getOpeningSoonInfo(
 
 /**
  * Enhanced classroom availability checker with optional debugging
+ * @param {any} room
+ * @param {Date | null} [selectedStartDateTime]
+ * @param {Date | null} [selectedEndDateTime]
+ * @param {boolean} [debug]
  */
 export function getClassroomAvailability(
   room,
@@ -658,6 +662,9 @@ export function getClassroomAvailability(
 
 /**
  * Checks building availability
+ * @param {any[]} classrooms
+ * @param {Date | null} [selectedStartDateTime]
+ * @param {Date | null} [selectedEndDateTime]
  */
 export function getBuildingAvailability(
   classrooms,
@@ -780,6 +787,10 @@ export function getBuildingRenderState(
  * current availability ends, or null if the room isn't currently available.
  * If no more events today, returns "10:00 PM" (closing time).
  */
+/**
+ * @param {any} room
+ * @param {Date | null} [currentDateTime]
+ */
 export function getAvailableUntil(room, currentDateTime = null) {
   const timeZone = 'America/New_York';
   const now = currentDateTime
@@ -826,6 +837,10 @@ export function getAvailableUntil(room, currentDateTime = null) {
 /**
  * Returns the number of decimal hours the room remains available from the
  * current time, or 0 if unavailable.
+ */
+/**
+ * @param {any} room
+ * @param {Date | null} [currentDateTime]
  */
 export function getAvailableForHours(room, currentDateTime = null) {
   const timeZone = 'America/New_York';
