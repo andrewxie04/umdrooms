@@ -92,6 +92,21 @@ const CODE_ADDS = [
   { id: 'way/23888747', addCode: 'PHY' }, // John S. Toll Physics
 ];
 
+/** Area polygons widened for legibility. OSM traces the McKeldin Mall
+ * reflecting pool as a 73m x 5.2m hairline, which nearly vanishes under the
+ * water shader's shore ring + gradient insets at browsing zooms. Matched by
+ * centroid (areas carry no ids) and scaled about it on the short axis. */
+const AREA_WIDEN = [
+  {
+    label: 'McKeldin Mall fountain',
+    kind: 'water',
+    lat: 38.98599,
+    lng: -76.94186,
+    /** Short-axis scale: 5.2m -> ~7.3m. */
+    factor: 1.4,
+  },
+];
+
 /** OSM height tags that are LiDAR maxima (antennas/penthouses), not wall
  * height — they render (and highlight) as comically tall blocks. */
 const HEIGHT_FIXES = [
@@ -187,6 +202,54 @@ for (const add of CODE_ADDS) {
     changed += 1;
     console.log(`  ~ ${add.id}: tagged umdCode ${add.addCode}`);
   }
+}
+
+// -- area widening ----------------------------------------------------------
+const M_PER_DEG_LAT = 111320;
+for (const widen of AREA_WIDEN) {
+  const mPerLng = M_PER_DEG_LAT * Math.cos((widen.lat * Math.PI) / 180);
+  // Find the matching area by kind + centroid proximity (areas carry no ids).
+  let match = null;
+  for (const area of data.areas) {
+    if (area.kind !== widen.kind) continue;
+    const poly = area.polygon || [];
+    if (poly.length < 3) continue;
+    const cLng = poly.reduce((s, p) => s + p[0], 0) / poly.length;
+    const cLat = poly.reduce((s, p) => s + p[1], 0) / poly.length;
+    const d = Math.hypot((cLng - widen.lng) * mPerLng, (cLat - widen.lat) * M_PER_DEG_LAT);
+    if (d < 15) {
+      match = { area, cLng, cLat };
+      break;
+    }
+  }
+  if (!match) {
+    console.warn(`  ! ${widen.label}: no matching ${widen.kind} area near centroid — skipped`);
+    continue;
+  }
+  const { area, cLng, cLat } = match;
+  const spanLng =
+    (Math.max(...area.polygon.map((p) => p[0])) - Math.min(...area.polygon.map((p) => p[0]))) *
+    mPerLng;
+  const spanLat =
+    (Math.max(...area.polygon.map((p) => p[1])) - Math.min(...area.polygon.map((p) => p[1]))) *
+    M_PER_DEG_LAT;
+  const shortIsLat = spanLat <= spanLng;
+  const before = shortIsLat ? spanLat : spanLng;
+  const targetKey = shortIsLat ? '_widenedLat' : '_widenedLng';
+  if (area[targetKey]) {
+    console.log(`  = ${widen.label}: already widened — skipped`);
+    continue;
+  }
+  area.polygon = area.polygon.map(([lng, lat]) =>
+    shortIsLat
+      ? [lng, cLat + (lat - cLat) * widen.factor]
+      : [cLng + (lng - cLng) * widen.factor, lat],
+  );
+  area[targetKey] = true; // idempotence marker
+  changed += 1;
+  console.log(
+    `  ~ ${widen.label}: short axis ${before.toFixed(1)}m -> ${(before * widen.factor).toFixed(1)}m`,
+  );
 }
 
 for (const fix of HEIGHT_FIXES) {

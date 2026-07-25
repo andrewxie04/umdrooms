@@ -82,8 +82,12 @@ export interface EasterEggsHandle {
 }
 
 // -- tuning ----------------------------------------------------------------------
-const TESTUDO_LNG = -76.944; // real Testudo statue, Mall side of McKeldin
-const TESTUDO_LAT = 38.9859;
+// Real Testudo statue: Mall (east) side of McKeldin, at the foot of the library
+// steps. McKeldin's east wall sits at lng -76.944665 and the Mall grass starts
+// at -76.94448, so this lands ~12m out in the plaza between the two — it used
+// to sit ~58m east, floating out on the lawn well clear of the building.
+const TESTUDO_LNG = -76.94453;
+const TESTUDO_LAT = 38.98596; // library's north-south centerline
 const NOSE_PULSE_SECONDS = 3;
 const CLICK_DRAG_EPS_PX = 6;
 
