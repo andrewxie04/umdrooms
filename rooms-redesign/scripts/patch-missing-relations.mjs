@@ -70,6 +70,16 @@ const PATCHES = [
     umdCode: 'BRB',
     height: 11,
   },
+  {
+    // North campus apartments on Baltimore Ave. Two outer ways that join
+    // end-to-end into one ring (extractRing stitches them). No height tag;
+    // 6 levels x 3.3 = 19.8 matches the bake's levels->height rule.
+    id: 8676516,
+    name: 'The Varsity',
+    umdCode: null,
+    height: 19.8,
+    levels: 6,
+  },
 ];
 
 /** Buildings whose bake-assigned umdCode belongs to a different building. */
@@ -273,6 +283,7 @@ if (todo.length > 0) {
     const entry = { id: `relation/${patch.id}`, footprint: ring, height: patch.height };
     if (patch.name) entry.name = patch.name;
     if (patch.umdCode) entry.umdCode = patch.umdCode;
+    if (patch.levels != null) entry.levels = patch.levels;
     data.buildings.push(entry);
     changed += 1;
     console.log(`  + relation/${patch.id} (${ring.length} nodes) ${patch.name ?? ''}`);
