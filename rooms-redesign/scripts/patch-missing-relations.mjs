@@ -159,36 +159,58 @@ async function fetchRelations() {
   throw lastErr;
 }
 
-/** Outer-ring [lng, lat] list in the dataset convention: closing duplicate
- * removed, consecutive duplicates dropped. Multi-way outers are stitched by
- * shared endpoints (all three current relations have a single outer way). */
+const near = (a, b) => Math.abs(a[0] - b[0]) < 1e-7 && Math.abs(a[1] - b[1]) < 1e-7;
+
+/** Stitches a role's member ways into closed rings by shared endpoints. A
+ * relation can hold several disjoint rings for one role (e.g. three separate
+ * courtyards as `inner`), so this returns an array. Each ring comes back in
+ * the dataset convention: unclosed (first != last), degenerates dropped. */
+function stitchRings(members) {
+  const segs = members.map((m) => m.geometry.map((g) => [g.lon, g.lat]));
+  const rings = [];
+  while (segs.length > 0) {
+    const ring = segs.shift().slice();
+    let grew = true;
+    while (grew && segs.length > 0) {
+      grew = false;
+      for (let i = 0; i < segs.length; i++) {
+        const s = segs[i];
+        const head = ring[0];
+        const tail = ring[ring.length - 1];
+        if (near(tail, s[0])) ring.push(...s.slice(1));
+        else if (near(tail, s[s.length - 1])) ring.push(...s.slice(0, -1).reverse());
+        else if (near(head, s[s.length - 1])) ring.unshift(...s.slice(0, -1));
+        else if (near(head, s[0])) ring.unshift(...s.slice(1).reverse());
+        else continue;
+        segs.splice(i, 1);
+        grew = true;
+        break;
+      }
+    }
+    if (ring.length > 1 && near(ring[0], ring[ring.length - 1])) ring.pop();
+    if (ring.length >= 3) rings.push(ring);
+  }
+  return rings;
+}
+
+/** The relation's single outer ring. */
 function extractRing(relation) {
   const outers = relation.members.filter((m) => m.role === 'outer' && m.geometry);
   if (outers.length === 0) throw new Error(`relation ${relation.id}: no outer members`);
-  const segs = outers.map((m) => m.geometry.map((g) => [g.lon, g.lat]));
-  const near = (a, b) => Math.abs(a[0] - b[0]) < 1e-7 && Math.abs(a[1] - b[1]) < 1e-7;
-  const ring = segs.shift().slice();
-  let grew = true;
-  while (grew && segs.length > 0) {
-    grew = false;
-    for (let i = 0; i < segs.length; i++) {
-      const s = segs[i];
-      const head = ring[0];
-      const tail = ring[ring.length - 1];
-      if (near(tail, s[0])) ring.push(...s.slice(1));
-      else if (near(tail, s[s.length - 1])) ring.push(...s.slice(0, -1).reverse());
-      else if (near(head, s[s.length - 1])) ring.unshift(...s.slice(0, -1));
-      else if (near(head, s[0])) ring.unshift(...s.slice(1).reverse());
-      else continue;
-      segs.splice(i, 1);
-      grew = true;
-      break;
-    }
+  const rings = stitchRings(outers);
+  if (rings.length === 0) throw new Error(`relation ${relation.id}: degenerate outer ring`);
+  if (rings.length > 1) {
+    throw new Error(
+      `relation ${relation.id}: ${rings.length} disjoint outer rings — needs a multi-part entry`,
+    );
   }
-  if (segs.length > 0) throw new Error(`relation ${relation.id}: disjoint outer ways`);
-  if (ring.length > 1 && near(ring[0], ring[ring.length - 1])) ring.pop();
-  if (ring.length < 3) throw new Error(`relation ${relation.id}: degenerate ring`);
-  return ring;
+  return rings[0];
+}
+
+/** Courtyard rings (`inner` members) — [] when the relation has none. */
+function extractHoles(relation) {
+  const inners = relation.members.filter((m) => m.role === 'inner' && m.geometry);
+  return inners.length > 0 ? stitchRings(inners) : [];
 }
 
 const raw = await readFile(DATA, 'utf8');
@@ -272,21 +294,46 @@ for (const fix of HEIGHT_FIXES) {
 }
 
 // -- missing relations ------------------------------------------------------
+// `holes` absent = never checked for courtyards (entries predating hole
+// support); `holes: []` = checked, none found. Both the add and the backfill
+// paths need the Overpass geometry, so they share one fetch.
 const todo = PATCHES.filter((p) => !data.buildings.some((b) => b.id === `relation/${p.id}`));
-if (todo.length > 0) {
+const backfill = PATCHES.filter((p) => {
+  const b = data.buildings.find((x) => x.id === `relation/${p.id}`);
+  return b && b.holes === undefined;
+});
+if (todo.length > 0 || backfill.length > 0) {
   const overpass = await fetchRelations();
   const byId = new Map(overpass.elements.map((e) => [e.id, e]));
+
+  for (const patch of backfill) {
+    const rel = byId.get(patch.id);
+    if (!rel) {
+      console.warn(`  ! relation ${patch.id}: not in Overpass response — holes not backfilled`);
+      continue;
+    }
+    const entry = data.buildings.find((x) => x.id === `relation/${patch.id}`);
+    const holes = extractHoles(rel);
+    entry.holes = holes; // [] records "checked, no courtyards"
+    changed += 1;
+    console.log(
+      `  ~ relation/${patch.id}: ${holes.length} courtyard(s) punched out ${patch.name ?? ''}`,
+    );
+  }
   for (const patch of todo) {
     const rel = byId.get(patch.id);
     if (!rel) throw new Error(`relation ${patch.id} missing from Overpass response`);
     const ring = extractRing(rel);
+    const holes = extractHoles(rel);
     const entry = { id: `relation/${patch.id}`, footprint: ring, height: patch.height };
+    if (holes.length > 0) entry.holes = holes;
     if (patch.name) entry.name = patch.name;
     if (patch.umdCode) entry.umdCode = patch.umdCode;
     if (patch.levels != null) entry.levels = patch.levels;
     data.buildings.push(entry);
     changed += 1;
-    console.log(`  + relation/${patch.id} (${ring.length} nodes) ${patch.name ?? ''}`);
+    const holeNote = holes.length > 0 ? `, ${holes.length} courtyard(s)` : '';
+    console.log(`  + relation/${patch.id} (${ring.length} nodes${holeNote}) ${patch.name ?? ''}`);
   }
   data.featureCounts.buildings = data.buildings.length;
 }

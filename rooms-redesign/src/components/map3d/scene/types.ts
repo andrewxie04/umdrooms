@@ -8,6 +8,10 @@ export interface CampusBuilding {
   name?: string;
   /** [lng, lat] ring; NOT closed (first != last) in the baked data. */
   footprint: [number, number][];
+  /** Courtyard rings punched out of `footprint` (OSM multipolygon `inner`
+   * members), same [lng, lat] unclosed convention. Only produced by the
+   * relation patch script — the way-only bake never emits them. */
+  holes?: [number, number][][];
   /** Meters; mostly synthetic ~11m in the baked data. */
   height: number;
   levels?: number;

@@ -17,10 +17,12 @@ import * as THREE from 'three';
 import {
   centroidOf,
   extrudeFootprint,
+  extrudeWithHoles,
   hash01,
   mergeAll,
   outsetRing,
   ringToShapePoints,
+  scaleAbout,
   withColor,
 } from './geom-utils';
 import {
@@ -162,6 +164,20 @@ export function buildingMaxHeight(b: CampusBuilding): number {
   }
 }
 
+/** Courtyard rings (OSM multipolygon `inner` members) in shape space, CCW to
+ * match the outer ring — extrudeWithHoles reverses them internally. Degenerate
+ * rings are dropped so one bad hole can't sink the whole building. */
+function holeShapePoints(b: CampusBuilding, proj: Projection): THREE.Vector2[][] {
+  if (!b.holes?.length) return [];
+  const out: THREE.Vector2[][] = [];
+  for (const hole of b.holes) {
+    if (!hole || hole.length < 3) continue;
+    const pts = ringToShapePoints(hole, proj);
+    if (pts.length >= 3) out.push(pts);
+  }
+  return out;
+}
+
 function buildBuildings(data: CampusData, proj: Projection): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   for (const b of data.buildings) {
@@ -179,7 +195,14 @@ function buildBuildings(data: CampusData, proj: Projection): THREE.BufferGeometr
       }
       continue;
     }
-    parts.push(withColor(extrudeFootprint(pts, buildingBaseHeight(b)), buildingTint(b.id)));
+    // Courtyard buildings (relation multipolygons) extrude as a band so the
+    // inner yard stays open; everything else takes the plain solid path.
+    const holes = holeShapePoints(b, proj);
+    const solid =
+      holes.length > 0
+        ? extrudeWithHoles(pts, holes, buildingBaseHeight(b))
+        : extrudeFootprint(pts, buildingBaseHeight(b));
+    parts.push(withColor(solid, buildingTint(b.id)));
   }
   return mergeAll(parts);
 }
@@ -204,7 +227,14 @@ export function buildingSolidGeometry(
   const pts = ringToShapePoints(b.footprint, proj);
   if (pts.length < 3) return null;
   const shell = outsetRing(pts, HIGHLIGHT_OUTSET);
-  return extrudeFootprint(shell, buildingMaxHeight(b) + HIGHLIGHT_MARGIN);
+  const depth = buildingMaxHeight(b) + HIGHLIGHT_MARGIN;
+  // Courtyards stay punched out, but each hole is INSET by the same 0.5m
+  // (negative outset shrinks it) so the shell still clears the courtyard-
+  // facing facade instead of z-fighting it.
+  const holes = holeShapePoints(b, proj).map((h) => outsetRing(h, -HIGHLIGHT_OUTSET));
+  return holes.length > 0
+    ? extrudeWithHoles(shell, holes, depth)
+    : extrudeFootprint(shell, depth);
 }
 
 // ---------------------------------------------------------------------------
@@ -888,7 +918,16 @@ function buildContactShadows(data: CampusData, proj: Projection): THREE.BufferGe
           cy + (p.y - cy) * CONTACT_SHADOW_SCALE,
         ),
     );
-    const geom = new THREE.ShapeGeometry(new THREE.Shape(scaled), 1);
+    const shape = new THREE.Shape(scaled);
+    // Courtyards get no ground shadow — shrink each hole by the same 6% so
+    // the blob still spills inward from the courtyard-facing walls.
+    for (const hole of holeShapePoints(b, proj)) {
+      const { cx: hx, cy: hy } = centroidOf(hole);
+      shape.holes.push(
+        new THREE.Path([...scaleAbout(hole, hx, hy, 1 / CONTACT_SHADOW_SCALE)].reverse()),
+      );
+    }
+    const geom = new THREE.ShapeGeometry(shape, 1);
     geom.rotateX(-Math.PI / 2);
     geom.translate(0, CONTACT_SHADOW_Y, 0);
     const flat = geom.toNonIndexed();
