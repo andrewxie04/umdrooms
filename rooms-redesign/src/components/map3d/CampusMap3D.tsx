@@ -519,6 +519,15 @@ export default function CampusMap3D() {
       h.setTimeMode(mode);
     };
 
+    /** Schedule mode drives the environment: the sky, sun angle and every
+     * time-of-day easter egg follow the date/time the user picked, so
+     * planning for 9pm Tuesday shows a campus at night. Now mode hands the
+     * scene back to the live clock. */
+    const syncSolarTime = () => {
+      const s = useCampusStore.getState();
+      handleRef.current?.setSolarTime(s.viewMode === 'schedule' ? s.scheduleDate : null);
+    };
+
     /** UI theme follows the sun while darkModeAuto is on: push the scene's
      * effective darkness (sun elevation < -1°) back into the store. */
     const syncThemeFromSun = () => {
@@ -654,6 +663,10 @@ export default function CampusMap3D() {
         // instead of waiting up to 15s for the sunThemeTimer.
         if (s.darkModeAuto && !prev.darkModeAuto) syncThemeFromSun();
       }
+      if (s.viewMode !== prev.viewMode || s.scheduleDate !== prev.scheduleDate) {
+        syncSolarTime();
+        syncThemeFromSun(); // light/dark UI should track the scheduled hour too
+      }
       if (s.flyTo && s.flyTo !== prev.flyTo) {
         const t = s.flyTo;
         lastTargetRef.current = { lat: t.lat, lng: t.lng };
@@ -697,6 +710,7 @@ export default function CampusMap3D() {
         frameOffRef.current = h.onFrame(frame);
         setSceneState('ready');
         syncTimeMode();
+        syncSolarTime(); // honour a schedule chosen before the scene was ready
         syncThemeFromSun(); // snap the UI theme to the sun right away
         // Restore any deep-linked selection / pending fly that arrived while
         // the scene was still initializing.

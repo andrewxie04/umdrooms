@@ -120,6 +120,12 @@ export interface CampusSceneHandleV2 extends CampusSceneHandle {
   /** Current REAL solar elevation in degrees at the campus (negative = sun
    * below the horizon), independent of the active time mode. */
   getSunElevation(): number;
+  /** Drive the sky, sun angle and time-of-day eggs from a specific instant
+   * instead of the live clock — schedule mode shows the campus as it will
+   * look at the time the user picked. Pass null to follow the real clock
+   * again. Only affects 'auto' time mode; an explicit day/night toggle still
+   * wins, since that is a deliberate user choice. */
+  setSolarTime(date: Date | null): void;
   /** QA/telemetry snapshot of the current (post-damping) camera pose:
    * target offsets x/z in meters (east/south of campus center), distance in
    * meters, phi = polar angle from +y (radians), theta = bearing of the view
@@ -843,7 +849,13 @@ export async function createCampusScene(
   let timeMode: SceneTimeMode =
     opts.timeMode ?? (opts.darkMode ? 'force-night' : 'force-day');
 
-  let realSun = computeSunPosition(new Date());
+  /** When set, the sun (and every time-of-day easter egg) reads this instant
+   * instead of the wall clock. Schedule mode points it at the selected
+   * date/time so the environment matches what the user is planning for. */
+  let solarOverride: Date | null = null;
+  const solarNow = (): Date => solarOverride ?? new Date();
+
+  let realSun = computeSunPosition(solarNow());
   let solarTimer = SOLAR_RECOMPUTE_SECONDS; // recompute on the first frame too
   /** Effective elevation the palette/light actually follow: the real sun in
    * auto mode, an eased synthetic value in the forced modes. */
@@ -870,7 +882,7 @@ export async function createCampusScene(
     solarTimer += dt;
     if (timeMode === 'auto' && solarTimer >= SOLAR_RECOMPUTE_SECONDS) {
       solarTimer %= SOLAR_RECOMPUTE_SECONDS;
-      realSun = computeSunPosition(new Date());
+      realSun = computeSunPosition(solarNow());
     }
 
     // Ease the effective elevation toward its target. In auto mode the real
@@ -1028,6 +1040,7 @@ export async function createCampusScene(
     lampPoolMat,
     treesGeometry: geoms.trees,
     initialTimeMode: timeMode,
+    now: solarNow,
     markDirty: () => {
       needsRender = true;
     },
@@ -1094,10 +1107,29 @@ export async function createCampusScene(
     setTimeMode(mode: SceneTimeMode): void {
       timeMode = mode;
       if (mode === 'auto') {
-        // Resync with reality right away; the damp eases any difference.
-        realSun = computeSunPosition(new Date());
+        // Resync with the active solar clock right away; the damp eases any
+        // difference.
+        realSun = computeSunPosition(solarNow());
         solarTimer = 0;
       }
+    },
+
+    setSolarTime(date: Date | null): void {
+      const next = date && Number.isFinite(date.getTime()) ? date : null;
+      // Same instant to the minute? Nothing to do — schedule-mode pickers
+      // fire on every keystroke and this runs on each one.
+      const same =
+        (next === null && solarOverride === null) ||
+        (next !== null &&
+          solarOverride !== null &&
+          Math.floor(next.getTime() / 60000) === Math.floor(solarOverride.getTime() / 60000));
+      if (same) return;
+      solarOverride = next;
+      // Recompute immediately rather than waiting out the recompute interval,
+      // so the sky starts moving the moment the user changes the time.
+      realSun = computeSunPosition(solarNow());
+      solarTimer = 0;
+      needsRender = true;
     },
 
     getSunElevation(): number {

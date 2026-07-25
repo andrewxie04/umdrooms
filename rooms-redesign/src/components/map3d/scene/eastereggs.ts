@@ -72,6 +72,11 @@ export interface EasterEggsDeps {
   treesGeometry: THREE.BufferGeometry;
   /** Time mode in effect when the scene was created. */
   initialTimeMode: string;
+  /** The scene's solar clock — the wall clock normally, or the user's chosen
+   * instant in schedule mode. Every date-driven egg (2AM ambience, cherry
+   * blossoms, the last-day-of-classes swimmer) reads this so the whole
+   * environment agrees on "when" it is. */
+  now: () => Date;
   markDirty: () => void;
 }
 
@@ -890,6 +895,10 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
   let splashRing: THREE.Mesh | null = null;
   let splashT = 0; // seconds remaining in the splash animation
   let splashMat: THREE.MeshBasicMaterial | null = null;
+  let fountainSwimmer: THREE.Group | null = null;
+
+  const isLastDayOfClasses = (d: Date): boolean =>
+    LAST_DAY_OF_CLASSES.some(([m, day]) => d.getMonth() + 1 === m && d.getDate() === day);
 
   {
     // Locate the pool by centroid, same anchor the bake's AREA_WIDEN uses.
@@ -958,12 +967,10 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
       fountainGroup.add(splashRing);
       disposables.push(ringGeom, splashMat);
 
-      // Last day of classes: a swimmer is already in there.
-      const now = new Date();
-      const isLastDay = LAST_DAY_OF_CLASSES.some(
-        ([m, d]) => now.getMonth() + 1 === m && now.getDate() === d,
-      );
-      if (isLastDay) {
+      // Last day of classes: a swimmer is already in there. Built once but
+      // shown/hidden per frame off the solar clock, so scheduling that date
+      // brings them out instead of the decision being baked in at load.
+      {
         const skinMat = new THREE.MeshLambertMaterial({ color: 0xd8a37e });
         const shirtMat = new THREE.MeshLambertMaterial({ color: 0xe21833 }); // UMD red
         const swimmer = new THREE.Group();
@@ -985,7 +992,9 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
         }
         swimmer.position.set(best.cx, 0, best.cz);
         swimmer.rotation.y = 0.4;
+        swimmer.visible = false; // update() decides, from the solar clock
         fountainGroup.add(swimmer);
+        fountainSwimmer = swimmer;
         disposables.push(torso, headGeom, skinMat, shirtMat);
       }
 
@@ -1277,7 +1286,7 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
     const nowSecFloor = Math.floor(busNow);
     if (nowSecFloor !== lastCheckSec) {
       lastCheckSec = nowSecFloor;
-      const d = new Date();
+      const d = deps.now();
       const hour = d.getHours() + d.getMinutes() / 60;
       const inWindow = timeMode === 'auto' && hour >= 2 && hour < 5;
       stillTarget = inWindow ? 1 : 0;
@@ -1350,9 +1359,18 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
       dirty = true;
     }
 
+    // -- Fountain swimmer: present only on the last day of classes --
+    if (fountainSwimmer) {
+      const wantSwimmer = isLastDayOfClasses(deps.now());
+      if (fountainSwimmer.visible !== wantSwimmer) {
+        fountainSwimmer.visible = wantSwimmer;
+        dirty = true;
+      }
+    }
+
     // -- Cherry blossoms: ease toward the seasonal target --
     if (treeColorAttr) {
-      const bloomTarget = inBloomSeason(new Date()) ? 1 : 0;
+      const bloomTarget = inBloomSeason(deps.now()) ? 1 : 0;
       const prevBloom = bloomT;
       bloomT = THREE.MathUtils.damp(bloomT, bloomTarget, BLOOM_LAMBDA, dt);
       if (Math.abs(bloomT - bloomTarget) < 0.002) bloomT = bloomTarget;
