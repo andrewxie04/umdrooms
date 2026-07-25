@@ -55,6 +55,8 @@ export interface CampusGeometries {
    * of each array is the same lamp. */
   lampFlickerHeads: THREE.BufferGeometry[];
   lampFlickerGlow: THREE.BufferGeometry[];
+  /** Parallel to the two arrays: true = stutters only in the 2AM window. */
+  lampFlickerLate: boolean[];
   /** Merged lit-window facade quads (deterministic lit subset only, positions
    * only — no normals/uv/color); scene.ts drives the warm glow opacity. */
   windows: THREE.BufferGeometry;
@@ -577,6 +579,16 @@ const LAMP_POOL_Y = 0.45; // above roads (.4) so the pool never clips pavement
  * unison (a power cut, not a dying bulb). Poles still merge with the rest;
  * only the head and its ground pool are separated. */
 const LAMP_FLICKER_COUNT = 5;
+/** Extra lamps that stutter ONLY during the 2AM window — the campus visibly
+ * gets more decrepit in the small hours. Concentrated on McKeldin Mall, where
+ * you are actually looking. Steady the rest of the day. */
+const LAMP_FLICKER_LATE_COUNT = 14;
+/** McKeldin Mall in local metres (grass polygon centroid + padded half-span),
+ * measured from campus-data: centre (-7, 100), lawn spans x -163..207. */
+const MALL_X = -7;
+const MALL_Z = 100;
+const MALL_HALF_X = 230;
+const MALL_HALF_Z = 105;
 /** Restrict the stutterers to lamps near the campus core. `accepted` is sorted
  * by HASH, so simply striding it picks spatially random lamps — the first cut
  * put all five 660-1340m from the default view, i.e. permanently off-screen.
@@ -601,6 +613,8 @@ interface LampGeometries {
   flickerHeads: THREE.BufferGeometry[];
   /** Matching ground pools, one per flicker lamp (excluded from lampGlow). */
   flickerGlow: THREE.BufferGeometry[];
+  /** true = only stutters during the 2AM window; false = always. Parallel. */
+  flickerLate: boolean[];
   /** Indices into `points` that were held out — buildLampGlow skips these. */
   flickerIndices: Set<number>;
 }
@@ -683,32 +697,57 @@ function buildLamps(data: CampusData, proj: Projection): LampGeometries {
   accepted.sort((a, b) => a.h - b.h);
   if (accepted.length > LAMP_CAP) accepted.length = LAMP_CAP;
 
-  // Pick the stutterers from lamps near the campus core, then stride the
-  // candidate list (still hash-ordered, so the five land in different places
-  // rather than side by side on one path).
-  const flickerIdx = new Set<number>();
+  // Pick the stutterers. Two sets: a handful of permanently bad ballasts
+  // anywhere in the core, plus a larger Mall-heavy set that only stutters in
+  // the 2AM window. Both stride their hash-ordered candidate list, so picks
+  // land in different places rather than side by side on one path.
+  const lateByIdx = new Map<number, boolean>();
   {
     const core = proj.toLocal(LAMP_FLICKER_CORE_LNG, LAMP_FLICKER_CORE_LAT);
-    const candidates: number[] = [];
+    const mall: number[] = [];
+    const coreRest: number[] = [];
     accepted.forEach((p, i) => {
-      if (Math.hypot(p.x - core.x, p.z - core.z) < LAMP_FLICKER_CORE_RADIUS) candidates.push(i);
-    });
-    // Fall back to the whole campus if the core somehow has too few lamps.
-    const poolIdx =
-      candidates.length >= LAMP_FLICKER_COUNT ? candidates : accepted.map((_, i) => i);
-    if (poolIdx.length >= LAMP_FLICKER_COUNT) {
-      const stride = Math.floor(poolIdx.length / LAMP_FLICKER_COUNT);
-      for (let i = 0; i < LAMP_FLICKER_COUNT; i++) {
-        const offset = Math.floor(hash01(`lampflicker:${i}`) * stride) % stride;
-        flickerIdx.add(poolIdx[i * stride + offset]);
+      if (Math.abs(p.x - MALL_X) < MALL_HALF_X && Math.abs(p.z - MALL_Z) < MALL_HALF_Z) {
+        mall.push(i);
+      } else if (Math.hypot(p.x - core.x, p.z - core.z) < LAMP_FLICKER_CORE_RADIUS) {
+        coreRest.push(i);
       }
-    }
+    });
+
+    /** Takes `want` evenly-strided picks from `pool`, skipping anything
+     * already chosen. Returns how many it actually placed. */
+    const take = (pool: number[], want: number, late: boolean, salt: string): number => {
+      if (want <= 0 || pool.length === 0) return 0;
+      const stride = Math.max(1, Math.floor(pool.length / want));
+      let placed = 0;
+      for (let i = 0; i < want; i++) {
+        const offset = Math.floor(hash01(`${salt}:${i}`) * stride) % stride;
+        // Walk forward from the strided slot until an unused lamp turns up.
+        for (let probe = 0; probe < pool.length; probe++) {
+          const idx = pool[(i * stride + offset + probe) % pool.length];
+          if (lateByIdx.has(idx)) continue;
+          lateByIdx.set(idx, late);
+          placed += 1;
+          break;
+        }
+      }
+      return placed;
+    };
+
+    // Always-on: core-wide (excluding nothing — the Mall is fair game too).
+    const anywhere = coreRest.concat(mall);
+    take(anywhere, LAMP_FLICKER_COUNT, false, 'lampflicker');
+    // Late-night: Mall first, topped up from the rest of the core.
+    const placedMall = take(mall, LAMP_FLICKER_LATE_COUNT, true, 'lamplate');
+    take(coreRest, LAMP_FLICKER_LATE_COUNT - placedMall, true, 'lamplate2');
   }
+  const flickerIdx = new Set(lateByIdx.keys());
 
   const poleParts: THREE.BufferGeometry[] = [];
   const headParts: THREE.BufferGeometry[] = [];
   const flickerHeads: THREE.BufferGeometry[] = [];
   const flickerGlow: THREE.BufferGeometry[] = [];
+  const flickerLate: boolean[] = [];
   accepted.forEach((p, i) => {
     const pole = new THREE.CylinderGeometry(0.09, 0.14, LAMP_POLE_HEIGHT, 5);
     pole.translate(p.x, LAMP_POLE_HEIGHT / 2, p.z);
@@ -718,6 +757,7 @@ function buildLamps(data: CampusData, proj: Projection): LampGeometries {
     if (flickerIdx.has(i)) {
       flickerHeads.push(head);
       flickerGlow.push(lampGlowDisc(p));
+      flickerLate.push(lateByIdx.get(i) === true);
     } else {
       headParts.push(head);
     }
@@ -728,6 +768,7 @@ function buildLamps(data: CampusData, proj: Projection): LampGeometries {
     points: accepted,
     flickerHeads,
     flickerGlow,
+    flickerLate,
     flickerIndices: flickerIdx,
   };
 }
@@ -1025,6 +1066,7 @@ export function buildSceneGeometries(data: CampusData, proj: Projection): Campus
     lampGlow: buildLampGlow(lamps.points, lamps.flickerIndices),
     lampFlickerHeads: lamps.flickerHeads,
     lampFlickerGlow: lamps.flickerGlow,
+    lampFlickerLate: lamps.flickerLate,
     windows: buildWindows(data, proj),
     shrubs: buildShrubs(data, proj, lamps.points),
     parkedCars: buildParkedCars(data, proj),

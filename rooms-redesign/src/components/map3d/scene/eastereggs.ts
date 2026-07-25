@@ -86,6 +86,9 @@ export interface EasterEggsHandle {
    * re-render is needed. */
   update(dt: number): boolean;
   setTurtleMode(active: boolean): void;
+  /** 0..1 eased 2AM stillness. scene.ts uses it to bring the late-night
+   * flicker lamps in and out on exactly the same ramp as the dimming. */
+  getStillness(): number;
   /** Guarded hook called from the scene's time-mode setter (wrapped, never
    * modifying the other region). */
   setTimeMode(mode: string): void;
@@ -1444,5 +1447,5 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
     };
   };
 
-  return { update, setTurtleMode, setTimeMode, debug, dispose };
+  return { update, setTurtleMode, setTimeMode, getStillness: () => stillT, debug, dispose };
 }

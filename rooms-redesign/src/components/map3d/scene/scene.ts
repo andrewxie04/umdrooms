@@ -333,6 +333,8 @@ export async function createCampusScene(
     pool: THREE.Mesh;
     headMat: THREE.MeshLambertMaterial;
     poolMat: THREE.MeshBasicMaterial;
+    /** Only stutters during the 2AM window (the Mall-heavy late set). */
+    lateOnly: boolean;
     /** Per-lamp constants so no two stutter together. */
     period: number;
     phase: number;
@@ -365,6 +367,7 @@ export async function createCampusScene(
       pool,
       headMat,
       poolMat,
+      lateOnly: geoms.lampFlickerLate[i] === true,
       period: 8 + h('p') * 10, // a burst every 8–18s
       phase: h('ph'),
       // Stutter speed. Kept at 5–9 Hz deliberately: fast enough to read as a
@@ -1072,22 +1075,26 @@ export async function createCampusScene(
    * burst a fast square-ish wave drops the lamp to `depth`, which is what a
    * failing fixture actually looks like — not a sine wave.
    */
-  const updateLampFlicker = (nowSec: number): boolean => {
+  const updateLampFlicker = (nowSec: number, stillness: number): boolean => {
     if (flickerLamps.length === 0) return false;
     const baseIntensity = lampHeadMat.emissiveIntensity;
     const basePool = lampPoolMat.opacity;
     const lit = baseIntensity > LAMP_GLOW_EPS;
     let changed = false;
     for (const f of flickerLamps) {
+      // Late-set lamps fade their stutter in with the 2AM ramp, so the
+      // campus gets visibly more decrepit in the small hours and is perfectly
+      // steady by day. Always-on lamps ignore it.
+      const amount = f.lateOnly ? stillness : 1;
       let factor = 1;
-      if (lit) {
+      if (lit && amount > 0.01) {
         const t = (nowSec / f.period + f.phase) % 1;
         if (t < FLICKER_BURST_FRACTION) {
           const bt = t / FLICKER_BURST_FRACTION; // 0..1 through the burst
           // Envelope so the burst fades in/out instead of starting mid-stutter.
           const env = Math.sin(bt * Math.PI);
           const wave = Math.sin(bt * f.rate * Math.PI * 2);
-          if (wave < 0) factor = 1 - (1 - f.depth) * env;
+          if (wave < 0) factor = 1 - (1 - f.depth) * env * amount;
         }
       }
       const wantIntensity = baseIntensity * factor;
@@ -1115,7 +1122,7 @@ export async function createCampusScene(
   };
 
   updateTimeOfDay(0); // apply the initial palette + light before first render
-  updateLampFlicker(0);
+  updateLampFlicker(0, 0);
 
   // -- sizing ---------------------------------------------------------------------------
   let needsRender = true;
@@ -1185,7 +1192,7 @@ export async function createCampusScene(
     if (easterEggs.update(dt)) needsRender = true;
     // Flicker last: it reads the FINAL shared-lamp values as its baseline, so
     // the bad ballasts dim with everything else at 2AM instead of blazing on.
-    if (updateLampFlicker(nowMs / 1000)) needsRender = true;
+    if (updateLampFlicker(nowMs / 1000, easterEggs.getStillness())) needsRender = true;
 
     if (pulse.active) {
       const phase = ((nowMs - pulse.startMs) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
