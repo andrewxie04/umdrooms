@@ -973,3 +973,9 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
 
   setFavoritesOpen: (open) => set({ favoritesOpen: open }),
 }));
+
+// Dev-only QA hook: lets headless probes drive selections deterministically.
+// Stripped from production builds (import.meta.env.DEV is false there).
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__campusStore = useCampusStore;
+}

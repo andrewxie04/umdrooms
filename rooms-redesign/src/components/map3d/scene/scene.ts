@@ -55,6 +55,9 @@ const FLYTO_DURATION_MS = 1200;
 const PULSE_PERIOD_MS = 1600;
 const PULSE_COLOR = 0xe21833; // UMD red
 const PULSE_Y = 0.7;
+/** Parking-lot highlight plates float above the road tier (roads sit at 0.4)
+ * so road-covered parking lanes still show their highlight. */
+const PARKING_PLATE_Y = 0.45;
 /** Cap on the expanding pulse ring (meters) — past this it smears into a
  * huge red blob at high camera pitch instead of reading as a ring. */
 const PULSE_MAX_RADIUS = 28;
@@ -748,9 +751,9 @@ export async function createCampusScene(
 
   const setParkingHighlight = ({ name }: { name: string }): void => {
     clearParkingHighlight();
-    const targets = PARKING_HIGHLIGHT_TARGETS as Record<
+    const targets = PARKING_HIGHLIGHT_TARGETS as unknown as Record<
       string,
-      { buildingId?: string; areaIndices?: number[] }
+      { buildingId?: string; areaIndices?: number[]; connectors?: [number, number][][] }
     >;
     const target = targets[name];
     if (!target) return;
@@ -765,7 +768,22 @@ export async function createCampusScene(
         if (!area || area.kind !== 'parking' || area.polygon.length < 3) continue;
         const pts = ringToShapePoints(area.polygon, proj);
         if (pts.length < 3) continue;
-        parts.push(extrudeFootprint(outsetRing(pts, 0.3), 0.3));
+        // Lift the plate above ROAD_Y (0.4): lots mapped as road-side lanes
+        // (e.g. Lot 16's Fraternity Row inner crescent) have the road ribbon
+        // drawn OVER the parking polygon — a ground-level plate is hidden.
+        const plate = extrudeFootprint(outsetRing(pts, 0.3), 0.3);
+        plate.translate(0, PARKING_PLATE_Y, 0);
+        parts.push(plate);
+      }
+      // Hand-drawn connector rings that visually join fragmented polygons
+      // (driveway/intersection cuts). +0.02m avoids coplanar z-fighting
+      // with the main plates where they kiss.
+      for (const ring of target.connectors ?? []) {
+        const pts = ringToShapePoints(ring, proj);
+        if (pts.length < 3) continue;
+        const plate = extrudeFootprint(pts, 0.32);
+        plate.translate(0, PARKING_PLATE_Y + 0.02, 0);
+        parts.push(plate);
       }
       if (parts.length === 1) geom = parts[0];
       else if (parts.length > 1) geom = mergeAll(parts);

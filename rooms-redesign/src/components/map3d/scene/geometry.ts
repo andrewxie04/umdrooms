@@ -429,11 +429,11 @@ function buildTrees(data: CampusData, proj: Projection): THREE.BufferGeometry {
 const LAMP_SPACING = 28; // meters between samples along a line (denser for a warmer night)
 const LAMP_DEDUPE = 12; // meters — min distance between any two lamps
 const LAMP_CAP = 820;
-const LAMP_POLE_HEIGHT = 3.2;
-const LAMP_HEAD_Y = 3.28; // sphere center — overlaps the pole top slightly
+const LAMP_POLE_HEIGHT = 4.3; // ~1.35x — reads properly at campus zoom
+const LAMP_HEAD_Y = 4.42; // sphere center — overlaps the pole top slightly
 const LAMP_EDGE_OFFSET = 0.9; // meters beyond the ribbon half-width
 /** Warm ground-glow pool under each lamp (scene.ts textures + fades it). */
-const LAMP_POOL_RADIUS = 4.4;
+const LAMP_POOL_RADIUS = 5.4;
 const LAMP_POOL_Y = 0.45; // above roads (.4) so the pool never clips pavement
 
 interface LampPoint {
@@ -531,10 +531,10 @@ function buildLamps(data: CampusData, proj: Projection): LampGeometries {
   const poleParts: THREE.BufferGeometry[] = [];
   const headParts: THREE.BufferGeometry[] = [];
   for (const p of accepted) {
-    const pole = new THREE.CylinderGeometry(0.05, 0.08, LAMP_POLE_HEIGHT, 5);
+    const pole = new THREE.CylinderGeometry(0.07, 0.11, LAMP_POLE_HEIGHT, 5);
     pole.translate(p.x, LAMP_POLE_HEIGHT / 2, p.z);
     poleParts.push(pole);
-    const head = new THREE.SphereGeometry(0.22, 6, 5);
+    const head = new THREE.SphereGeometry(0.32, 6, 5);
     head.translate(p.x, LAMP_HEAD_Y, p.z);
     headParts.push(head);
   }
