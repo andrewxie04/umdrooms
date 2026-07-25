@@ -2,7 +2,8 @@
 //
 // Easter eggs — self-contained module wired into scene.ts through a narrow
 // hook region (one init call, one update call, one guarded time-mode wrapper,
-// dispose). Owns eight eggs:
+// dispose). Owns seven eggs (cherry blossom moved into seasons.ts, which now
+// owns the tree colour buffer outright):
 //
 //   1. TESTUDO STATUE — a small dark-bronze turtle statue on a plinth in front
 //      of McKeldin Library (Mall side). Clickable via a click-vs-drag
@@ -26,11 +27,7 @@
 //      splash ring and toasts. The pool lives inside the merged water mesh,
 //      so an invisible flat proxy carries the raycast. On the last day of
 //      classes a swimmer is already floating in it.
-//   7. CHERRY BLOSSOMS — late March through April the campus trees ease from
-//      green to blossom pink. Tree color is baked per-vertex and the mesh
-//      shares `flatMat`, so this lerps the color ATTRIBUTE (tinting the
-//      material would repaint the ground and buildings too).
-//   8. SQUIRRELS — 16 hash-placed eastern grays around the baked tree
+//   7. SQUIRRELS — 16 hash-placed eastern grays around the baked tree
 //      positions, dart-and-freeze: long stillness, quick 3.4 m/s sprints
 //      with a little hop, then frozen mid-stare again.
 //
@@ -66,10 +63,6 @@ export interface EasterEggsDeps {
   windowMat: THREE.MeshBasicMaterial;
   lampHeadMat: THREE.MeshLambertMaterial;
   lampPoolMat: THREE.MeshBasicMaterial;
-  /** Merged tree geometry. Tree color is baked per-vertex and the mesh shares
-   * `flatMat` with the ground/buildings/roads, so the bloom egg tints the
-   * color ATTRIBUTE rather than a material (which would repaint the campus). */
-  treesGeometry: THREE.BufferGeometry;
   /** Time mode in effect when the scene was created. */
   initialTimeMode: string;
   /** The scene's solar clock — the wall clock normally, or the user's chosen
@@ -149,14 +142,6 @@ const LAST_DAY_OF_CLASSES: [number, number][] = [
   [5, 12], // ~mid-May, spring
   [12, 8], // ~early Dec, fall
 ];
-
-// -- 7. CHERRY BLOSSOMS -----------------------------------------------------------
-/** Bloom window: late March through April (inclusive month/day pairs). */
-const BLOOM_START: [number, number] = [3, 20];
-const BLOOM_END: [number, number] = [4, 30];
-const BLOSSOM_COLOR = 0xf2b6cd; // pale cherry pink
-const BLOSSOM_MIX = 0.82; // how far tree greens lerp toward the pink
-const BLOOM_LAMBDA = 0.5; // ease rate, matches the 2AM feel
 
 // -- 8. SQUIRRELS -----------------------------------------------------------------
 const SQUIRREL_COUNT = 16;
@@ -1015,43 +1000,7 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
     mark();
   };
 
-  // == 7. CHERRY BLOSSOMS =========================================================
-  // Late March -> April the campus trees bloom. Tree color is baked into the
-  // merged geometry's vertex-color attribute and the mesh shares `flatMat`
-  // with the ground/buildings, so this lerps the ATTRIBUTE (a material tint
-  // would repaint half the campus). Original greens are kept so the ease can
-  // run both directions.
-  const treeColorAttr = deps.treesGeometry.getAttribute('color') as
-    | THREE.BufferAttribute
-    | undefined;
-  const treeBaseColors = treeColorAttr ? Float32Array.from(treeColorAttr.array) : null;
-  let bloomT = 0; // 0 = normal green, 1 = full bloom
-  let bloomApplied = -1; // last value written, so we only touch the GPU on change
-
-  const inBloomSeason = (now: Date): boolean => {
-    const m = now.getMonth() + 1;
-    const d = now.getDate();
-    const after = m > BLOOM_START[0] || (m === BLOOM_START[0] && d >= BLOOM_START[1]);
-    const before = m < BLOOM_END[0] || (m === BLOOM_END[0] && d <= BLOOM_END[1]);
-    return after && before;
-  };
-
-  const applyBloom = (t: number): void => {
-    if (!treeColorAttr || !treeBaseColors) return;
-    if (Math.abs(t - bloomApplied) < 0.004) return;
-    bloomApplied = t;
-    const arr = treeColorAttr.array as Float32Array;
-    const pink = scratchColor.set(BLOSSOM_COLOR);
-    const k = t * BLOSSOM_MIX;
-    for (let i = 0; i < arr.length; i += 3) {
-      arr[i] = treeBaseColors[i] + (pink.r - treeBaseColors[i]) * k;
-      arr[i + 1] = treeBaseColors[i + 1] + (pink.g - treeBaseColors[i + 1]) * k;
-      arr[i + 2] = treeBaseColors[i + 2] + (pink.b - treeBaseColors[i + 2]) * k;
-    }
-    treeColorAttr.needsUpdate = true;
-  };
-
-  // == 8. SQUIRRELS ===============================================================
+  // == 7. SQUIRRELS ===============================================================
   // Bold campus squirrels: dart-and-freeze around the baked tree positions.
   // One InstancedMesh, hash-seeded so the layout is stable across reloads.
   interface Squirrel {
@@ -1374,18 +1323,6 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
       }
     }
 
-    // -- Cherry blossoms: ease toward the seasonal target --
-    if (treeColorAttr) {
-      const bloomTarget = inBloomSeason(deps.now()) ? 1 : 0;
-      const prevBloom = bloomT;
-      bloomT = THREE.MathUtils.damp(bloomT, bloomTarget, BLOOM_LAMBDA, dt);
-      if (Math.abs(bloomT - bloomTarget) < 0.002) bloomT = bloomTarget;
-      if (bloomT !== prevBloom || bloomApplied < 0) {
-        applyBloom(bloomT);
-        dirty = true;
-      }
-    }
-
     // -- Squirrels: dart and freeze --
     if (updateSquirrels(dt, busNow)) dirty = true;
 
@@ -1410,12 +1347,6 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
     if (squirrelMesh) {
       scene.remove(squirrelMesh);
       squirrelMesh.dispose();
-    }
-    // The trees geometry is owned by geometry.ts, not us — hand back the
-    // original greens so a re-init doesn't start from bloomed colors.
-    if (treeColorAttr && treeBaseColors) {
-      (treeColorAttr.array as Float32Array).set(treeBaseColors);
-      treeColorAttr.needsUpdate = true;
     }
     // Shared geometries/materials (statue parts, duck parts, bus, stop
     // geom/mat) were each pushed once — dispose them all here.

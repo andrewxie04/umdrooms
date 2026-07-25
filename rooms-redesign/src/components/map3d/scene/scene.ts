@@ -17,6 +17,7 @@ import { buildSceneGeometries, buildingSolidGeometry } from './geometry';
 import { extrudeFootprint, mergeAll, outsetRing, ringToShapePoints } from './geom-utils';
 import { buildDrivingCarGeometry } from './cars';
 import { initEasterEggs } from './eastereggs';
+import { createSeasons } from './seasons';
 import { PaletteController } from './palette';
 import { createProjection } from './projection';
 import type { CampusData, CampusSceneHandle } from './types';
@@ -1157,12 +1158,20 @@ export async function createCampusScene(
     windowMat,
     lampHeadMat,
     lampPoolMat,
-    treesGeometry: geoms.trees,
     initialTimeMode: timeMode,
     now: solarNow,
     markDirty: () => {
       needsRender = true;
     },
+  });
+
+  // Seasons: repaints foliage + lawns from the solar clock. Owns the tree and
+  // area colour attributes outright (cherry blossom used to be an egg writing
+  // the same buffer — two writers would have fought every frame).
+  const seasons = createSeasons({
+    treesGeometry: geoms.trees,
+    areasGeometry: geoms.areas,
+    now: solarNow,
   });
 
   // -- render loop ------------------------------------------------------------------------
@@ -1193,6 +1202,7 @@ export async function createCampusScene(
     // Flicker last: it reads the FINAL shared-lamp values as its baseline, so
     // the bad ballasts dim with everything else at 2AM instead of blazing on.
     if (updateLampFlicker(nowMs / 1000, easterEggs.getStillness())) needsRender = true;
+    if (seasons.update(dt)) needsRender = true;
 
     if (pulse.active) {
       const phase = ((nowMs - pulse.startMs) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
@@ -1350,6 +1360,7 @@ export async function createCampusScene(
       controls.dispose();
       frameCallbacks.clear();
       easterEggs.dispose(); // restores car geometry/count before disposal below
+      seasons.dispose(); // hands the baked foliage/lawn colours back
       delete (window as unknown as Record<string, unknown>).__campusScene;
       delete (window as unknown as Record<string, unknown>).__campusEggs;
       // InstancedMesh instance buffers aren't covered by geometry/material

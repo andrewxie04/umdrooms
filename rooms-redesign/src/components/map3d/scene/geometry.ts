@@ -88,7 +88,7 @@ const MIN_ROAD_WIDTH = 2.4; // meters — keeps paths legible from 2km out
 const MIN_WATERWAY_WIDTH = 2; // meters — legibility floor for ditches/drains
 
 // Phase 3 de-beige pass: clearly separated hues, still warm + low saturation.
-const COLORS = {
+export const COLORS = {
   building: new THREE.Color(0xf8f4ea), // bright warm off-white (per-building hue+lightness jitter)
   road: new THREE.Color(0x9d9c96), // cooler grays, less tan
   service: new THREE.Color(0xb1b0a8),
@@ -539,17 +539,29 @@ const TREE_SCALE = 1.8; // campus-wide enlargement (canopy radius AND height)
 
 function buildTrees(data: CampusData, proj: Projection): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
+  /** Per-vertex seed, constant within a tree — seasons.ts uses it so autumn
+   * turns each tree a slightly different gold/red instead of repainting the
+   * whole campus one flat orange. Both cones of a tree share the value. */
+  const seeds: number[] = [];
   data.trees.forEach(([lng, lat], i) => {
     const p = proj.toLocal(lng, lat);
     const s = (0.85 + 0.3 * hash01(`tree:${i}`)) * TREE_SCALE;
+    const seed = hash01(`tree:${i}:season`);
     const lower = new THREE.ConeGeometry(2.6 * s, 5.5 * s, 6);
     lower.translate(p.x, 2.75 * s, p.z);
-    parts.push(withColor(lower, COLORS.tree));
+    const lowerColored = withColor(lower, COLORS.tree);
+    parts.push(lowerColored);
     const upper = new THREE.ConeGeometry(1.7 * s, 3.6 * s, 6);
     upper.translate(p.x, 5.6 * s, p.z);
-    parts.push(withColor(upper, COLORS.treeTop));
+    const upperColored = withColor(upper, COLORS.treeTop);
+    parts.push(upperColored);
+    const n =
+      lowerColored.getAttribute('position').count + upperColored.getAttribute('position').count;
+    for (let k = 0; k < n; k++) seeds.push(seed);
   });
-  return mergeAll(parts);
+  const merged = mergeAll(parts);
+  merged.setAttribute('seasonSeed', new THREE.BufferAttribute(new Float32Array(seeds), 1));
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
