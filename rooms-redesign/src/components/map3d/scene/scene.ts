@@ -1026,6 +1026,7 @@ export async function createCampusScene(
     windowMat,
     lampHeadMat,
     lampPoolMat,
+    treesGeometry: geoms.trees,
     initialTimeMode: timeMode,
     markDirty: () => {
       needsRender = true;

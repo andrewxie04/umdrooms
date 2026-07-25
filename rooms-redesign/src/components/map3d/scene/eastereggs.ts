@@ -2,7 +2,7 @@
 //
 // Easter eggs — self-contained module wired into scene.ts through a narrow
 // hook region (one init call, one update call, one guarded time-mode wrapper,
-// dispose). Owns five eggs:
+// dispose). Owns eight eggs:
 //
 //   1. TESTUDO STATUE — a small dark-bronze turtle statue on a plinth in front
 //      of McKeldin Library (Mall side). Clickable via a click-vs-drag
@@ -22,6 +22,17 @@
 //      02:00–05:00, lit windows drop to ~12%, lamp glow to ~25%, the driving
 //      fleet collapses to one lone car, the duck sleeps, and Testudo's nose
 //      keeps a faint permanent glow. All eased (damp), never snapped.
+//   6. ODK FOUNTAIN — clicking the McKeldin Mall pool throws an expanding
+//      splash ring and toasts. The pool lives inside the merged water mesh,
+//      so an invisible flat proxy carries the raycast. On the last day of
+//      classes a swimmer is already floating in it.
+//   7. CHERRY BLOSSOMS — late March through April the campus trees ease from
+//      green to blossom pink. Tree color is baked per-vertex and the mesh
+//      shares `flatMat`, so this lerps the color ATTRIBUTE (tinting the
+//      material would repaint the ground and buildings too).
+//   8. SQUIRRELS — 16 hash-placed eastern grays around the baked tree
+//      positions, dart-and-freeze: long stillness, quick 3.4 m/s sprints
+//      with a little hop, then frozen mid-stare again.
 //
 // Constraints honored: deterministic placement (hash-seeded), clean dispose,
 // zero per-frame allocations (module-level scratch objects), no effect on day
@@ -31,7 +42,7 @@
 import * as THREE from 'three';
 import type { Projection } from './projection';
 import type { CampusData } from './types';
-import { buildBusGeometry, buildDrivingTurtleGeometry } from './cars';
+import { buildBusGeometry, buildDrivingTurtleGeometry, buildSquirrelGeometry } from './cars';
 
 /** Minimal view of scene.ts's internal DriveCar — only what the eggs touch.
  * The runtime objects carry more (route/s/dir); the optional fields below are
@@ -55,6 +66,10 @@ export interface EasterEggsDeps {
   windowMat: THREE.MeshBasicMaterial;
   lampHeadMat: THREE.MeshLambertMaterial;
   lampPoolMat: THREE.MeshBasicMaterial;
+  /** Merged tree geometry. Tree color is baked per-vertex and the mesh shares
+   * `flatMat` with the ground/buildings/roads, so the bloom egg tints the
+   * color ATTRIBUTE rather than a material (which would repaint the campus). */
+  treesGeometry: THREE.BufferGeometry;
   /** Time mode in effect when the scene was created. */
   initialTimeMode: string;
   markDirty: () => void;
@@ -104,6 +119,42 @@ const BUS_STOP_FRACTIONS = [0.12, 0.37, 0.62, 0.87];
 
 const TURTLE_MODE_SECONDS = 60;
 const TURTLE_SPEED = 0.5;
+
+// -- 6. ODK FOUNTAIN --------------------------------------------------------------
+/** The McKeldin Mall reflecting pool, matched by centroid (areas carry no
+ * ids). Same anchor the bake's AREA_WIDEN entry uses. */
+const FOUNTAIN_LAT = 38.98599;
+const FOUNTAIN_LNG = -76.94186;
+const FOUNTAIN_MATCH_RADIUS = 25; // meters
+const SPLASH_SECONDS = 1.5;
+const SPLASH_MAX_RADIUS = 9; // meters — the ring's outer edge at full spread
+/** Approximate last day of classes (month, day) — fall and spring. UMD shifts
+ * these a few days year to year; being a day off just means the swimmer shows
+ * up on the wrong Tuesday, which is a very on-brand failure mode. */
+const LAST_DAY_OF_CLASSES: [number, number][] = [
+  [5, 12], // ~mid-May, spring
+  [12, 8], // ~early Dec, fall
+];
+
+// -- 7. CHERRY BLOSSOMS -----------------------------------------------------------
+/** Bloom window: late March through April (inclusive month/day pairs). */
+const BLOOM_START: [number, number] = [3, 20];
+const BLOOM_END: [number, number] = [4, 30];
+const BLOSSOM_COLOR = 0xf2b6cd; // pale cherry pink
+const BLOSSOM_MIX = 0.82; // how far tree greens lerp toward the pink
+const BLOOM_LAMBDA = 0.5; // ease rate, matches the 2AM feel
+
+// -- 8. SQUIRRELS -----------------------------------------------------------------
+const SQUIRREL_COUNT = 16;
+const SQUIRREL_SCALE = 1.6; // stylized upscale, same reasoning as the cars
+/** Dart-and-freeze: they hold still far longer than they move. */
+const SQUIRREL_FREEZE_MIN = 2.2;
+const SQUIRREL_FREEZE_MAX = 7.0;
+const SQUIRREL_DART_SPEED = 3.4; // m/s — genuinely quick
+const SQUIRREL_ROAM_RADIUS = 7; // meters from its home tree
+const SQUIRREL_TURN_RATE = 14; // rad/s toward the dart heading
+const SQUIRREL_HOP_HZ = 3.2; // little vertical bounce while darting
+const SQUIRREL_HOP_AMP = 0.09;
 
 const TWOAM_WINDOW_FACTOR = 0.12; // lit-window opacity floor
 const TWOAM_LAMP_FACTOR = 0.25; // lamp head/pool/headlight factor
@@ -378,11 +429,17 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
       -(((e.clientY - rect.top) / rect.height) * 2 - 1),
     );
     raycaster.setFromCamera(scratchNdc, camera);
-    const hits = raycaster.intersectObject(statue, true);
-    if (hits.length === 0) return;
-    nosePulseT = NOSE_PULSE_SECONDS;
-    window.dispatchEvent(new CustomEvent('umd-easteregg', { detail: { kind: 'testudo' } }));
-    mark();
+    if (raycaster.intersectObject(statue, true).length > 0) {
+      nosePulseT = NOSE_PULSE_SECONDS;
+      window.dispatchEvent(new CustomEvent('umd-easteregg', { detail: { kind: 'testudo' } }));
+      mark();
+      return;
+    }
+    // Fountain proxy is a flat, fully transparent plane over the Mall pool.
+    // Tested second so the statue always wins if they ever overlap on screen.
+    if (fountainProxy && raycaster.intersectObject(fountainProxy, false).length > 0) {
+      triggerSplash();
+    }
   };
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointerup', onPointerUp);
@@ -770,6 +827,278 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
   // origin; 0.56 keeps the waterline exactly where the 2.5x duck had it.
   const duckBaseY = 0.56;
 
+  // == 6. ODK FOUNTAIN ============================================================
+  // Click the McKeldin Mall pool -> an expanding splash ring + toast. The pool
+  // is one polygon inside the merged `water` mesh, so it gets an invisible
+  // flat proxy for the raycast rather than trying to hit-test the merge.
+  // On the last day of classes someone has already beaten you to it.
+  const fountainGroup = new THREE.Group();
+  let fountainProxy: THREE.Mesh | null = null;
+  let splashRing: THREE.Mesh | null = null;
+  let splashT = 0; // seconds remaining in the splash animation
+  let splashMat: THREE.MeshBasicMaterial | null = null;
+
+  {
+    // Locate the pool by centroid, same anchor the bake's AREA_WIDEN uses.
+    const target = proj.toLocal(FOUNTAIN_LNG, FOUNTAIN_LAT);
+    let best: { cx: number; cz: number; halfX: number; halfZ: number } | null = null;
+    let bestD = FOUNTAIN_MATCH_RADIUS;
+    for (const area of data.areas) {
+      if (area.kind !== 'water' && area.kind !== 'fountain') continue;
+      const poly = area.polygon;
+      if (!poly || poly.length < 3) continue;
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const [lng, lat] of poly) {
+        const p = proj.toLocal(lng, lat);
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.z < minZ) minZ = p.z;
+        if (p.z > maxZ) maxZ = p.z;
+      }
+      const cx = (minX + maxX) / 2;
+      const cz = (minZ + maxZ) / 2;
+      const d = Math.hypot(cx - target.x, cz - target.z);
+      if (d < bestD) {
+        bestD = d;
+        best = { cx, cz, halfX: (maxX - minX) / 2, halfZ: (maxZ - minZ) / 2 };
+      }
+    }
+
+    if (best) {
+      // Invisible click target. Kept `visible` (raycaster skips hidden
+      // objects) but fully transparent and depth-neutral, and padded so the
+      // thin pool is still comfortably tappable on a phone.
+      const padX = Math.max(best.halfX * 2 + 4, 8);
+      const padZ = Math.max(best.halfZ * 2 + 4, 8);
+      const proxyMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+      });
+      const proxyGeom = new THREE.PlaneGeometry(padX, padZ);
+      proxyGeom.rotateX(-Math.PI / 2);
+      fountainProxy = new THREE.Mesh(proxyGeom, proxyMat);
+      fountainProxy.position.set(best.cx, 0.2, best.cz);
+      fountainProxy.renderOrder = -1;
+      fountainGroup.add(fountainProxy);
+      disposables.push(proxyGeom, proxyMat);
+
+      // Splash ring — expands and fades, same idea as the selection pulse.
+      splashMat = new THREE.MeshBasicMaterial({
+        color: 0xdff1fb,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        fog: false,
+      });
+      const ringGeom = new THREE.RingGeometry(0.72, 1, 40);
+      ringGeom.rotateX(-Math.PI / 2);
+      splashRing = new THREE.Mesh(ringGeom, splashMat);
+      splashRing.position.set(best.cx, 0.24, best.cz);
+      splashRing.visible = false;
+      splashRing.renderOrder = 3;
+      fountainGroup.add(splashRing);
+      disposables.push(ringGeom, splashMat);
+
+      // Last day of classes: a swimmer is already in there.
+      const now = new Date();
+      const isLastDay = LAST_DAY_OF_CLASSES.some(
+        ([m, d]) => now.getMonth() + 1 === m && now.getDate() === d,
+      );
+      if (isLastDay) {
+        const skinMat = new THREE.MeshLambertMaterial({ color: 0xd8a37e });
+        const shirtMat = new THREE.MeshLambertMaterial({ color: 0xe21833 }); // UMD red
+        const swimmer = new THREE.Group();
+        const torso = new THREE.CapsuleGeometry(0.34, 0.7, 4, 8);
+        torso.rotateX(Math.PI / 2); // lying back in the water
+        const torsoMesh = new THREE.Mesh(torso, shirtMat);
+        torsoMesh.position.set(0, 0.42, 0);
+        const headGeom = new THREE.SphereGeometry(0.28, 10, 8);
+        const headMesh = new THREE.Mesh(headGeom, skinMat);
+        headMesh.position.set(0, 0.52, 0.72);
+        swimmer.add(torsoMesh, headMesh);
+        for (const sx of [-1, 1]) {
+          const armGeom = new THREE.CapsuleGeometry(0.13, 0.62, 4, 6);
+          armGeom.rotateZ(Math.PI / 2);
+          const arm = new THREE.Mesh(armGeom, skinMat);
+          arm.position.set(sx * 0.56, 0.42, 0.12);
+          swimmer.add(arm);
+          disposables.push(armGeom);
+        }
+        swimmer.position.set(best.cx, 0, best.cz);
+        swimmer.rotation.y = 0.4;
+        fountainGroup.add(swimmer);
+        disposables.push(torso, headGeom, skinMat, shirtMat);
+      }
+
+      scene.add(fountainGroup);
+    }
+  }
+
+  /** Fires the splash + toast. Exposed so the pointer handler stays thin. */
+  const triggerSplash = (): void => {
+    splashT = SPLASH_SECONDS;
+    window.dispatchEvent(new CustomEvent('umd-easteregg', { detail: { kind: 'fountain' } }));
+    mark();
+  };
+
+  // == 7. CHERRY BLOSSOMS =========================================================
+  // Late March -> April the campus trees bloom. Tree color is baked into the
+  // merged geometry's vertex-color attribute and the mesh shares `flatMat`
+  // with the ground/buildings, so this lerps the ATTRIBUTE (a material tint
+  // would repaint half the campus). Original greens are kept so the ease can
+  // run both directions.
+  const treeColorAttr = deps.treesGeometry.getAttribute('color') as
+    | THREE.BufferAttribute
+    | undefined;
+  const treeBaseColors = treeColorAttr ? Float32Array.from(treeColorAttr.array) : null;
+  let bloomT = 0; // 0 = normal green, 1 = full bloom
+  let bloomApplied = -1; // last value written, so we only touch the GPU on change
+
+  const inBloomSeason = (now: Date): boolean => {
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+    const after = m > BLOOM_START[0] || (m === BLOOM_START[0] && d >= BLOOM_START[1]);
+    const before = m < BLOOM_END[0] || (m === BLOOM_END[0] && d <= BLOOM_END[1]);
+    return after && before;
+  };
+
+  const applyBloom = (t: number): void => {
+    if (!treeColorAttr || !treeBaseColors) return;
+    if (Math.abs(t - bloomApplied) < 0.004) return;
+    bloomApplied = t;
+    const arr = treeColorAttr.array as Float32Array;
+    const pink = scratchColor.set(BLOSSOM_COLOR);
+    const k = t * BLOSSOM_MIX;
+    for (let i = 0; i < arr.length; i += 3) {
+      arr[i] = treeBaseColors[i] + (pink.r - treeBaseColors[i]) * k;
+      arr[i + 1] = treeBaseColors[i + 1] + (pink.g - treeBaseColors[i + 1]) * k;
+      arr[i + 2] = treeBaseColors[i + 2] + (pink.b - treeBaseColors[i + 2]) * k;
+    }
+    treeColorAttr.needsUpdate = true;
+  };
+
+  // == 8. SQUIRRELS ===============================================================
+  // Bold campus squirrels: dart-and-freeze around the baked tree positions.
+  // One InstancedMesh, hash-seeded so the layout is stable across reloads.
+  interface Squirrel {
+    homeX: number;
+    homeZ: number;
+    x: number;
+    z: number;
+    targetX: number;
+    targetZ: number;
+    heading: number;
+    /** Seconds left frozen; <= 0 means it is darting. */
+    freezeT: number;
+    hopPhase: number;
+    seed: string;
+  }
+
+  const squirrels: Squirrel[] = [];
+  let squirrelMesh: THREE.InstancedMesh | null = null;
+
+  {
+    const treePts = (data.trees ?? [])
+      .map(([lng, lat]) => proj.toLocal(lng, lat))
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.z));
+    if (treePts.length > 0) {
+      const geom = buildSquirrelGeometry();
+      const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+      squirrelMesh = new THREE.InstancedMesh(geom, mat, SQUIRREL_COUNT);
+      squirrelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      squirrelMesh.castShadow = true;
+      squirrelMesh.frustumCulled = false; // instances move well outside the source bbox
+      disposables.push(geom, mat);
+
+      for (let i = 0; i < SQUIRREL_COUNT; i++) {
+        const seed = `squirrel:${i}`;
+        // Spread across distinct trees where possible.
+        const home = treePts[Math.floor(hash01(`${seed}:tree`) * treePts.length) % treePts.length];
+        const a = hash01(`${seed}:a`) * Math.PI * 2;
+        const r = 1.5 + hash01(`${seed}:r`) * (SQUIRREL_ROAM_RADIUS - 1.5);
+        const x = home.x + Math.cos(a) * r;
+        const z = home.z + Math.sin(a) * r;
+        squirrels.push({
+          homeX: home.x,
+          homeZ: home.z,
+          x,
+          z,
+          targetX: x,
+          targetZ: z,
+          heading: hash01(`${seed}:h`) * Math.PI * 2,
+          // Stagger the first move so they don't all bolt on frame one.
+          freezeT: SQUIRREL_FREEZE_MIN + hash01(`${seed}:f`) * SQUIRREL_FREEZE_MAX,
+          hopPhase: hash01(`${seed}:p`) * Math.PI * 2,
+          seed,
+        });
+      }
+      scene.add(squirrelMesh);
+    }
+  }
+
+  /** Picks the next dart destination within the squirrel's home radius. */
+  let squirrelTick = 0;
+  const retargetSquirrel = (s: Squirrel): void => {
+    squirrelTick += 1;
+    const a = hash01(`${s.seed}:ta:${squirrelTick}`) * Math.PI * 2;
+    const r = 1.2 + hash01(`${s.seed}:tr:${squirrelTick}`) * (SQUIRREL_ROAM_RADIUS - 1.2);
+    s.targetX = s.homeX + Math.cos(a) * r;
+    s.targetZ = s.homeZ + Math.sin(a) * r;
+  };
+
+  const updateSquirrels = (dt: number, nowSec: number): boolean => {
+    if (!squirrelMesh || squirrels.length === 0) return false;
+    let moved = false;
+    for (let i = 0; i < squirrels.length; i++) {
+      const s = squirrels[i];
+      let hop = 0;
+      if (s.freezeT > 0) {
+        // Frozen: hold the pose, no matrix write needed beyond the first.
+        s.freezeT -= dt;
+        if (s.freezeT <= 0) retargetSquirrel(s);
+      } else {
+        const dx = s.targetX - s.x;
+        const dz = s.targetZ - s.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 0.15) {
+          // Arrived — freeze and stare at nothing for a while.
+          squirrelTick += 1;
+          s.freezeT =
+            SQUIRREL_FREEZE_MIN +
+            hash01(`${s.seed}:fz:${squirrelTick}`) * (SQUIRREL_FREEZE_MAX - SQUIRREL_FREEZE_MIN);
+        } else {
+          const step = Math.min(SQUIRREL_DART_SPEED * dt, dist);
+          s.x += (dx / dist) * step;
+          s.z += (dz / dist) * step;
+          // Turn toward travel; squirrel forward is +z.
+          const want = Math.atan2(dx, dz);
+          let delta = ((want - s.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+          const maxTurn = SQUIRREL_TURN_RATE * dt;
+          delta = THREE.MathUtils.clamp(delta, -maxTurn, maxTurn);
+          s.heading += delta;
+          hop = Math.abs(Math.sin(nowSec * Math.PI * 2 * SQUIRREL_HOP_HZ + s.hopPhase)) *
+            SQUIRREL_HOP_AMP;
+          moved = true;
+        }
+      }
+      scratchV3.set(s.x, hop, s.z);
+      scratchQuat.setFromAxisAngle(scratchYAxis, s.heading);
+      scratchScale.set(SQUIRREL_SCALE, SQUIRREL_SCALE, SQUIRREL_SCALE);
+      scratchM4.compose(scratchV3, scratchQuat, scratchScale);
+      squirrelMesh.setMatrixAt(i, scratchM4);
+    }
+    squirrelMesh.instanceMatrix.needsUpdate = true;
+    return moved;
+  };
+
+  updateSquirrels(0, 0); // place them before the first render
+
   // == update =====================================================================
   const update = (dt: number): boolean => {
     dirty = false;
@@ -913,6 +1242,34 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
       }
     }
 
+    // -- Fountain splash: ring expands outward while fading out --
+    if (splashT > 0 && splashRing && splashMat) {
+      splashT = Math.max(0, splashT - dt);
+      const phase = 1 - splashT / SPLASH_SECONDS; // 0 -> 1
+      // Ease-out so it leaps then settles, like a real splash ring.
+      const spread = 1 - Math.pow(1 - phase, 3);
+      const radius = 0.6 + spread * SPLASH_MAX_RADIUS;
+      splashRing.scale.set(radius, 1, radius);
+      splashMat.opacity = (1 - phase) * 0.85;
+      splashRing.visible = splashT > 0;
+      dirty = true;
+    }
+
+    // -- Cherry blossoms: ease toward the seasonal target --
+    if (treeColorAttr) {
+      const bloomTarget = inBloomSeason(new Date()) ? 1 : 0;
+      const prevBloom = bloomT;
+      bloomT = THREE.MathUtils.damp(bloomT, bloomTarget, BLOOM_LAMBDA, dt);
+      if (Math.abs(bloomT - bloomTarget) < 0.002) bloomT = bloomTarget;
+      if (bloomT !== prevBloom || bloomApplied < 0) {
+        applyBloom(bloomT);
+        dirty = true;
+      }
+    }
+
+    // -- Squirrels: dart and freeze --
+    if (updateSquirrels(dt, busNow)) dirty = true;
+
     if (dirty) deps.markDirty();
     return dirty;
   };
@@ -930,6 +1287,17 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
     scene.remove(duck);
     if (bus) scene.remove(bus);
     scene.remove(busStopGroup);
+    scene.remove(fountainGroup);
+    if (squirrelMesh) {
+      scene.remove(squirrelMesh);
+      squirrelMesh.dispose();
+    }
+    // The trees geometry is owned by geometry.ts, not us — hand back the
+    // original greens so a re-init doesn't start from bloomed colors.
+    if (treeColorAttr && treeBaseColors) {
+      (treeColorAttr.array as Float32Array).set(treeBaseColors);
+      treeColorAttr.needsUpdate = true;
+    }
     // Shared geometries/materials (statue parts, duck parts, bus, stop
     // geom/mat) were each pushed once — dispose them all here.
     for (const d of disposables) d.dispose();

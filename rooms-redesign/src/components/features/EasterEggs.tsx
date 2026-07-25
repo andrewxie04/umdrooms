@@ -62,6 +62,11 @@ export default function EasterEggs() {
       if (kind === 'testudo') {
         toast('🐢 You rubbed Testudo’s nose — good luck!');
       }
+      if (kind === 'fountain') {
+        toast('💦 Into the ODK fountain you go!', {
+          description: 'A time-honored end-of-semester tradition.',
+        });
+      }
     };
 
     window.addEventListener('keydown', onKeyDown);

@@ -423,3 +423,84 @@ export function buildDrivingTurtleGeometry(): THREE.BufferGeometry {
 
   return mergeGeometries(parts, false) ?? new THREE.BufferGeometry();
 }
+
+/**
+ * Instance-source geometry for the campus squirrels (eastereggs.ts): an
+ * eastern gray sitting up on its haunches — the pose they hold while frozen
+ * mid-stare. Forward = +z, base at y = 0, same convention as the cars.
+ *
+ * Deliberately upscaled like the driving cars: a real squirrel is ~25cm and
+ * would be sub-pixel at browsing zooms. This one is ~1.1m nose to tail, which
+ * still reads as small next to a 4.4m car.
+ */
+export function buildSquirrelGeometry(): THREE.BufferGeometry {
+  const fur = new THREE.Color(0x8f8a80); // eastern gray
+  const belly = new THREE.Color(0xbdb7ad);
+  const tailFur = new THREE.Color(0x9c968b); // a shade lighter so it catches sun
+  const eye = new THREE.Color(0x17161a);
+
+  const parts: THREE.BufferGeometry[] = [];
+
+  // Haunched body: an egg leaning back on its hind legs.
+  const body = new THREE.SphereGeometry(0.26, 9, 7);
+  body.scale(0.82, 1.12, 0.92);
+  body.translate(0, 0.28, 0);
+  parts.push(withColor(body, fur));
+
+  // Pale chest patch, proud of the body so it still reads at a distance.
+  const chest = new THREE.SphereGeometry(0.17, 8, 6);
+  chest.scale(0.72, 0.98, 0.6);
+  chest.translate(0, 0.29, 0.17);
+  parts.push(withColor(chest, belly));
+
+  // Head + muzzle.
+  const head = new THREE.SphereGeometry(0.17, 9, 7);
+  head.scale(0.92, 0.94, 1);
+  head.translate(0, 0.56, 0.09);
+  parts.push(withColor(head, fur));
+  const muzzle = new THREE.SphereGeometry(0.09, 7, 5);
+  muzzle.scale(0.85, 0.7, 1.05);
+  muzzle.translate(0, 0.52, 0.22);
+  parts.push(withColor(muzzle, belly));
+
+  // Ears + eyes.
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.ConeGeometry(0.055, 0.13, 5);
+    ear.translate(sx * 0.095, 0.7, 0.05);
+    parts.push(withColor(ear, fur));
+    const e = new THREE.SphereGeometry(0.035, 5, 4);
+    e.translate(sx * 0.085, 0.58, 0.2);
+    parts.push(withColor(e, eye));
+  }
+
+  // The tail carries the whole silhouette: a question-mark plume that starts
+  // tucked into the hip, bulges backward, then curls up and forward over the
+  // back. Explicit centers (not a circle) so it reads as a real squirrel S —
+  // and every consecutive pair OVERLAPS, otherwise the plume renders as a
+  // string of detached orbs floating behind the body.
+  for (const { y, z, r } of [
+    { y: 0.22, z: -0.18, r: 0.11 }, // buried in the rump
+    { y: 0.38, z: -0.33, r: 0.14 },
+    { y: 0.56, z: -0.42, r: 0.17 }, // widest part of the bulge
+    { y: 0.75, z: -0.4, r: 0.18 },
+    { y: 0.9, z: -0.26, r: 0.16 },
+    { y: 0.97, z: -0.08, r: 0.12 }, // tip, curled over the shoulders
+  ]) {
+    const seg = new THREE.SphereGeometry(r, 8, 6);
+    seg.scale(0.7, 1, 1); // flattened side-to-side, like a real brush tail
+    seg.translate(0, y, z);
+    parts.push(withColor(seg, tailFur));
+  }
+
+  // Hind feet + tucked forepaws.
+  for (const sx of [-1, 1]) {
+    const foot = new THREE.BoxGeometry(0.09, 0.06, 0.19);
+    foot.translate(sx * 0.11, 0.03, 0.05);
+    parts.push(withColor(foot, fur));
+    const paw = new THREE.SphereGeometry(0.05, 5, 4);
+    paw.translate(sx * 0.07, 0.34, 0.21);
+    parts.push(withColor(paw, belly));
+  }
+
+  return mergeGeometries(parts, false) ?? new THREE.BufferGeometry();
+}
