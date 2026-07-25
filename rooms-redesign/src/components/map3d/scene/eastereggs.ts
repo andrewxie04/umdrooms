@@ -116,6 +116,12 @@ const BUS_SPEED = 6; // m/s
 const BUS_ROUTE_NAMES = ['Campus Drive', 'Regents Drive', 'Stadium Drive'];
 const BUS_CONNECT_EPS = 60; // meters — max gap bridged when joining routes
 const BUS_STOP_FRACTIONS = [0.12, 0.37, 0.62, 0.87];
+/** Arc-length window that counts as "at the stop". Generous enough that a
+ * long frame (6 m/s x dt) can't skip straight past it. */
+const BUS_STOP_TRIGGER_RADIUS = 3;
+/** How far past a stop the bus must get before that stop can serve again —
+ * comfortably outside the trigger window so it can't immediately re-arm. */
+const BUS_STOP_RELEASE_RADIUS = 12;
 
 const TURTLE_MODE_SECONDS = 60;
 const TURTLE_SPEED = 0.5;
@@ -158,6 +164,14 @@ const SQUIRREL_SCALE_MIN = 2.0; // ~18px at MIN_DISTANCE, still squirrel-shaped
 const SQUIRREL_SCALE_MAX = 8.0; // ~5.6px at HOME_VIEW, on par with the cars
 /** Rescale/redraw threshold on camera distance (meters). */
 const SQUIRREL_CAM_EPS = 2;
+/** Anchor squirrels to trees near the campus core only. The bake scatters its
+ * 40 tree anchors across the whole 2km bbox (median ~830m from the default
+ * view), so uniform random picking put 10 of 16 squirrels 0.8–2.1km
+ * off-screen. Mirrors HOME_VIEW; kept as literals rather than importing it,
+ * since scene.ts already imports this module. */
+const SQUIRREL_CORE_LNG = -76.94496;
+const SQUIRREL_CORE_LAT = 38.9864;
+const SQUIRREL_CORE_RADIUS = 620; // meters
 /** Dart-and-freeze: they hold still far longer than they move. */
 const SQUIRREL_FREEZE_MIN = 2.2;
 const SQUIRREL_FREEZE_MAX = 7.0;
@@ -675,6 +689,12 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
   let busDir: 1 | -1 = 1;
   let busDwellUntil = 0;
   let busNow = 0;
+  /** Index of the stop currently being served, or -1. Without this latch the
+   * bus re-arms its dwell the instant the previous one expires: it only
+   * advances ~0.1m per frame, so it is still inside the trigger radius and
+   * inches out at 0.1m per dwell — ~5 minutes to clear one stop, which reads
+   * as "the bus stopped and never started again". */
+  let busServedStop = -1;
   const busStops: number[] = []; // arc-length stop positions
   const busStopGroup = new THREE.Group();
   const busStopLngLat: { lng: number; lat: number }[] = [];
@@ -726,7 +746,24 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
     // value between frames is how the bus quietly inherits someone else's.
     scene.add(bus);
     disposables.push(bus.geometry, bus.material as THREE.Material);
-    busS = hash01('bus:s') * busRoute.length;
+    // Start the bus near the campus core rather than at a random point on the
+    // 3.4km route: Campus Drive runs well east of the default view, and a
+    // uniform seed spawned it ~1.4km off-screen where nobody ever saw it.
+    {
+      const core = proj.toLocal(SQUIRREL_CORE_LNG, SQUIRREL_CORE_LAT);
+      let bestS = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < busRoute.pts.length; i++) {
+        const p = busRoute.pts[i];
+        const d = Math.hypot(p.x - core.x, p.z - core.z);
+        if (d < bestD) {
+          bestD = d;
+          bestS = busRoute.cum[i];
+        }
+      }
+      // Small deterministic offset so it isn't pinned to the exact same metre.
+      busS = (bestS + (hash01('bus:s') - 0.5) * 160 + busRoute.length) % busRoute.length;
+    }
 
     // Bus stops: blue discs on the sidewalk (right of travel), a touch
     // bigger + brighter so they read at campus zoom.
@@ -1032,10 +1069,21 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
       squirrelMesh.frustumCulled = false; // instances move well outside the source bbox
       disposables.push(geom, mat);
 
+      // Keep only trees near the campus core, then walk them in a shuffled
+      // order so each squirrel gets a DISTINCT tree — random picking stacked
+      // five of them on one trunk.
+      const core = proj.toLocal(SQUIRREL_CORE_LNG, SQUIRREL_CORE_LAT);
+      const nearCore = treePts.filter(
+        (p) => Math.hypot(p.x - core.x, p.z - core.z) < SQUIRREL_CORE_RADIUS,
+      );
+      const pool = (nearCore.length >= 4 ? nearCore : treePts)
+        .map((p, i) => ({ p, k: hash01(`squirrel:shuffle:${i}`) }))
+        .sort((a, b) => a.k - b.k)
+        .map((e) => e.p);
+
       for (let i = 0; i < SQUIRREL_COUNT; i++) {
         const seed = `squirrel:${i}`;
-        // Spread across distinct trees where possible.
-        const home = treePts[Math.floor(hash01(`${seed}:tree`) * treePts.length) % treePts.length];
+        const home = pool[i % pool.length];
         const a = hash01(`${seed}:a`) * Math.PI * 2;
         const r = 1.5 + hash01(`${seed}:r`) * (SQUIRREL_ROAM_RADIUS - 1.5);
         const x = home.x + Math.cos(a) * r;
@@ -1182,12 +1230,22 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
           busS = 0.01;
           busDir = 1;
         }
+        // Release the latch once we're properly clear of the served stop, so
+        // the same stop can serve again on the return leg of the ping-pong.
+        if (
+          busServedStop >= 0 &&
+          Math.abs(busS - busStops[busServedStop]) > BUS_STOP_RELEASE_RADIUS
+        ) {
+          busServedStop = -1;
+        }
         // Dwell at stops (8–15s, deterministic per stop + lap).
         for (let i = 0; i < busStops.length; i++) {
+          if (i === busServedStop) continue; // already served; drive on
           const d = Math.abs(busS - busStops[i]);
-          if (d < 1.5) {
+          if (d < BUS_STOP_TRIGGER_RADIUS) {
             const lap = Math.floor(busNow / 120);
             busDwellUntil = busNow + 8 + hash01(`bus:dwell:${i}:${lap}`) * 7;
+            busServedStop = i;
             moving = false;
             break;
           }
