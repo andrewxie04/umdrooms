@@ -294,10 +294,14 @@ export async function createCampusScene(
   // Lying snow: flat blobs over the lawns, hidden outside winter. Sits above
   // grass/sport but below paths, so walkways read as cleared.
   const snowPatchMat = new THREE.MeshLambertMaterial({
-    color: 0xf4f8fa,
+    color: 0xf7fbff, // faintly blue-white; pure white reads as paper
     transparent: true,
     opacity: 0,
     depthWrite: false,
+    // RGBA vertex colours carry per-drift brightness AND the rim feather
+    // (alpha 0 at the edge), so drifts blend into the lawn instead of
+    // stamping hard-edged circles on it.
+    vertexColors: true,
   });
   const snowPatches = new THREE.Mesh(geoms.snowPatches, snowPatchMat);
   snowPatches.receiveShadow = true;

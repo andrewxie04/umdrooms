@@ -825,21 +825,29 @@ function buildLampGlow(points: LampPoint[], skip: Set<number>): THREE.BufferGeom
 // ---------------------------------------------------------------------------
 
 const SNOW_PATCH_Y = 0.132; // over grass+sport, under the water stack (.134)
-/** One patch per this many m² of eligible lawn. */
-const SQ_M_PER_PATCH = 260;
-const SNOW_PATCH_CAP = 1100;
-const SNOW_PATCH_MIN_AREA = 120; // m² — skip slivers
-const SNOW_PATCH_MIN_R = 3.5;
-const SNOW_PATCH_MAX_R = 13;
-/** Per-vertex radius wobble, so patches read as drifts not polka dots. */
-const SNOW_PATCH_WOBBLE = 0.42;
-const SNOW_PATCH_SEGMENTS = 11;
+/** One drift per this many m2 of eligible lawn. Dense enough that neighbours
+ * OVERLAP: real snow is a broken sheet, not scattered dots. */
+const SQ_M_PER_PATCH = 150;
+const SNOW_PATCH_CAP = 1500;
+const SNOW_PATCH_MIN_AREA = 120; // m2 - skip slivers
+const SNOW_PATCH_MIN_R = 7;
+const SNOW_PATCH_MAX_R = 24;
+/** Per-vertex radius wobble, so drifts read as organic not circular. */
+const SNOW_PATCH_WOBBLE = 0.5;
+const SNOW_PATCH_SEGMENTS = 14;
+/** Where the opaque core ends and the feathered rim begins, as a fraction of
+ * the radius. The rim fades to alpha 0, which is what kills the "paper cutout"
+ * look — a hard-edged disc never reads as snow. */
+const SNOW_CORE_FRACTION = 0.52;
+/** Per-drift brightness spread: thin cover is duller than deep drifts. */
+const SNOW_MIN_BRIGHT = 0.72;
 
 function buildSnowPatches(data: CampusData, proj: Projection): THREE.BufferGeometry {
   interface Patch {
     x: number;
     z: number;
     r: number;
+    bright: number;
     h: number;
   }
   const patches: Patch[] = [];
@@ -849,7 +857,6 @@ function buildSnowPatches(data: CampusData, proj: Projection): THREE.BufferGeome
     if (!area.polygon || area.polygon.length < 3) return;
     const pts = ringToShapePoints(area.polygon, proj);
     if (pts.length < 3) return;
-    // Shoelace in shape space (x, y=north) — same units, so this is m².
     let a2 = 0;
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
@@ -871,54 +878,75 @@ function buildSnowPatches(data: CampusData, proj: Projection): THREE.BufferGeome
     }
 
     const want = Math.max(1, Math.round(areaM2 / SQ_M_PER_PATCH));
-    // Rejection-sample inside the ring; give up after a bounded number of
-    // tries so thin/concave shapes can't spin.
     for (let n = 0, tries = 0; n < want && tries < want * 8; tries++) {
       const seed = `snow:${ai}:${tries}`;
       const x = minX + hash01(`${seed}:x`) * (maxX - minX);
       const y = minY + hash01(`${seed}:y`) * (maxY - minY);
       if (!pointInShapeRing(x, y, pts)) continue;
       n += 1;
+      // Skew small: many modest drifts plus a few big sheets reads better
+      // than a uniform spread of mid-size blobs.
+      const t = hash01(`${seed}:r`);
       patches.push({
         x,
         z: -y, // shape y = north -> world z = -north
-        r: SNOW_PATCH_MIN_R + hash01(`${seed}:r`) * (SNOW_PATCH_MAX_R - SNOW_PATCH_MIN_R),
+        r: SNOW_PATCH_MIN_R + t * t * (SNOW_PATCH_MAX_R - SNOW_PATCH_MIN_R),
+        bright: SNOW_MIN_BRIGHT + hash01(`${seed}:b`) * (1 - SNOW_MIN_BRIGHT),
         h: hash01(`${seed}:h`),
       });
     }
   });
 
-  // Over budget -> deterministic campus-wide spread (hash order, not data
-  // order), the same trick the lamps use so patches don't all land on the Mall.
   patches.sort((a, b) => a.h - b.h);
   if (patches.length > SNOW_PATCH_CAP) patches.length = SNOW_PATCH_CAP;
 
-  const parts: THREE.BufferGeometry[] = [];
+  // One buffer for the lot: a soft disc per drift = centre fan (opaque core)
+  // plus a rim skirt fading to alpha 0. RGBA vertex colours carry both the
+  // per-drift brightness and the feather.
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const push = (x: number, z: number, a: number, b: number): void => {
+    positions.push(x, 0, z);
+    normals.push(0, 1, 0);
+    colors.push(b, b, b, a);
+  };
+
   for (const p of patches) {
-    // Blobby disc: a fan whose rim radius wobbles per vertex.
-    const positions: number[] = [];
-    const normals: number[] = [];
+    const core: [number, number][] = [];
     const rim: [number, number][] = [];
     for (let i = 0; i < SNOW_PATCH_SEGMENTS; i++) {
-      const a = (i / SNOW_PATCH_SEGMENTS) * Math.PI * 2;
-      const wob = 1 + (hash01(`${p.x.toFixed(1)}:${p.z.toFixed(1)}:${i}`) - 0.5) * SNOW_PATCH_WOBBLE;
-      rim.push([p.x + Math.cos(a) * p.r * wob, p.z + Math.sin(a) * p.r * wob]);
+      const ang = (i / SNOW_PATCH_SEGMENTS) * Math.PI * 2;
+      const wob =
+        1 + (hash01(`${p.x.toFixed(1)}:${p.z.toFixed(1)}:${i}`) - 0.5) * SNOW_PATCH_WOBBLE;
+      const rr = p.r * wob;
+      core.push([p.x + Math.cos(ang) * rr * SNOW_CORE_FRACTION, p.z + Math.sin(ang) * rr * SNOW_CORE_FRACTION]);
+      rim.push([p.x + Math.cos(ang) * rr, p.z + Math.sin(ang) * rr]);
     }
-    for (let i = 0; i < rim.length; i++) {
-      const b = rim[i];
-      const c = rim[(i + 1) % rim.length];
-      // CCW in world (x, z) with +y normals.
-      positions.push(p.x, 0, p.z, c[0], 0, c[1], b[0], 0, b[1]);
-      for (let k = 0; k < 3; k++) normals.push(0, 1, 0);
+    for (let i = 0; i < SNOW_PATCH_SEGMENTS; i++) {
+      const j = (i + 1) % SNOW_PATCH_SEGMENTS;
+      // Opaque core fan (CCW in world x/z so the +y normal faces up).
+      push(p.x, p.z, 1, p.bright);
+      push(core[j][0], core[j][1], 1, p.bright);
+      push(core[i][0], core[i][1], 1, p.bright);
+      // Feathered skirt: core (alpha 1) -> rim (alpha 0).
+      push(core[i][0], core[i][1], 1, p.bright);
+      push(core[j][0], core[j][1], 1, p.bright);
+      push(rim[j][0], rim[j][1], 0, p.bright);
+      push(core[i][0], core[i][1], 1, p.bright);
+      push(rim[j][0], rim[j][1], 0, p.bright);
+      push(rim[i][0], rim[i][1], 0, p.bright);
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
-    parts.push(g);
   }
-  const merged = mergeAll(parts);
-  merged.translate(0, SNOW_PATCH_Y, 0);
-  return merged;
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geom.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+  // itemSize 4: three multiplies the alpha channel into fragment alpha, which
+  // is what makes the rim fade instead of just going grey.
+  geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 4));
+  geom.translate(0, SNOW_PATCH_Y, 0);
+  return geom;
 }
 
 /** Ray-cast point-in-polygon on shape-space points (x, y = north). */
