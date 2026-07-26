@@ -74,33 +74,18 @@ const SEASON_LAMBDA = 0.9;
 const SEASON_EPS = 0.002;
 /** Colour-match tolerance when classifying merged area vertices. */
 const MATCH_EPS = 0.004;
-
-// -- snowfall ------------------------------------------------------------------
-/** Flake count. Rendered as ONE THREE.Points, so this is a single draw call
- * and the per-frame cost is just the position walk. */
-const SNOW_COUNT = 1600;
-/** Screen-space flake size in PIXELS. sizeAttenuation is off deliberately:
- * with it on, flakes vanish at browsing zoom and turn into golf balls up
- * close — the same distance problem the squirrels had. Constant pixel size is
- * both cheaper and how snow is usually faked. */
-const SNOW_SIZE_PX = 2.6;
-/** Column height the flakes fall through. */
-const SNOW_CEILING = 260;
-const SNOW_FALL_MIN = 2.4; // m/s
-const SNOW_FALL_MAX = 6.0;
-const SNOW_SWAY = 1.4; // metres of horizontal drift amplitude
-const SNOW_MAX_OPACITY = 0.85;
+/** Opacity of lying snow at full winter. Short of 1 so the lawn tint still
+ * shows through and the patches read as snow ON grass, not white cutouts. */
+const SNOW_PATCH_OPACITY = 0.92;
 
 export interface SeasonsDeps {
   treesGeometry: THREE.BufferGeometry;
   areasGeometry: THREE.BufferGeometry;
   /** The big ground plane's material — tinted toward snow in winter. */
   groundMaterial: THREE.MeshLambertMaterial;
-  /** Scene to host the snowfall points. */
-  scene: THREE.Scene;
-  /** Where the camera is looking and how far out, so the snow column can be
-   * kept centred on the view and scaled to cover it. */
-  getFocus: () => { x: number; z: number; distance: number };
+  /** Lying-snow patches: shown and faded by the winter curve. */
+  snowPatchMesh: THREE.Mesh;
+  snowPatchMaterial: THREE.MeshLambertMaterial;
   /** The scene's solar clock (real time, or the scheduled instant). */
   now: () => Date;
 }
@@ -164,78 +149,6 @@ export function createSeasons(deps: SeasonsDeps): SeasonsHandle {
 
   const groundBase = deps.groundMaterial.color.clone();
 
-  // -- snowfall ---------------------------------------------------------------
-  // One Points cloud recycled inside a column that follows the camera focus,
-  // so it always fills the view instead of being a fixed patch of weather
-  // somewhere over the stadium.
-  const snowPos = new Float32Array(SNOW_COUNT * 3);
-  const snowFall = new Float32Array(SNOW_COUNT);
-  const snowPhase = new Float32Array(SNOW_COUNT);
-  const snowSwayHz = new Float32Array(SNOW_COUNT);
-  for (let i = 0; i < SNOW_COUNT; i++) {
-    snowPos[i * 3] = Math.random() - 0.5; // unit box; scaled to the column each frame
-    snowPos[i * 3 + 1] = Math.random() * SNOW_CEILING;
-    snowPos[i * 3 + 2] = Math.random() - 0.5;
-    snowFall[i] = SNOW_FALL_MIN + Math.random() * (SNOW_FALL_MAX - SNOW_FALL_MIN);
-    snowPhase[i] = Math.random() * Math.PI * 2;
-    snowSwayHz[i] = 0.25 + Math.random() * 0.5;
-  }
-  const snowGeom = new THREE.BufferGeometry();
-  // World-space buffer the update writes into (the unit box above is only the
-  // seed layout; positions below are absolute metres).
-  const snowWorld = new Float32Array(SNOW_COUNT * 3);
-  snowGeom.setAttribute('position', new THREE.BufferAttribute(snowWorld, 3));
-  const snowMat = new THREE.PointsMaterial({
-    color: 0xf6fbff,
-    size: SNOW_SIZE_PX,
-    sizeAttenuation: false,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-    fog: false,
-  });
-  const snowPoints = new THREE.Points(snowGeom, snowMat);
-  snowPoints.frustumCulled = false; // the column moves with the camera
-  snowPoints.renderOrder = 5;
-  snowPoints.visible = false;
-  deps.scene.add(snowPoints);
-  let snowTime = 0;
-
-  const updateSnow = (dt: number, amount: number): boolean => {
-    const visible = amount > 0.01;
-    let changed = false;
-    if (snowPoints.visible !== visible) {
-      snowPoints.visible = visible;
-      changed = true;
-    }
-    const wantOpacity = amount * SNOW_MAX_OPACITY;
-    if (Math.abs(snowMat.opacity - wantOpacity) > 0.004) {
-      snowMat.opacity = wantOpacity;
-      changed = true;
-    }
-    if (!visible) return changed;
-
-    snowTime += dt;
-    const focus = deps.getFocus();
-    // Column wide enough to cover the view at this zoom, clamped so close-ups
-    // stay dense and far-outs don't spread 1600 flakes across the whole county.
-    const half = THREE.MathUtils.clamp(focus.distance * 0.7, 160, 1400);
-    for (let i = 0; i < SNOW_COUNT; i++) {
-      const o = i * 3;
-      let y = snowPos[o + 1] - snowFall[i] * dt;
-      if (y < 0) y += SNOW_CEILING; // recycle to the top of the column
-      snowPos[o + 1] = y;
-      const sway = Math.sin(snowTime * snowSwayHz[i] * Math.PI * 2 + snowPhase[i]) * SNOW_SWAY;
-      // snowPos x/z stay as unit offsets so the column can be re-scaled and
-      // re-centred every frame without the flakes visibly jumping.
-      snowWorld[o] = focus.x + snowPos[o] * 2 * half + sway;
-      snowWorld[o + 1] = y;
-      snowWorld[o + 2] = focus.z + snowPos[o + 2] * 2 * half + sway * 0.6;
-    }
-    snowGeom.getAttribute('position').needsUpdate = true;
-    return true;
-  };
-
   // Eased blend state: the palette actually on screen right now.
   const cur = {
     tree: new THREE.Color(0xffffff),
@@ -298,6 +211,11 @@ export function createSeasons(deps: SeasonsDeps): SeasonsHandle {
       areaAttr.needsUpdate = true;
     }
     deps.groundMaterial.color.copy(cur.ground);
+    // Lying snow fades in with the same curve. Slightly super-linear so a
+    // half-hearted late-November flurry stays sparse rather than blanketing.
+    const patchOpacity = Math.pow(THREE.MathUtils.clamp(cur.snow, 0, 1), 1.3) * SNOW_PATCH_OPACITY;
+    deps.snowPatchMaterial.opacity = patchOpacity;
+    deps.snowPatchMesh.visible = patchOpacity > 0.01;
   };
 
   const update = (dt: number): boolean => {
@@ -313,12 +231,12 @@ export function createSeasons(deps: SeasonsDeps): SeasonsHandle {
       cur.spread = mix.spread;
       cur.snow = mix.snow;
       apply();
-      updateSnow(dt, cur.snow);
       lastApplied = 0;
       return true;
     }
     const prevTreeMix = cur.treeMix;
     const prevGrassMix = cur.grassMix;
+    const prevSnow = cur.snow;
     const before = scratch.copy(cur.tree).getHex();
     const k = 1 - Math.exp(-SEASON_LAMBDA * dt);
     cur.tree.lerp(target.tree, k);
@@ -332,13 +250,11 @@ export function createSeasons(deps: SeasonsDeps): SeasonsHandle {
     const moved =
       before !== cur.tree.getHex() ||
       Math.abs(cur.treeMix - prevTreeMix) > SEASON_EPS ||
-      Math.abs(cur.grassMix - prevGrassMix) > SEASON_EPS;
-    // Snow animates every frame regardless of whether the palette moved —
-    // it is falling, not a tint.
-    const snowChanged = updateSnow(dt, cur.snow);
-    if (!moved) return snowChanged;
-    const stamp = cur.tree.getHex() + cur.treeMix + cur.grassMix;
-    if (Math.abs(stamp - lastApplied) < 1e-6) return snowChanged;
+      Math.abs(cur.grassMix - prevGrassMix) > SEASON_EPS ||
+      Math.abs(cur.snow - prevSnow) > SEASON_EPS;
+    if (!moved) return false;
+    const stamp = cur.tree.getHex() + cur.treeMix + cur.grassMix + cur.snow;
+    if (Math.abs(stamp - lastApplied) < 1e-6) return false;
     lastApplied = stamp;
     apply();
     return true;
@@ -348,10 +264,8 @@ export function createSeasons(deps: SeasonsDeps): SeasonsHandle {
     update,
     current: () => label,
     dispose: () => {
-      deps.scene.remove(snowPoints);
-      snowGeom.dispose();
-      snowMat.dispose();
       deps.groundMaterial.color.copy(groundBase);
+      deps.snowPatchMesh.visible = false;
       if (treeAttr && treeBase) {
         (treeAttr.array as Float32Array).set(treeBase);
         treeAttr.needsUpdate = true;

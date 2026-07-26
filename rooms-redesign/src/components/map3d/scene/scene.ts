@@ -291,7 +291,18 @@ export async function createCampusScene(
   water.receiveShadow = true;
   const trees = new THREE.Mesh(geoms.trees, flatMat);
   trees.castShadow = true;
-  scene.add(ground, buildings, roads, areas, water, trees);
+  // Lying snow: flat blobs over the lawns, hidden outside winter. Sits above
+  // grass/sport but below paths, so walkways read as cleared.
+  const snowPatchMat = new THREE.MeshLambertMaterial({
+    color: 0xf4f8fa,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  });
+  const snowPatches = new THREE.Mesh(geoms.snowPatches, snowPatchMat);
+  snowPatches.receiveShadow = true;
+  snowPatches.visible = false; // seasons drives this
+  scene.add(ground, buildings, roads, areas, water, trees, snowPatches);
 
   // Campus lamps: ONE merged dark-pole mesh + ONE merged head mesh. The head
   // material carries the warm #ffd9a0 glow — its emissiveIntensity is driven
@@ -1172,12 +1183,8 @@ export async function createCampusScene(
     treesGeometry: geoms.trees,
     areasGeometry: geoms.areas,
     groundMaterial: groundMat,
-    scene,
-    // Snow column follows the camera target so it always fills the view.
-    getFocus: () => {
-      const p = controls.getPose();
-      return { x: p.x, z: p.z, distance: p.distance };
-    },
+    snowPatchMesh: snowPatches,
+    snowPatchMaterial: snowPatchMat,
     now: solarNow,
   });
 

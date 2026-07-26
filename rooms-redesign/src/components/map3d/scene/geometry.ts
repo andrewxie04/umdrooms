@@ -67,6 +67,9 @@ export interface CampusGeometries {
   water: THREE.BufferGeometry;
   /** Merged squashed-icosahedron shrubs, vertex-colored muted greens. */
   shrubs: THREE.BufferGeometry;
+  /** Lying snow: blobby discs scattered inside grass/sport polygons. Flat,
+   * position+normal only; seasons.ts drives the white material's opacity. */
+  snowPatches: THREE.BufferGeometry;
   /** Merged low-poly parked cars in the parking lots (see cars.ts) —
    * vertex-colored body+cabin boxes; one mesh in scene.ts, castShadow. */
   parkedCars: THREE.BufferGeometry;
@@ -810,6 +813,128 @@ function buildLampGlow(points: LampPoint[], skip: Set<number>): THREE.BufferGeom
 }
 
 // ---------------------------------------------------------------------------
+// Snow patches — lying snow, scattered rather than a uniform white wash.
+// Deterministic blobby discs sampled INSIDE grass/sport polygons (rejection
+// sampling against the ring, same approach the parked cars use for lots), so
+// snow only ever settles on open ground — never on roads, roofs or water.
+//
+// One merged geometry, one white material in scene.ts whose opacity the
+// season curve drives. Sits at SNOW_PATCH_Y: above grass (.10) and sport
+// (.12) so it covers them, but BELOW paths (.20) and roads (.40) — which
+// means the walkways read as cleared while the lawns stay covered.
+// ---------------------------------------------------------------------------
+
+const SNOW_PATCH_Y = 0.132; // over grass+sport, under the water stack (.134)
+/** One patch per this many m² of eligible lawn. */
+const SQ_M_PER_PATCH = 260;
+const SNOW_PATCH_CAP = 1100;
+const SNOW_PATCH_MIN_AREA = 120; // m² — skip slivers
+const SNOW_PATCH_MIN_R = 3.5;
+const SNOW_PATCH_MAX_R = 13;
+/** Per-vertex radius wobble, so patches read as drifts not polka dots. */
+const SNOW_PATCH_WOBBLE = 0.42;
+const SNOW_PATCH_SEGMENTS = 11;
+
+function buildSnowPatches(data: CampusData, proj: Projection): THREE.BufferGeometry {
+  interface Patch {
+    x: number;
+    z: number;
+    r: number;
+    h: number;
+  }
+  const patches: Patch[] = [];
+
+  data.areas.forEach((area, ai) => {
+    if (area.kind !== 'grass' && area.kind !== 'sport') return;
+    if (!area.polygon || area.polygon.length < 3) return;
+    const pts = ringToShapePoints(area.polygon, proj);
+    if (pts.length < 3) return;
+    // Shoelace in shape space (x, y=north) — same units, so this is m².
+    let a2 = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const q = pts[(i + 1) % pts.length];
+      a2 += p.x * q.y - q.x * p.y;
+    }
+    const areaM2 = Math.abs(a2) / 2;
+    if (areaM2 < SNOW_PATCH_MIN_AREA) return;
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+
+    const want = Math.max(1, Math.round(areaM2 / SQ_M_PER_PATCH));
+    // Rejection-sample inside the ring; give up after a bounded number of
+    // tries so thin/concave shapes can't spin.
+    for (let n = 0, tries = 0; n < want && tries < want * 8; tries++) {
+      const seed = `snow:${ai}:${tries}`;
+      const x = minX + hash01(`${seed}:x`) * (maxX - minX);
+      const y = minY + hash01(`${seed}:y`) * (maxY - minY);
+      if (!pointInShapeRing(x, y, pts)) continue;
+      n += 1;
+      patches.push({
+        x,
+        z: -y, // shape y = north -> world z = -north
+        r: SNOW_PATCH_MIN_R + hash01(`${seed}:r`) * (SNOW_PATCH_MAX_R - SNOW_PATCH_MIN_R),
+        h: hash01(`${seed}:h`),
+      });
+    }
+  });
+
+  // Over budget -> deterministic campus-wide spread (hash order, not data
+  // order), the same trick the lamps use so patches don't all land on the Mall.
+  patches.sort((a, b) => a.h - b.h);
+  if (patches.length > SNOW_PATCH_CAP) patches.length = SNOW_PATCH_CAP;
+
+  const parts: THREE.BufferGeometry[] = [];
+  for (const p of patches) {
+    // Blobby disc: a fan whose rim radius wobbles per vertex.
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const rim: [number, number][] = [];
+    for (let i = 0; i < SNOW_PATCH_SEGMENTS; i++) {
+      const a = (i / SNOW_PATCH_SEGMENTS) * Math.PI * 2;
+      const wob = 1 + (hash01(`${p.x.toFixed(1)}:${p.z.toFixed(1)}:${i}`) - 0.5) * SNOW_PATCH_WOBBLE;
+      rim.push([p.x + Math.cos(a) * p.r * wob, p.z + Math.sin(a) * p.r * wob]);
+    }
+    for (let i = 0; i < rim.length; i++) {
+      const b = rim[i];
+      const c = rim[(i + 1) % rim.length];
+      // CCW in world (x, z) with +y normals.
+      positions.push(p.x, 0, p.z, c[0], 0, c[1], b[0], 0, b[1]);
+      for (let k = 0; k < 3; k++) normals.push(0, 1, 0);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+    parts.push(g);
+  }
+  const merged = mergeAll(parts);
+  merged.translate(0, SNOW_PATCH_Y, 0);
+  return merged;
+}
+
+/** Ray-cast point-in-polygon on shape-space points (x, y = north). */
+function pointInShapeRing(x: number, y: number, pts: THREE.Vector2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i];
+    const b = pts[j];
+    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// ---------------------------------------------------------------------------
 // Shrubs — low squashed icosahedra in muted deep green (#6f8457 with slight
 // per-shrub HSL variance, vertex-colored). Deterministic from the building
 // id: ~45% of buildings get 1–3 shrubs placed just outside a hashed footprint
@@ -1079,6 +1204,7 @@ export function buildSceneGeometries(data: CampusData, proj: Projection): Campus
     lampFlickerHeads: lamps.flickerHeads,
     lampFlickerGlow: lamps.flickerGlow,
     lampFlickerLate: lamps.flickerLate,
+    snowPatches: buildSnowPatches(data, proj),
     windows: buildWindows(data, proj),
     shrubs: buildShrubs(data, proj, lamps.points),
     parkedCars: buildParkedCars(data, proj),
