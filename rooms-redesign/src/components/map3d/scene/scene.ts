@@ -1171,6 +1171,13 @@ export async function createCampusScene(
   const seasons = createSeasons({
     treesGeometry: geoms.trees,
     areasGeometry: geoms.areas,
+    groundMaterial: groundMat,
+    scene,
+    // Snow column follows the camera target so it always fills the view.
+    getFocus: () => {
+      const p = controls.getPose();
+      return { x: p.x, z: p.z, distance: p.distance };
+    },
     now: solarNow,
   });
 
