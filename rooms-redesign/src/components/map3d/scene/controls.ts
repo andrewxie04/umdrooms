@@ -7,24 +7,10 @@
 // - left-drag / 1-finger: screen-space pan
 // - wheel: zoom toward cursor
 // - right-drag or ctrl/meta-drag: rotate + pitch
-// - 2-finger: pinch zoom (toward midpoint), twist rotate, vertical pitch
+// - 2-finger: pan + pinch zoom around midpoint; deliberate twist rotates
 // - exponential damping; pan clamped to campus +/-panBound, distance and
 //   polar clamped; flyTo tween (easeInOutCubic) cancelled by pointer input.
 //
-// Gesture review (Ambience pass — derivations inline at each site; the one
-// real bug found was the pinch-twist sign, fixed below):
-// - pan: ground-anchored via ground-plane raycasts at prev/current cursor —
-//   content follows the cursor exactly at any pitch (replaced the old
-//   frustum-height approximation that only worked top-down).
-// - wheel: scroll down (dy>0) -> distance *= exp(+k) -> zoom out; anchor math
-//   uses the GOAL pose consistently so continuous scrolls don't wobble. VERIFIED OK.
-// - right-drag pitch: drag down -> phi+ -> camera lowers toward the horizon —
-//   same direction as the two-finger vertical pitch (consistent). VERIFIED OK.
-// - pinch zoom: fingers spread -> prev/next < 1 -> zoom in, anchored at the
-//   midpoint via zoomTo. VERIFIED OK.
-// - damping: update() approaches goal for x/z/distance/theta/phi every frame
-//   and tweens short-circuit it. VERIFIED OK.
-
 import * as THREE from 'three';
 
 export interface CameraPose {
@@ -59,6 +45,9 @@ const WHEEL_SPEED = 0.0012; // zoom factor per wheel px
 // Browser and trackpad wheel events vary widely in size. Bound each event so
 // one fast swipe cannot jump from the overview into a building facade.
 const MAX_WHEEL_DELTA = 240;
+const MIN_PINCH_SPAN = 24; // very close fingers have an unstable angle
+const TWIST_THRESHOLD = THREE.MathUtils.degToRad(5);
+const MAX_TWIST_STEP = Math.PI / 4; // reject pointer swaps / crossings
 const MIN_EFFECTIVE_PHI = 0.02; // avoids a degenerate straight-down lookAt
 
 function easeInOutCubic(t: number): number {
@@ -82,6 +71,8 @@ export class MapControls {
   private pointers = new Map<number, { x: number; y: number }>();
   private mode: 'none' | 'pan' | 'rotate' | 'pinch' = 'none';
   private pinchPrev: PinchMetrics | null = null;
+  private twistPending = 0;
+  private twisting = false;
   private raycaster = new THREE.Raycaster();
   private disposed = false;
 
@@ -116,6 +107,16 @@ export class MapControls {
   /** QA/telemetry snapshot of the current (post-damping) pose. */
   getPose(): CameraPose {
     return { ...this.cur };
+  }
+
+  /** Lets the renderer keep gestures smooth and slow ambient frames at rest. */
+  isMoving(): boolean {
+    return this.tween !== null || this.pointers.size > 0 ||
+      Math.abs(this.goal.x - this.cur.x) > EPS_PAN ||
+      Math.abs(this.goal.z - this.cur.z) > EPS_PAN ||
+      Math.abs(this.goal.distance - this.cur.distance) > EPS_DISTANCE ||
+      Math.abs(this.goal.theta - this.cur.theta) > EPS_ANGLE ||
+      Math.abs(this.goal.phi - this.cur.phi) > EPS_ANGLE;
   }
 
   /** Pending pose, including any active zoom animation. */
@@ -320,9 +321,16 @@ export class MapControls {
     };
   }
 
+  private resetPinch(): void {
+    this.pinchPrev = this.computePinch();
+    this.twistPending = 0;
+    this.twisting = false;
+  }
+
   private handlePointerDown = (e: PointerEvent): void => {
     if (this.disposed) return;
     this.cancelTween(); // user input cancels any flyTo
+    if (this.pointers.size === 0) this.goal = { ...this.cur };
     try {
       this.dom.setPointerCapture(e.pointerId);
     } catch {
@@ -331,9 +339,9 @@ export class MapControls {
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pointers.size === 1) {
       this.mode = e.button === 2 || e.ctrlKey || e.metaKey ? 'rotate' : 'pan';
-    } else if (this.pointers.size === 2) {
+    } else {
       this.mode = 'pinch';
-      this.pinchPrev = this.computePinch();
+      this.resetPinch();
     }
   };
 
@@ -355,16 +363,33 @@ export class MapControls {
     } else if (this.mode === 'pinch' && this.pointers.size >= 2 && this.pinchPrev) {
       const next = this.computePinch();
       if (!next) return;
-      if (next.dist > 1 && this.pinchPrev.dist > 1) {
-        this.zoomTo(this.goal.distance * (this.pinchPrev.dist / next.dist), next.midX, next.midY);
+      const previous = this.pinchPrev;
+      // Translation should move the map; it must not silently change pitch.
+      this.panTo(previous.midX, previous.midY, next.midX, next.midY);
+      const angleDelta = Math.atan2(
+        Math.sin(next.angle - previous.angle),
+        Math.cos(next.angle - previous.angle),
+      );
+      if (next.dist >= MIN_PINCH_SPAN && previous.dist >= MIN_PINCH_SPAN &&
+          Math.abs(angleDelta) <= MAX_TWIST_STEP) {
+        const ratio = THREE.MathUtils.clamp(previous.dist / next.dist, 0.75, 4 / 3);
+        this.zoomTo(this.goal.distance * ratio, next.midX, next.midY);
+        // Ignore the small angle wobble from normal pinching / parallel drags.
+        if (this.twisting) {
+          this.goal.theta -= angleDelta;
+        } else {
+          this.twistPending += angleDelta;
+          if (Math.abs(this.twistPending) > TWIST_THRESHOLD) {
+            this.goal.theta -= this.twistPending - Math.sign(this.twistPending) * TWIST_THRESHOLD;
+            this.twisting = true;
+          }
+        }
+      } else {
+        // Rebase after fingers cross or become nearly coincident. Never turn
+        // a noisy/reversed finger vector into a 180-degree camera movement.
+        this.twistPending = 0;
+        this.twisting = false;
       }
-      // Twist — BUG FIX (sign): the screen-space angle (atan2 with y DOWN)
-      // grows for a CLOCKWISE finger rotation, but a positive theta spins map
-      // content COUNTER-clockwise (view bearing increases => world features
-      // swing left, e.g. north goes 12 o'clock -> 9 o'clock). Negate so the
-      // content follows the fingers, like rotating a physical map.
-      this.goal.theta -= next.angle - this.pinchPrev.angle;
-      this.goal.phi = this.clampPhi(this.goal.phi + (next.midY - this.pinchPrev.midY) * PITCH_SPEED);
       this.pinchPrev = next;
     }
   };
@@ -383,6 +408,8 @@ export class MapControls {
     } else if (this.pointers.size === 1) {
       this.mode = 'pan';
       this.pinchPrev = null;
+    } else {
+      this.resetPinch(); // the active pair may have changed after a third finger
     }
   };
 

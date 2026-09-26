@@ -798,15 +798,26 @@ export default function CampusMap3D() {
     const breakpointObserver = new ResizeObserver(onViewportResize);
     breakpointObserver.observe(container);
 
+    let markersDirty = true;
     const rebuild = () => {
+      markersDirty = true;
       const s = useCampusStore.getState();
       layer.classList.toggle('m3d-dark', s.darkMode);
       rebuildMarkers(layer, markersRef.current, s, handleRef.current?.getBuildingCenter.bind(handleRef.current));
     };
 
-    // Per-frame marker projection. React never re-renders here — positions
-    // are written straight to translate3d. Names and code pills are shown
+    // Project only when the camera or overlay inputs change. React never
+    // re-renders here — positions are written straight to translate3d.
+    // Names and code pills are shown
     // only on the selected marker, keeping the unselected campus uncluttered.
+    let lastProjection: {
+      pose: ReturnType<CampusSceneHandleV2['getPose']>;
+      width: number;
+      height: number;
+      safeLeft: number;
+      user: typeof userPosRef.current;
+      userEl: typeof userMarkerRef.current;
+    } | null = null;
     const frame = () => {
       const h = handleRef.current;
       if (!h) return;
@@ -820,6 +831,20 @@ export default function CampusMap3D() {
           : 16 + Math.min(420, mapWidth * 0.42)
         : 0;
       const safeLeft = panelRight + 8;
+      const pose = h.getPose();
+      const user = userPosRef.current;
+      const userEl = userMarkerRef.current;
+      // Exact comparisons preserve even small camera movements. Rebuilds
+      // invalidate labels, coordinates and coincident-marker offsets; size,
+      // panel occlusion and geolocation can change with a stationary camera.
+      if (!markersDirty && lastProjection &&
+          pose.x === lastProjection.pose.x && pose.z === lastProjection.pose.z &&
+          pose.distance === lastProjection.pose.distance &&
+          pose.phi === lastProjection.pose.phi && pose.theta === lastProjection.pose.theta &&
+          mapWidth === lastProjection.width && mapHeight === lastProjection.height &&
+          safeLeft === lastProjection.safeLeft &&
+          user === lastProjection.user && userEl === lastProjection.userEl) return;
+
       for (const rec of markersRef.current.values()) {
         const p = h.project(rec.lng, rec.lat);
         const x = p.x + (rec.offsetX ?? 0);
@@ -857,8 +882,6 @@ export default function CampusMap3D() {
         }
         rec.el.style.transform = `translate3d(${x}px, ${p.y}px, 0)`;
       }
-      const user = userPosRef.current;
-      const userEl = userMarkerRef.current;
       if (userEl) {
         if (!user) {
           userEl.style.display = 'none';
@@ -872,6 +895,8 @@ export default function CampusMap3D() {
           }
         }
       }
+      lastProjection = { pose, width: mapWidth, height: mapHeight, safeLeft, user, userEl };
+      markersDirty = false;
     };
 
     rebuild();

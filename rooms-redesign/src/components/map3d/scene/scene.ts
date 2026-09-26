@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { MapControls } from './controls';
+import { campusFrameInterval, campusPixelRatio } from './render-budget';
 import { uniqueBuildingFootprints } from './building-footprints';
 import type { CameraPose } from './controls';
 import { buildSceneGeometries, buildingSolidGeometry } from './geometry';
@@ -1218,7 +1219,7 @@ export async function createCampusScene(
   const applySize = (): void => {
     const w = Math.max(1, container.clientWidth);
     const h = Math.max(1, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(campusPixelRatio(w, h, window.devicePixelRatio));
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -1275,8 +1276,11 @@ export async function createCampusScene(
   const scratchView = new THREE.Vector3();
 
   const renderFrame = (nowMs: number): void => {
-    if (disposed) return;
+    if (disposed || document.hidden) return;
     rafId = requestAnimationFrame(renderFrame);
+    // Leave CPU/GPU time for scrolling and the room browser. Allow a small
+    // clock tolerance so 60 Hz screens do not accidentally fall to 30 Hz.
+    if (!needsRender && nowMs - lastTime < campusFrameInterval(controls.isMoving()) - 0.75) return;
     const dt = Math.min(0.05, Math.max(0, (nowMs - lastTime) / 1000));
     lastTime = nowMs;
 
@@ -1324,6 +1328,16 @@ export async function createCampusScene(
       needsRender = false;
     }
   };
+
+  const onVisibilityChange = (): void => {
+    cancelAnimationFrame(rafId);
+    if (disposed || document.hidden) return;
+    lastTime = performance.now();
+    solarTimer = SOLAR_RECOMPUTE_SECONDS;
+    needsRender = true;
+    rafId = requestAnimationFrame(renderFrame);
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
   // Keep a geographic point at the same screen position when the camera
   // changes distance. Shared by selection flights and the zoom buttons.
@@ -1521,6 +1535,7 @@ export async function createCampusScene(
       if (disposed) return;
       disposed = true;
       cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       resizeObserver.disconnect();
       controls.dispose();
       frameCallbacks.clear();
@@ -1566,6 +1581,6 @@ export async function createCampusScene(
     debug: easterEggs.debug,
   };
 
-  rafId = requestAnimationFrame(renderFrame);
+  if (!document.hidden) rafId = requestAnimationFrame(renderFrame);
   return handle;
 }
