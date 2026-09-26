@@ -1,6 +1,6 @@
 # map3d/scene — three.js campus renderer core
 
-Self-contained three.js renderer for the UMD campus: loads `public/campus-data.json`, projects lng/lat to local meters, and draws merged buildings / roads / areas / trees / ground / lamps / shrubs (~10 draw calls) with PCFSoft shadows and day/night palettes.
+Self-contained three.js renderer for the UMD campus: loads `public/campus-data.json` and the surveyed tree snapshot, projects lng/lat to local meters, and draws merged buildings / roads / areas / trees / ground / lamps / shrubs with soft shadows and day/night palettes.
 Exports `createCampusScene(container, { darkMode }) → Promise<CampusSceneHandle>` per the plan.md Phase 2 contract — `setDarkMode`, `flyTo`, `project`, `onFrame`, `setPulseRing`, `clearPulseRing`, `dispose`. The extended `CampusSceneHandleV2` (scene.ts) adds `setTimeMode`, `getSunElevation`, and `getPose() → { x, z, distance, phi, theta }` (post-damping camera snapshot for QA/telemetry); it is re-exported from `index.ts`.
 Pure TS + three.js: no React, no store imports; the overlay layer (`CampusMap3D`) drives it through the handle only.
 Render loop is dirty-checked (renders on controls/tween/pulse/palette/resize changes) while `onFrame` callbacks fire every tick so HTML markers stay glued to projected positions.
@@ -18,12 +18,13 @@ Gesture review (Mission D, controls.ts): pan sign (content follows cursor: dx→
 
 De-beiged palette (COLORS): grass #9cad88→#8ab06e, sport →#7b9c5e (deeper), water #8fa5b4→#7ea9c8, roads/service/path cooled to #9d9c96/#b1b0a8/#cccabf, parking →#84837b; buildings stay #f8f4ea with the tint jitter widened to ±2% hue.
 Water: top-level `waterways` (river 10m / canal 6m / stream 4m / ditch+drain 2m — Paint Branch river runs along the east edge) render as ribbons from the shared ribbon builder, merged into the `areas` mesh (no extra draw call); `fountain` (tiny octagons) and `pool` areas render in the same water blue; Lake Artemesia (SE corner) is a large `water` area polygon.
+The ODK Fountain on McKeldin Mall also gets a five-tier native geometry treatment (`mall-fountain.ts`), aligned to its existing mapped water polygon. The two merged meshes add stone coping and stepped water surfaces above the flat area polygon. Reference and approximation notes are in `design-reference/odk-fountain-research.md`.
 Y-stagger (decimeter steps): ground 0 < grass .10 < sport .12 < water/fountain/pool .14 < waterway ribbons .15 < parking .16 < contactShadows .18 < path .20 < service .30 < road .40.
 contactShadows contract: `CampusGeometries.contactShadows` is one merged, position-only, non-indexed BufferGeometry — every building footprint triangulated flat at y=.18, scaled 1.06× about its centroid, NaN-free. scene.ts consumes it defensively (`if (geoms.contactShadows)`) with `new Mesh(geoms.contactShadows, new MeshBasicMaterial({ color: 0x1a1410, transparent: true, opacity: 0.18, depthWrite: false }))`.
 
 ## Landmarks (landmarks/ + geometry.ts)
 
-Apple-Maps-style landmark modeling: buildings whose id appears in the landmark registry (keyed by OSM way id = `CampusBuilding.id`) skip the default jittered box extrusion and get hand-tuned procedural detail instead. All landmark parts merge into the SAME buildings BufferGeometry with the identical position/normal/color attribute layout (colors ride in vertex colors), so scene.ts materials, shadows, and the palette are untouched. Landmark heights are exact — no hash jitter; omit `height` to keep the tagged height verbatim (McKeldin keeps its real 23.1m).
+Buildings whose id appears in the landmark registry (keyed by OSM way or relation id = `CampusBuilding.id`) skip the default extrusion and get building-specific procedural geometry instead. All parts merge into the same buildings BufferGeometry with matching position/normal/color attributes. The mapped footprints are geographic data; facade spacing, roof structures, and heights without a source tag are approximations documented in `design-reference/*-research.md`. Landmark heights have no random jitter; omit `height` to keep an OSM-tagged height (McKeldin retains its tagged 23.1m).
 
 Structure (since the builder-module refactor):
 - `landmarks/types.ts` — the builder API: `LandmarkSpec`, `LandmarkBuildContext`, `LandmarkHelpers`, `LandmarkBuilder`, `LandmarkModule`.
@@ -43,15 +44,6 @@ Roof treatments:
 
 nightGlow NOTE: the buildings material emissive is global (scene.ts/palette.ts), so true per-landmark emissive is impossible without touching scene.ts. Instead `nightGlow` lerps the landmark's vertex colors toward warm amber #ffc98a by up to 0.18 at glow 1 — a subtle warm tint under the night palette, not actual window glow.
 
-Current registry (7; verify ids against campus-data.json when regenerating data):
-- way/23408799 McKeldin Library — #ece7d8 hipped, real 23.1m
-- way/23543832 Stamp Student Union — #b5856c parapet, 14m
-- way/684949095 Iribe Center — #c9d4d8 glass, 14m, nightGlow .6
-- way/23579314 Memorial Chapel — #f5f2ea spire (white cone), 15m
-- way/980371045 SECU Stadium — #c8c2b2 bowl, 18m, field #7b9c5e (unnamed in the baked data: the 201×204m bowl next to Tyser Tower)
-- way/23544340 XFINITY Center — #b9b2a4 parapet, 22m
-- way/23545077 Eppley Recreation Center — #d8d4c8 parapet, 15m
-
-Known gaps (skip gracefully — simply absent from the registry): Main Administration Building and the Clarice Smith PAC are not in the baked campus-data.json; Hornbake Library (way/23580263) exists but is left untreated (plain mass, keeps the landmark set curated).
+The registry contains footprint-specific models for every selectable building in the room browser and both mapped parts of Rossborough Inn. `landmarks/coverage.test.ts` checks code-to-footprint coverage and finite, merge-compatible geometry for every registered model. Building-by-building source notes are in `design-reference/`.
 
 To add a landmark: find the OSM way id (grep the building name in public/campus-data.json, or locate the footprint by coordinates), drop ONE new file in `landmarks/buildings/<slug>.ts` exporting `const landmark: LandmarkModule` (pick a preset `roof` in the spec, or write a custom `build(ctx)` — copy `secu-stadium.ts` as the template), and rebuild — the glob registry picks it up automatically, no other file changes needed. Re-run `scripts/check-landmarks.ts` (bundle with esbuild, run in node) to confirm the merged geometry is NaN-free and every id resolves.

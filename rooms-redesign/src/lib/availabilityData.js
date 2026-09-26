@@ -165,9 +165,11 @@ export async function fetchAvailabilityForDate(
     while (cursor < tasks.length) {
       if (signal?.aborted) throw abortError();
       const task = tasks[cursor++];
+      let succeeded = false;
       try {
         const result = await fetchBuildingAvailability(task.building, dateKey, signal);
         results[task.index] = result;
+        succeeded = true;
       } catch (error) {
         if (signal?.aborted) throw error;
         console.warn(
@@ -185,6 +187,9 @@ export async function fetchAvailabilityForDate(
         totalBuildings,
         ratio: totalRooms ? completedRooms / totalRooms : 1,
         indeterminate: false,
+        index: task.index,
+        building: results[task.index],
+        succeeded,
       });
     }
   }

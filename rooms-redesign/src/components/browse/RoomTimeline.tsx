@@ -43,8 +43,8 @@ function useBusyBlocks(room: RoomEntry, activeDateKey: string): HourBlock[] {
     for (const ev of events) {
       const eventDatePart = String(ev?.date || '').split('T')[0];
       if (eventDatePart !== activeDateKey || ev?.status !== 1) continue;
-      const start = parseFloat(ev?.time_start);
-      const end = parseFloat(ev?.time_end);
+      const start = parseFloat(ev?.time_start ?? '');
+      const end = parseFloat(ev?.time_end ?? '');
       if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
       const clampedStart = clampToDay(start);
       const clampedEnd = clampToDay(end);
@@ -123,7 +123,7 @@ export function RoomTimeline({ room }: { room: RoomEntry }) {
     <div className="select-none">
       <div
         className={cn(
-          'relative h-6 overflow-hidden rounded-md',
+          'relative h-5 overflow-hidden rounded-sm border border-border/40',
           isLibCal ? 'bg-muted/70' : 'bg-status-available/20 dark:bg-status-available/15'
         )}
         role="img"
@@ -167,7 +167,7 @@ export function RoomTimeline({ room }: { room: RoomEntry }) {
         )}
       </div>
 
-      <div className="mt-1 flex items-center justify-between text-[10px] leading-none text-muted-foreground">
+      <div className="mt-2 flex items-center justify-between text-[10px] font-medium leading-none text-muted-foreground">
         {TICKS.map((tick) => (
           <span key={tick} className="w-7 text-center first:text-left last:text-right">
             {formatHourTick(tick)}
@@ -175,7 +175,7 @@ export function RoomTimeline({ room }: { room: RoomEntry }) {
         ))}
       </div>
 
-      <div className="mt-1.5 flex items-center gap-3 text-[10px] text-muted-foreground">
+      <div className="mt-2 flex items-center gap-3 text-[10px] font-medium text-muted-foreground">
         {isLibCal ? (
           <>
             <span className="inline-flex items-center gap-1">

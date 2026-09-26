@@ -3,9 +3,11 @@
 // and navigation links). Kept inside browse/ per the parallel-agent rule that
 // shared helpers must be duplicated rather than placed in shared files.
 
-import type { BuildingEntry, CampusSelection, RoomEntry, Status } from '@/types/campus';
+import type { BuildingEntry, CampusSelection, DiningHall, ParkingLot, RoomEntry, Status } from '@/types/campus';
 import { haversineDistance } from '@/lib/geo.js';
 import { isUniversityHoliday } from '@/lib/availability.js';
+import { MAP_BUILDINGS, type MapBuildingPlace } from '@/lib/mapPlaces';
+import { RESIDENCE_HALLS } from '@/lib/residenceHalls';
 
 // ---------------------------------------------------------------------------
 // Status presentation
@@ -31,6 +33,18 @@ export const STATUS_DOT_CLASS: Record<Status, string> = {
   unavailable: 'bg-status-unavailable',
   unknown: 'bg-status-unknown',
 };
+
+export function buildingDataIssueLabel(building: BuildingEntry): string | null {
+  if (!building.dataIssue) return null;
+  const loading = building.dataIssue === 'loading';
+  if (building.dataIssueSource === 'classrooms') {
+    return loading ? 'Checking classroom availability' : 'Classroom availability unavailable';
+  }
+  if (building.dataIssueSource === 'library') {
+    return loading ? 'Checking study rooms' : 'Study rooms unavailable';
+  }
+  return loading ? 'Checking room availability' : 'Room availability unavailable';
+}
 
 // ---------------------------------------------------------------------------
 // Favorites keys (contract: 'b:CODE' | 'r:CODE/ROOMID')
@@ -70,9 +84,56 @@ export function normalizeSearchText(value: unknown): string {
     .join(' ');
 }
 
+/** Campus map labels often say “Parking Garage” while the parking feed says
+ * “Garage”. Treat those names as the same place for matching and deduping. */
+export function normalizePlaceName(value: unknown): string {
+  return normalizeSearchText(value).replace(/\bparking garage\b/g, 'garage');
+}
+
+export function placeMatchesSearch(name: string, query: string): boolean {
+  const normalized = normalizeSearchText(query);
+  return normalizeSearchText(name).includes(normalized) ||
+    normalizePlaceName(name).includes(normalizePlaceName(query));
+}
+
+/** Search the full named 3D map without duplicating room, residence, dining
+ * or parking results, which have richer details elsewhere in the UI. */
+export function searchMapBuildings(
+  query: string,
+  buildings: BuildingEntry[],
+  dining: DiningHall[],
+  parking: ParkingLot[],
+): MapBuildingPlace[] {
+  const normalized = normalizeSearchText(query);
+  if (!normalized) return [];
+  const knownCodes = new Set(buildings.map((building) => building.code.toUpperCase()));
+  const knownNames = new Set([...buildings, ...dining, ...parking, ...RESIDENCE_HALLS]
+    .map((place) => normalizePlaceName(place.name)));
+  const residenceIds = new Set(RESIDENCE_HALLS.map((hall) => hall.id));
+  const seenNames = new Set<string>();
+  return MAP_BUILDINGS.filter((place) => {
+    const name = normalizePlaceName(place.name);
+    if (residenceIds.has(place.id) ||
+        (place.code && knownCodes.has(place.code.toUpperCase())) ||
+        knownNames.has(name) || seenNames.has(name)) return false;
+    const matches = placeMatchesSearch(place.name, normalized) ||
+      Boolean(place.code && normalizeSearchText(place.code).includes(normalized));
+    if (matches) seenNames.add(name);
+    return matches;
+  }).sort((a, b) => {
+    const nameA = normalizeSearchText(a.name), nameB = normalizeSearchText(b.name);
+    const rank = (name: string, code: string | undefined) =>
+      name === normalized || normalizeSearchText(code) === normalized ? 0 :
+        name.endsWith(` ${normalized}`) ? 1 :
+          name.startsWith(`${normalized} `) ? 2 : 3;
+    return rank(nameA, a.code) - rank(nameB, b.code) || a.name.localeCompare(b.name);
+  });
+}
+
 function getRoomSearchHaystack(room: RoomEntry): string {
   const raw = room.raw ?? {};
-  const parts: string[] = [room.name, raw.type];
+  const parts: string[] = [room.name];
+  if (typeof raw.type === 'string') parts.push(raw.type);
 
   if (raw.has_projector) parts.push('projector');
   if (raw.has_whiteboard) parts.push('whiteboard');
@@ -106,11 +167,16 @@ export function matchRoom(
   }
 
   const events = Array.isArray(room.events) ? room.events : [];
+  const numericQuery = /^\d{3,}$/.test(normalizedQuery);
   for (const timeRange of events) {
     const eventDatePart = String(timeRange?.date || '').split('T')[0];
     if (eventDatePart !== activeDateKey) continue;
     const eventName = String(timeRange?.event_name || '');
-    if (eventName && normalizeSearchText(eventName).includes(normalizedQuery)) {
+    const normalizedEventName = normalizeSearchText(eventName);
+    const eventMatches = numericQuery
+      ? normalizedEventName.split(' ').includes(normalizedQuery)
+      : normalizedEventName.includes(normalizedQuery);
+    if (eventName && eventMatches) {
       return { room, building, matchedEventName: eventName };
     }
   }
@@ -173,7 +239,7 @@ export function resolveBuildingSelection(
 // ---------------------------------------------------------------------------
 
 export function getNavigationUrl(lat: number, lng: number): string {
-  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
 }
 
 // ---------------------------------------------------------------------------

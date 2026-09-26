@@ -12,44 +12,31 @@
 
 import * as THREE from 'three';
 import { MapControls } from './controls';
+import { uniqueBuildingFootprints } from './building-footprints';
 import type { CameraPose } from './controls';
 import { buildSceneGeometries, buildingSolidGeometry } from './geometry';
+import { RESIDENCE_HALLS } from '@/lib/residenceHalls';
 import { extrudeFootprint, mergeAll, outsetRing, ringToShapePoints } from './geom-utils';
 import { buildDrivingCarGeometry } from './cars';
 import { initEasterEggs } from './eastereggs';
 import { createSeasons } from './seasons';
 import { PaletteController } from './palette';
 import { createProjection } from './projection';
+import { addWorldBuildingUV, addWorldSurfaceUV, makeBuildingTexture, makeGroundTexture, makeSurfaceTexture } from './texture-ground';
+import { buildMallFountain } from './mall-fountain';
+import { HOME_VIEW } from './home-view';
 import type { CampusData, CampusSceneHandle } from './types';
 import { PARKING_HIGHLIGHT_TARGETS } from '../../../lib/parkingData.js';
+import { computeSunPosition } from '../../../lib/solar';
 
 const DATA_URL = `${import.meta.env.BASE_URL}campus-data.json`;
+const TREES_URL = `${import.meta.env.BASE_URL}campus-trees.json`;
 
 const FOV = 45;
-const MIN_DISTANCE = 120;
+const MIN_DISTANCE = 80;
 const MAX_DISTANCE = 4000;
 const MAX_PHI = 1.15; // rad from +y — min pitch ~24 deg above horizon
 const PAN_BOUND = 2300; // meters around the campus center — covers Paint Branch + Lake Artemesia at the bbox east/south edges
-/** The canonical "home" camera pose — the load-in view, and what the compass
- * recenter button and back-to-list navigation return to. Expressed in the
- * flyTo contract's units (lat/lng/zoom/pitch/bearing) so CampusMap3D can
- * replay it through `flyTo` verbatim; the initial controls pose below is
- * derived from the same numbers. */
-export const HOME_VIEW = {
-  lat: 38.9864,
-  lng: -76.94496,
-  zoom: 15.74, // distance = 2600 * 2^(15 - zoom) ≈ 1557 m
-  pitch: 48,
-  bearing: -20,
-};
-/** Canonical top-down pose for 2D mode — what the 2D toggle flies to. */
-export const HOME_VIEW_2D = {
-  lat: 38.98803,
-  lng: -76.94516,
-  zoom: 15.6, // distance = 2600 * 2^(15 - zoom) ≈ 1714 m
-  pitch: 90,
-  bearing: -20,
-};
 const INITIAL_DISTANCE = 2600 * Math.pow(2, 15 - HOME_VIEW.zoom);
 const INITIAL_PHI = THREE.MathUtils.degToRad(90 - HOME_VIEW.pitch);
 const INITIAL_THETA = THREE.MathUtils.degToRad(HOME_VIEW.bearing);
@@ -60,9 +47,8 @@ const PULSE_Y = 0.7;
 /** Parking-lot highlight plates float above the road tier (roads sit at 0.4)
  * so road-covered parking lanes still show their highlight. */
 const PARKING_PLATE_Y = 0.45;
-/** Cap on the expanding pulse ring (meters) — past this it smears into a
- * huge red blob at high camera pitch instead of reading as a ring. */
-const PULSE_MAX_RADIUS = 28;
+/** Cap the brief focus cue close to the building at street-level zoom. */
+const PULSE_MAX_RADIUS = 20;
 const VISIBILITY_MARGIN = 40; // css px beyond the canvas rect
 
 // -- campus lamp glow ------------------------------------------------------------
@@ -92,9 +78,6 @@ const WINDOW_GLOW_FULL_ELEV = -6;
 const WINDOW_GLOW_MAX = 0.92;
 
 // -- solar cycle ---------------------------------------------------------------
-/** Campus location: College Park, MD. */
-const CAMPUS_LAT = 38.9869;
-const CAMPUS_LNG = -76.9426;
 /** How often the real sun position is recomputed in auto mode. */
 const SOLAR_RECOMPUTE_SECONDS = 1;
 /** Fixed distance of the directional light from campus center along the sun
@@ -138,61 +121,13 @@ export interface CampusSceneHandleV2 extends CampusSceneHandle {
    * meters, phi = polar angle from +y (radians), theta = bearing of the view
    * direction (radians, clockwise from north). */
   getPose(): { x: number; z: number; distance: number; phi: number; theta: number };
+  /** Zoom step; an optional geographic anchor stays at the given screen point. */
+  zoomBy(factor: number, anchor?: { lat: number; lng: number; screenX: number; screenY: number }): void;
+  /** Selectable room building or residence hall under a screen tap. */
+  pickPlace(clientX: number, clientY: number): { kind: 'building' | 'residence' | 'map-building'; id: string } | null;
   /** Easter egg: Turtle Mode — swaps the driving fleet to crawling turtles
    * for 60s (auto-restores). Optional so older handles stay assignable. */
   setTurtleMode?(active: boolean): void;
-}
-
-/** Compact NOAA-style solar approximation (accurate to ~1 arcminute for this
- * century). Returns sun elevation and azimuth (degrees, azimuth clockwise
- * from north) for the campus location at the given instant. Timezone-free:
- * works off UTC minutes, so the result is correct regardless of the device's
- * local timezone. */
-function computeSunPosition(date: Date): { elevation: number; azimuth: number } {
-  const start = Date.UTC(date.getUTCFullYear(), 0, 0);
-  const dayOfYear = Math.floor((date.getTime() - start) / 86400000);
-  const utcHours =
-    date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
-  const gamma = ((2 * Math.PI) / 365) * (dayOfYear - 1 + (utcHours - 12) / 24);
-
-  const eqtime =
-    229.18 *
-    (0.000075 +
-      0.001868 * Math.cos(gamma) -
-      0.032077 * Math.sin(gamma) -
-      0.014615 * Math.cos(2 * gamma) -
-      0.040849 * Math.sin(2 * gamma)); // minutes
-  const decl =
-    0.006918 -
-    0.399912 * Math.cos(gamma) +
-    0.070257 * Math.sin(gamma) -
-    0.006758 * Math.cos(2 * gamma) +
-    0.000907 * Math.sin(2 * gamma) -
-    0.002697 * Math.cos(3 * gamma) +
-    0.00148 * Math.sin(3 * gamma); // radians
-
-  // True solar time (minutes) at the campus longitude, straight from UTC.
-  const tst = utcHours * 60 + eqtime + 4 * CAMPUS_LNG;
-  const ha = ((tst / 4 - 180) * Math.PI) / 180; // hour angle, radians
-
-  const lat = (CAMPUS_LAT * Math.PI) / 180;
-  const cosZenith =
-    Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(ha);
-  const zenith = Math.acos(THREE.MathUtils.clamp(cosZenith, -1, 1));
-  const elevation = 90 - (zenith * 180) / Math.PI;
-
-  const sinZenith = Math.sin(zenith);
-  let azimuth = 180; // fallback: due south
-  if (sinZenith > 1e-6) {
-    const cosAz = THREE.MathUtils.clamp(
-      (Math.sin(lat) * cosZenith - Math.sin(decl)) / (Math.cos(lat) * sinZenith),
-      -1,
-      1,
-    );
-    const az = (Math.acos(cosAz) * 180) / Math.PI;
-    azimuth = ha > 0 ? (az + 180) % 360 : (540 - az) % 360;
-  }
-  return { elevation, azimuth };
 }
 
 /** Soft radial glow texture (white core -> transparent edge) shared by every
@@ -216,17 +151,61 @@ function makeRadialGlowTexture(): THREE.CanvasTexture {
 
 export async function createCampusScene(
   container: HTMLElement,
-  opts: { darkMode: boolean; timeMode?: SceneTimeMode },
+  opts: { darkMode: boolean; timeMode?: SceneTimeMode; initialHomeScreenX?: number },
 ): Promise<CampusSceneHandleV2> {
-  const res = await fetch(DATA_URL);
+  // Both datasets are needed before geometry can be built. Start the smaller
+  // tree request while the campus response is still downloading/parsing.
+  const campusPromise = fetch(DATA_URL);
+  const treesPromise = fetch(TREES_URL)
+    .then((response) => response.ok ? response.json() as Promise<CampusData['trees']> : undefined)
+    .catch(() => undefined);
+  const res = await campusPromise;
   if (!res.ok) throw new Error(`Failed to load campus-data.json (HTTP ${res.status})`);
   const data = (await res.json()) as CampusData;
+  data.buildings = uniqueBuildingFootprints(data.buildings);
+  // The separate snapshot comes from UMD's campus plant inventory. If it is
+  // unavailable, the handful of OSM points in campus-data remain usable.
+  const loadedTrees = await treesPromise;
+  if (loadedTrees) data.trees = loadedTrees;
   const proj = createProjection(data);
+  // Room metadata points can sit tens of meters away from the visible model.
+  // Use the largest mapped footprint for each code as the marker/fly target.
+  const buildingCenters = new Map<string, { area: number; lat: number; lng: number }>();
+  for (const building of data.buildings) {
+    if (!building.umdCode || building.footprint.length < 3) continue;
+    const ring = building.footprint;
+    const [baseLng, baseLat] = ring[0];
+    let twiceArea = 0;
+    let weightedLng = 0;
+    let weightedLat = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const [lngA, latA] = ring[i];
+      const [lngB, latB] = ring[(i + 1) % ring.length];
+      const ax = lngA - baseLng, ay = latA - baseLat;
+      const bx = lngB - baseLng, by = latB - baseLat;
+      const cross = ax * by - bx * ay;
+      twiceArea += cross;
+      weightedLng += (ax + bx) * cross;
+      weightedLat += (ay + by) * cross;
+    }
+    const area = Math.abs(twiceArea);
+    if (area < 1e-12 || area <= (buildingCenters.get(building.umdCode)?.area ?? 0)) continue;
+    buildingCenters.set(building.umdCode, {
+      area,
+      lng: baseLng + weightedLng / (3 * twiceArea),
+      lat: baseLat + weightedLat / (3 * twiceArea),
+    });
+  }
 
   // -- renderer ---------------------------------------------------------------
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  // Filmic highlight rolloff keeps pale roofs and limestone detail visible in
+  // direct sun, while the standard sRGB output keeps UI-adjacent colors sane.
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.9; // the solar palette adjusts this at dusk/night
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   const canvas = renderer.domElement;
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -239,9 +218,29 @@ export async function createCampusScene(
   // -- scene / camera -----------------------------------------------------------
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xffffff); // driven by the palette
-  const fog = new THREE.Fog(0xffffff, 3400, 10000);
+  const fog = new THREE.Fog(0xffffff, 2700, 8500);
   scene.fog = fog;
-  const camera = new THREE.PerspectiveCamera(FOV, 1, 10, 16000);
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 30, 11000);
+
+  // Lightweight invisible solids make every named footprint tappable. Empty
+  // campus taps keep the map's current selection.
+  const pickMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  const pickMeshes: THREE.Mesh[] = [];
+  const residenceIds = new Set(RESIDENCE_HALLS.map((hall) => hall.id));
+  for (const building of data.buildings) {
+    if (!building.umdCode && !residenceIds.has(building.id) && !building.name) continue;
+    const geometry = buildingSolidGeometry(building, proj);
+    if (!geometry) continue;
+    const mesh = new THREE.Mesh(geometry, pickMaterial);
+    mesh.userData.pick = building.umdCode
+      ? { kind: 'building', id: building.umdCode }
+      : residenceIds.has(building.id)
+        ? { kind: 'residence', id: building.id }
+        : { kind: 'map-building', id: building.id };
+    pickMeshes.push(mesh);
+  }
+  const pickingRaycaster = new THREE.Raycaster();
+  const pickPointer = new THREE.Vector2();
 
   // -- lights -------------------------------------------------------------------
   const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 1);
@@ -250,46 +249,72 @@ export async function createCampusScene(
   sun.position.set(1250, 2100, 950); // warm sun from the southeast
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.radius = 2; // soften the texels without a post-process pass
   sun.shadow.camera.left = -1800;
   sun.shadow.camera.right = 1800;
   sun.shadow.camera.top = 1800;
   sun.shadow.camera.bottom = -1800;
   sun.shadow.camera.near = 200;
   sun.shadow.camera.far = 6500;
-  sun.shadow.bias = -0.0006;
-  sun.shadow.normalBias = 3;
+  sun.shadow.bias = -0.00015;
+  // Map units are metres. A multi-metre normal bias made trees and buildings
+  // appear to float above their shadows, especially at low sun angles.
+  sun.shadow.normalBias = 0.09;
   sun.shadow.camera.updateProjectionMatrix();
   scene.add(sun);
-  scene.add(sun.target); // target stays at the campus center (origin)
+  scene.add(sun.target);
 
   // -- merged campus geometry ------------------------------------------------------
   const geoms = buildSceneGeometries(data, proj);
-  const groundMat = new THREE.MeshLambertMaterial({ color: 0xa8b190 }); // muted warm-sage lawn base — slightly lighter/dustier than mapped grass (#8ab06e) so mowed lawns still read as distinct
-  const buildingMat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  const flatMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  addWorldBuildingUV(geoms.buildings);
+  addWorldSurfaceUV(geoms.roads);
+  addWorldSurfaceUV(geoms.areas);
+  // Season and easter-egg controllers own the ground and lamp materials, so
+  // retain their existing material contract while upgrading visible surfaces.
+  const groundTexture = makeGroundTexture(9000, renderer.capabilities.getMaxAnisotropy());
+  const surfaceTexture = makeSurfaceTexture(renderer.capabilities.getMaxAnisotropy());
+  const buildingTexture = makeBuildingTexture(renderer.capabilities.getMaxAnisotropy());
+  const groundMat = new THREE.MeshLambertMaterial({ color: 0xafc49b, map: groundTexture });
+  const buildingMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: buildingTexture, roughness: 0.88 });
+  const flatMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: surfaceTexture, roughness: 0.96 });
+  const foliageMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
 
   const ground = new THREE.Mesh(geoms.ground, groundMat);
   ground.receiveShadow = true;
   const buildings = new THREE.Mesh(geoms.buildings, buildingMat);
   buildings.castShadow = true;
-  buildings.receiveShadow = true;
+  // Shallow rooftop and window geometry self-shadows into diagonal acne.
+  buildings.receiveShadow = false;
   const roads = new THREE.Mesh(geoms.roads, flatMat);
   roads.receiveShadow = true;
   const areas = new THREE.Mesh(geoms.areas, flatMat);
   areas.receiveShadow = true;
   // Water: dedicated merged mesh (water/fountain/pool polygons + waterway
   // ribbons, vertex-colored shore->deep gradient + shore ring baked in
-  // geometry.ts). A subtle MeshPhongMaterial gives a soft specular glint from
-  // the palette-driven sun by day and the cool moonlight at night — no
-  // shaders, no per-frame work.
-  const waterMat = new THREE.MeshPhongMaterial({
+  // geometry.ts). Clearcoat provides a broad glint from the sun/moon while
+  // preserving the shoreline-to-deep-water vertex colors.
+  const waterMat = new THREE.MeshPhysicalMaterial({
     vertexColors: true,
-    shininess: 55, // moderate — a soft broad glint, not a hard sparkle
-    specular: new THREE.Color(0xd8e4ec), // pale neutral glint (warm sun / cool moon tint it)
+    roughness: 0.29,
+    metalness: 0.04,
+    clearcoat: 0.55,
+    clearcoatRoughness: 0.23,
   });
   const water = new THREE.Mesh(geoms.water, waterMat);
   water.receiveShadow = true;
-  const trees = new THREE.Mesh(geoms.trees, flatMat);
+  const fountainGeometry = buildMallFountain(data, proj);
+  const fountainWater = fountainGeometry
+    ? new THREE.Mesh(fountainGeometry.water, waterMat.clone()) : null;
+  const fountainStone = fountainGeometry
+    ? new THREE.Mesh(fountainGeometry.stone, new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.91,
+    })) : null;
+  if (fountainStone) {
+    fountainStone.castShadow = true;
+    fountainStone.receiveShadow = true;
+  }
+  const trees = new THREE.Mesh(geoms.trees, foliageMat);
   trees.castShadow = true;
   // Lying snow: flat blobs over the lawns, hidden outside winter. Sits above
   // grass/sport but below paths, so walkways read as cleared.
@@ -307,12 +332,13 @@ export async function createCampusScene(
   snowPatches.receiveShadow = true;
   snowPatches.visible = false; // seasons drives this
   scene.add(ground, buildings, roads, areas, water, trees, snowPatches);
+  if (fountainWater && fountainStone) scene.add(fountainWater, fountainStone);
 
   // Campus lamps: ONE merged dark-pole mesh + ONE merged head mesh. The head
   // material carries the warm #ffd9a0 glow — its emissiveIntensity is driven
   // by the sun elevation in updateTimeOfDay (unlit fixture by day, glowing at
   // dusk/night). Two extra draw calls, no per-frame work.
-  const lampPoleMat = new THREE.MeshLambertMaterial({ color: 0x3d3a34 }); // dark warm charcoal
+  const lampPoleMat = new THREE.MeshStandardMaterial({ color: 0x3d3a34, roughness: 0.58, metalness: 0.28 });
   const lampHeadMat = new THREE.MeshLambertMaterial({
     color: 0x6b675e, // unlit fixture gray by day
     emissive: new THREE.Color(0xffd9a0),
@@ -408,17 +434,26 @@ export async function createCampusScene(
   const windows = new THREE.Mesh(geoms.windows, windowMat);
   windows.renderOrder = 1;
   windows.visible = false; // zero cost by day
-  scene.add(windows);
+  const dayWindowMat = new THREE.MeshBasicMaterial({
+    color: 0x435b62,
+    transparent: true,
+    opacity: 0.68,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const dayWindows = new THREE.Mesh(geoms.dayWindows, dayWindowMat);
+  dayWindows.renderOrder = 0;
+  scene.add(dayWindows, windows);
 
   // Shrubs: ONE merged vertex-colored mesh (muted deep greens) — one draw call.
-  const shrubMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const shrubMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
   const shrubs = new THREE.Mesh(geoms.shrubs, shrubMat);
   shrubs.receiveShadow = true;
   scene.add(shrubs);
 
   // Parked cars: ONE merged vertex-colored mesh (cars.ts bakes deterministic
   // stalls into every parking lot) — one draw call, real shadows by day.
-  const parkedCarMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const parkedCarMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.46, metalness: 0.12 });
   const parkedCars = new THREE.Mesh(geoms.parkedCars, parkedCarMat);
   parkedCars.castShadow = true;
   parkedCars.receiveShadow = true;
@@ -615,7 +650,7 @@ export async function createCampusScene(
   if (totalCarCount > 0) {
     carBodies = new THREE.InstancedMesh(
       buildDrivingCarGeometry(),
-      new THREE.MeshLambertMaterial({ vertexColors: true }),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.43, metalness: 0.14 }),
       totalCarCount,
     );
     carBodies.castShadow = true;
@@ -750,7 +785,7 @@ export async function createCampusScene(
     side: THREE.DoubleSide,
     fog: false,
   });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 1, 48), ringMat);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48), ringMat);
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = PULSE_Y;
   ring.visible = false;
@@ -764,9 +799,14 @@ export async function createCampusScene(
   const highlightMat = new THREE.MeshLambertMaterial({
     color: 0xe21833, // UMD red
     emissive: new THREE.Color(0xe21833),
-    emissiveIntensity: 0.3,
+    emissiveIntensity: 0.2,
     transparent: true,
-    opacity: 0.72,
+    // The translucent selection shell should never write a solid depth
+    // silhouette over neighboring roof/facade details during a zoom flight.
+    depthWrite: false,
+    // Keep the selected shape legible without washing the researched facade
+    // and roof colors in red; the status marker and pulse ring carry focus.
+    opacity: 0.07,
     // Belt-and-braces on top of the geometric fix: buildingSolidGeometry now
     // outsets the shell 0.5m past the facade and 1m above the tallest part,
     // and this nudges the shell's depth toward the camera as a final guard
@@ -904,9 +944,14 @@ export async function createCampusScene(
     panBound: PAN_BOUND,
   });
   const homeTarget = proj.toLocal(HOME_VIEW.lng, HOME_VIEW.lat);
+  // The left browser covers part of the map on tablets and desktops. Start
+  // with the campus center in the visible map area, without an arrival pan.
+  const homeNdcX = 2 * THREE.MathUtils.clamp(opts.initialHomeScreenX ?? 0.5, 0.05, 0.95) - 1;
+  const homeRight = homeNdcX * INITIAL_DISTANCE * Math.tan(THREE.MathUtils.degToRad(FOV / 2))
+    * container.clientWidth / Math.max(1, container.clientHeight);
   controls.setPose({
-    x: homeTarget.x,
-    z: homeTarget.z,
+    x: homeTarget.x - Math.cos(INITIAL_THETA) * homeRight,
+    z: homeTarget.z - Math.sin(INITIAL_THETA) * homeRight,
     distance: INITIAL_DISTANCE,
     phi: INITIAL_PHI,
     theta: INITIAL_THETA,
@@ -919,7 +964,9 @@ export async function createCampusScene(
     fog,
     hemi,
     sun,
+    renderer,
     buildingMaterial: buildingMat,
+    surfaceMaterial: flatMat,
   });
 
   // Backward compat: callers that only pass darkMode get the equivalent
@@ -947,6 +994,28 @@ export async function createCampusScene(
    * day->moonlight handoff) sweep smoothly instead of snapping. */
   let lightAz = NaN;
   let lightElev = NaN;
+  const sunOffset = new THREE.Vector3(1250, 2100, 950);
+  let shadowHalfExtent = 1800;
+
+  // Keep the shadow-map pixels concentrated around the current view. A fixed
+  // campus-wide frustum makes close trees and facade shadows look blocky.
+  const updateShadowCoverage = (): void => {
+    const pose = controls.getPose();
+    const halfExtent = Math.min(1800, Math.ceil(Math.max(
+      260,
+      pose.distance * (1.25 + 0.75 * Math.sin(pose.phi)),
+    ) / 16) * 16);
+    if (halfExtent !== shadowHalfExtent) {
+      shadowHalfExtent = halfExtent;
+      sun.shadow.camera.left = -halfExtent;
+      sun.shadow.camera.right = halfExtent;
+      sun.shadow.camera.top = halfExtent;
+      sun.shadow.camera.bottom = -halfExtent;
+      sun.shadow.camera.updateProjectionMatrix();
+    }
+    sun.target.position.set(pose.x, 0, pose.z);
+    sun.position.copy(sun.target.position).add(sunOffset);
+  };
 
   const sunTargets = (): { az: number; elev: number } => {
     if (timeMode === 'auto') return { az: 0, elev: realSun.elevation }; // az unused in auto
@@ -1004,11 +1073,10 @@ export async function createCampusScene(
     }
     if (changed) {
       // Local frame: x = east, z = south (north = -z), azimuth clockwise
-      // from north. Light sits along the sun vector at a fixed distance; the
-      // shadow ortho stays fitted to campus, target = campus center.
+      // from north. The light follows the view target at a fixed distance.
       const azRad = THREE.MathUtils.degToRad(lightAz);
       const elRad = THREE.MathUtils.degToRad(lightElev);
-      sun.position.set(
+      sunOffset.set(
         SUN_DISTANCE * Math.cos(elRad) * Math.sin(azRad),
         SUN_DISTANCE * Math.sin(elRad),
         -SUN_DISTANCE * Math.cos(elRad) * Math.cos(azRad),
@@ -1068,6 +1136,11 @@ export async function createCampusScene(
       1,
     );
     const winGlow = winT * winT * (3 - 2 * winT);
+    const dayOpacity = 0.68 - 0.42 * winGlow;
+    if (Math.abs(dayOpacity - dayWindowMat.opacity) > LAMP_GLOW_EPS) {
+      dayWindowMat.opacity = dayOpacity;
+      changed = true;
+    }
     const winOpacity = winGlow * WINDOW_GLOW_MAX;
     if (Math.abs(winOpacity - windowMat.opacity) > LAMP_GLOW_EPS) {
       windowMat.opacity = winOpacity;
@@ -1223,12 +1296,16 @@ export async function createCampusScene(
     if (seasons.update(dt)) needsRender = true;
 
     if (pulse.active) {
-      const phase = ((nowMs - pulse.startMs) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
-      // Grow to a capped max, then hold + fade — uncapped growth smeared into
-      // a huge red blob on the ground at high camera pitch.
-      const radius = Math.min(9 + phase * 40, PULSE_MAX_RADIUS); // meters
-      ring.scale.set(radius, radius, 1);
-      ringMat.opacity = 0.8 * (1 - phase);
+      const elapsed = nowMs - pulse.startMs;
+      if (elapsed >= PULSE_PERIOD_MS) {
+        pulse.active = false;
+        ring.visible = false;
+      } else {
+        const phase = elapsed / PULSE_PERIOD_MS;
+        const radius = Math.min(3 + phase * 20, PULSE_MAX_RADIUS);
+        ring.scale.set(radius, radius, 1);
+        ringMat.opacity = 0.55 * Math.pow(1 - phase, 1.3);
+      }
       needsRender = true;
     }
 
@@ -1242,9 +1319,33 @@ export async function createCampusScene(
     }
 
     if (needsRender) {
+      updateShadowCoverage();
       renderer.render(scene, camera);
       needsRender = false;
     }
+  };
+
+  // Keep a geographic point at the same screen position when the camera
+  // changes distance. Shared by selection flights and the zoom buttons.
+  const targetForScreenAnchor = (
+    point: { x: number; z: number },
+    distance: number,
+    phi: number,
+    theta: number,
+    screenX: number,
+    screenY: number,
+  ): { x: number; z: number } => {
+    const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    const ndcY = 1 - 2 * THREE.MathUtils.clamp(screenY, 0.05, 0.95);
+    const denominator = Math.max(0.05, Math.cos(phi) - ndcY * Math.sin(phi) * tanHalfFov);
+    const forward = ndcY * distance * tanHalfFov / denominator;
+    const depth = distance + forward * Math.sin(phi);
+    const ndcX = 2 * THREE.MathUtils.clamp(screenX, 0.05, 0.95) - 1;
+    const right = ndcX * depth * tanHalfFov * container.clientWidth / Math.max(1, container.clientHeight);
+    return {
+      x: point.x - Math.sin(theta) * forward - Math.cos(theta) * right,
+      z: point.z + Math.cos(theta) * forward - Math.sin(theta) * right,
+    };
   };
 
   // -- handle -------------------------------------------------------------------------------
@@ -1290,6 +1391,21 @@ export async function createCampusScene(
       return controls.getPose();
     },
 
+    zoomBy(factor, anchor): void {
+      if (!Number.isFinite(factor) || factor <= 0) return;
+      if (!anchor) {
+        controls.zoomBy(factor);
+        return;
+      }
+      const goal = controls.getGoalPose();
+      const distance = controls.zoomDistance(factor);
+      const point = proj.toLocal(anchor.lng, anchor.lat);
+      const centered = targetForScreenAnchor(
+        point, distance, goal.phi, goal.theta, anchor.screenX, anchor.screenY,
+      );
+      controls.flyTo({ ...centered, distance }, 400);
+    },
+
     flyTo(t): void {
       const pose: Partial<CameraPose> = {};
       const p = proj.toLocal(t.lng, t.lat);
@@ -1307,6 +1423,17 @@ export async function createCampusScene(
       }
       if (t.bearing != null) {
         pose.theta = THREE.MathUtils.degToRad(t.bearing);
+      }
+      if (t.screenX != null || t.screenY != null) {
+        const current = controls.getPose();
+        const distance = pose.distance ?? current.distance;
+        const phi = pose.phi ?? current.phi;
+        const theta = pose.theta ?? current.theta;
+        const centered = targetForScreenAnchor(
+          p, distance, phi, theta, t.screenX ?? 0.5, t.screenY ?? 0.5,
+        );
+        pose.x = centered.x;
+        pose.z = centered.z;
       }
       controls.flyTo(pose, FLYTO_DURATION_MS);
     },
@@ -1330,6 +1457,26 @@ export async function createCampusScene(
         y >= -VISIBILITY_MARGIN &&
         y <= h + VISIBILITY_MARGIN;
       return { x, y, visible };
+    },
+
+    getBuildingCenter(code: string) {
+      const center = buildingCenters.get(code);
+      return center ? { lat: center.lat, lng: center.lng } : null;
+    },
+
+    pickPlace(clientX: number, clientY: number): { kind: 'building' | 'residence' | 'map-building'; id: string } | null {
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height ||
+          clientX < rect.left || clientX > rect.right ||
+          clientY < rect.top || clientY > rect.bottom) return null;
+      pickPointer.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        1 - ((clientY - rect.top) / rect.height) * 2,
+      );
+      camera.updateMatrixWorld();
+      pickingRaycaster.setFromCamera(pickPointer, camera);
+      const hit = pickingRaycaster.intersectObjects(pickMeshes, false)[0];
+      return (hit?.object.userData.pick as { kind: 'building' | 'residence' | 'map-building'; id: string } | undefined) ?? null;
     },
 
     onFrame(cb: () => void): () => void {
@@ -1393,7 +1540,12 @@ export async function createCampusScene(
           else material.dispose();
         }
       });
+      for (const mesh of pickMeshes) mesh.geometry.dispose();
+      pickMaterial.dispose();
       lampPoolTexture.dispose(); // canvas texture — not covered by material.dispose()
+      groundTexture.dispose();
+      surfaceTexture.dispose();
+      buildingTexture.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       canvas.remove();

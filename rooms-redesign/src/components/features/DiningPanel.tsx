@@ -40,9 +40,60 @@ import {
   openWalkingDirections,
 } from './ui-bits';
 
+interface DiningItem {
+  name?: string;
+  url?: string;
+}
+
+interface DiningSection {
+  name?: string;
+  items?: DiningItem[];
+}
+
+interface DiningMeal {
+  name?: string;
+  sections?: DiningSection[];
+}
+
+interface DiningSubvenue {
+  id?: string;
+  name?: string;
+  hoursLabel?: string;
+}
+
+interface DiningHallRecord {
+  id?: string | number;
+  name?: string;
+  dateKey?: string;
+  kind?: string;
+  pageUrl?: string;
+  description?: string;
+  paymentNote?: string;
+  meals?: DiningMeal[];
+  subvenues?: DiningSubvenue[];
+}
+
+function isDiningHallRecord(value: unknown): value is DiningHallRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function diningHalls(value: unknown): DiningHallRecord[] {
+  return Array.isArray(value) ? value.filter(isDiningHallRecord) : [];
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = error.message;
+    if (typeof message === 'string' && message) return message;
+  }
+  return fallback;
+}
+
+const EMPTY_MEALS: DiningMeal[] = [];
+
 interface BrowseState {
   status: 'idle' | 'loading' | 'ready' | 'error';
-  hall: any | null;
+  hall: DiningHallRecord | null;
   error: string | null;
 }
 
@@ -72,7 +123,7 @@ export function DiningPanel() {
   const [browseKey, setBrowseKey] = useState<string>('');
   const [browse, setBrowse] = useState<BrowseState>(EMPTY_BROWSE);
   const [mealName, setMealName] = useState<string>('');
-  const cacheRef = useRef(new Map<string, any[]>());
+  const cacheRef = useRef(new Map<string, DiningHallRecord[]>());
   const requestRef = useRef(0);
 
   // Reset browse state when the selected hall changes.
@@ -94,7 +145,7 @@ export function DiningPanel() {
     const cached = cacheRef.current.get(browseKey);
     if (cached) {
       const hall =
-        cached.find((h: any) => String(h.id ?? h.name) === String(selected!.id)) || null;
+        cached.find((h) => String(h.id ?? h.name) === String(selected!.id)) || null;
       setBrowse({
         status: 'ready',
         hall,
@@ -105,31 +156,34 @@ export function DiningPanel() {
     const requestId = ++requestRef.current;
     setBrowse({ status: 'loading', hall: null, error: null });
     fetchDiningHallsForDate(browseKey)
-      .then((halls: any[]) => {
+      .then((halls: unknown) => {
         if (requestRef.current !== requestId) return;
-        const list = Array.isArray(halls) ? halls : [];
+        const list = diningHalls(halls);
         cacheRef.current.set(browseKey, list);
         const hall =
-          list.find((h: any) => String(h.id ?? h.name) === String(selected!.id)) || null;
+          list.find((h) => String(h.id ?? h.name) === String(selected!.id)) || null;
         setBrowse({
           status: 'ready',
           hall,
           error: hall ? null : 'No dining data for this date.',
         });
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         if (requestRef.current !== requestId) return;
         setBrowse({
           status: 'error',
           hall: null,
-          error: err?.message || 'Could not load menus for that day.',
+          error: errorMessage(err, 'Could not load menus for that day.'),
         });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browseKey, isDining, storeDateKey, selectedId]);
 
   const browsingStoreDay = !browseKey || browseKey === storeDateKey;
-  const rawHall: any | null = browsingStoreDay ? storeHall?.raw ?? null : browse.hall;
+  const storeRawHall: unknown = storeHall?.raw;
+  const rawHall: DiningHallRecord | null = browsingStoreDay
+    ? isDiningHallRecord(storeRawHall) ? storeRawHall : null
+    : browse.hall;
 
   // Reference time: "now" only when viewing the active day in Now mode;
   // otherwise noon of the browsed day (ported from legacy Sidebar.js).
@@ -150,7 +204,10 @@ export function DiningPanel() {
   );
 
   const isRetail = rawHall ? isRetailDiningVenue(rawHall) : false;
-  const meals: any[] = Array.isArray(rawHall?.meals) ? rawHall.meals : [];
+  const meals = useMemo(
+    () => (Array.isArray(rawHall?.meals) ? rawHall.meals : EMPTY_MEALS),
+    [rawHall]
+  );
 
   // Keep the selected meal valid for the browsed hall/date.
   useEffect(() => {
@@ -159,7 +216,6 @@ export function DiningPanel() {
       if (prev && meals.some((m) => m?.name === prev)) return prev;
       return getRecommendedDiningMealName(rawHall, referenceDate) || meals[0]?.name || '';
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawHall, isRetail, referenceDate, meals]);
 
   const selectedMeal = meals.find((m) => m?.name === mealName) || null;
@@ -193,7 +249,7 @@ export function DiningPanel() {
                 openWalkingDirections(storeHall.lat, storeHall.lng);
               }}
             >
-              Navigate to Dining
+              Walking directions
             </PrimaryButton>
             {rawHall?.pageUrl ? (
               <GhostButton
@@ -264,7 +320,7 @@ export function DiningPanel() {
               <SectionHeader>Shops</SectionHeader>
               <div className="space-y-2">
                 {(Array.isArray(rawHall.subvenues) ? rawHall.subvenues : []).length ? (
-                  rawHall.subvenues.map((sub: any) => {
+                  rawHall.subvenues!.map((sub) => {
                     const subInfo = getRetailSubvenueStatusInfo(rawHall, sub, referenceDate);
                     return (
                       <div
@@ -303,7 +359,7 @@ export function DiningPanel() {
                 <div className="mt-5">
                   <SectionHeader className="mt-0">Meals</SectionHeader>
                   <div className="flex flex-wrap gap-1.5">
-                    {meals.map((meal: any) => (
+                    {meals.map((meal) => (
                       <button
                         key={meal?.name}
                         type="button"
@@ -330,7 +386,7 @@ export function DiningPanel() {
                   <SectionHeader className="mt-0">{selectedMeal.name} Menu</SectionHeader>
                   <div className="space-y-4">
                     {(Array.isArray(selectedMeal.sections) ? selectedMeal.sections : []).map(
-                      (section: any) => (
+                      (section) => (
                         <div key={section?.name}>
                           <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
                             <StatusDot status="unknown" className="h-1.5 w-1.5 bg-umd-red" />
@@ -338,7 +394,7 @@ export function DiningPanel() {
                           </div>
                           <div className="flex flex-wrap gap-1.5 pl-3.5">
                             {(Array.isArray(section?.items) ? section.items : []).map(
-                              (item: any) =>
+                              (item) =>
                                 item?.url ? (
                                   <a
                                     key={`${section?.name}-${item?.name}`}
@@ -384,26 +440,26 @@ export function DiningPanel() {
 // Extracted so the retry button can re-run the fetch outside the effect.
 function fetchAndCache(
   dateKey: string,
-  cache: Map<string, any[]>,
+  cache: Map<string, DiningHallRecord[]>,
   requestRef: { current: number },
   setBrowse: (s: BrowseState) => void,
   selectedId: string | null
 ) {
   const requestId = ++requestRef.current;
   fetchDiningHallsForDate(dateKey)
-    .then((halls: any[]) => {
+    .then((halls: unknown) => {
       if (requestRef.current !== requestId) return;
-      const list = Array.isArray(halls) ? halls : [];
+      const list = diningHalls(halls);
       cache.set(dateKey, list);
-      const hall = list.find((h: any) => String(h.id ?? h.name) === String(selectedId)) || null;
+      const hall = list.find((h) => String(h.id ?? h.name) === String(selectedId)) || null;
       setBrowse({ status: 'ready', hall, error: hall ? null : 'No dining data for this date.' });
     })
-    .catch((err: any) => {
+    .catch((err: unknown) => {
       if (requestRef.current !== requestId) return;
       setBrowse({
         status: 'error',
         hall: null,
-        error: err?.message || 'Could not load menus for that day.',
+        error: errorMessage(err, 'Could not load menus for that day.'),
       });
     });
 }

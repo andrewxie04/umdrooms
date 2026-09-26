@@ -1,22 +1,31 @@
-// browse/SearchBar.tsx — grouped search across building names/codes, room
-// names, and class/event names. Keyboard navigable (arrows / enter / esc).
+// browse/SearchBar.tsx — grouped search across buildings, rooms, classes,
+// dining, parking, and residence halls. Keyboard navigable (arrows / enter / esc).
 // Writes the raw query to the store so BuildingList can react to it too.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Building2, Clock3, DoorOpen, Search, X } from 'lucide-react';
+import { Building2, CarFront, Clock3, DoorOpen, House, Search, UtensilsCrossed, X } from 'lucide-react';
 import { useCampusStore } from '@/lib/store';
+import { useExpandMobileSheet } from '@/components/shell/MobileSheetContext';
 import { cn } from '@/lib/utils';
 import { playSelectionHaptic } from '@/lib/haptics.js';
-import type { BuildingEntry, RoomEntry } from '@/types/campus';
+import { useMediaQuery } from '@/components/shell/useMediaQuery';
+import { RESIDENCE_HALLS, type ResidenceHall } from '@/lib/residenceHalls';
+import type { MapBuildingPlace } from '@/lib/mapPlaces';
+import { LANDSCAPE_SIDE_QUERY, SIDE_PANEL_QUERY } from '@/components/shell/layout';
+import type { BuildingEntry, DiningHall, ParkingLot, RoomEntry } from '@/types/campus';
 import {
   buildingMatchesQuery,
   matchRoom,
   normalizeSearchText,
+  placeMatchesSearch,
   roomSelectionId,
+  searchMapBuildings,
 } from './utils';
 
 const MAX_BUILDING_RESULTS = 6;
 const MAX_ROOM_RESULTS = 8;
+const MAX_PLACE_RESULTS = 6;
+const MAX_MAP_RESULTS = 6;
 
 interface BuildingResult {
   type: 'building';
@@ -28,72 +37,145 @@ interface RoomResult {
   room: RoomEntry;
   matchedEventName: string | null;
 }
-type SearchResult = BuildingResult | RoomResult;
+interface PlaceResult {
+  type: 'dining' | 'parking';
+  place: DiningHall | ParkingLot;
+}
+interface ResidenceResult {
+  type: 'residence';
+  hall: ResidenceHall;
+}
+interface MapBuildingResult {
+  type: 'map-building';
+  place: MapBuildingPlace;
+}
+type SearchResult = BuildingResult | RoomResult | PlaceResult | ResidenceResult | MapBuildingResult;
 
 function resultKey(result: SearchResult): string {
-  return result.type === 'building'
-    ? `b:${result.building.code}`
-    : `r:${result.building.code}/${result.room.id}`;
+  if (result.type === 'building') return `b:${result.building.code}`;
+  if (result.type === 'room') return `r:${result.building.code}/${result.room.id}`;
+  if (result.type === 'residence') return `h:${result.hall.id}`;
+  if (result.type === 'map-building') return `m:${result.place.id}`;
+  return `${result.type}:${result.place.id}`;
+}
+
+function placeResultRank(result: PlaceResult, query: string): number {
+  const name = normalizeSearchText(result.place.name);
+  if (name === query) return 0;
+  if (name.startsWith(query)) return 1;
+  return 2;
+}
+
+function roomResultRank(result: RoomResult, query: string): number {
+  const name = normalizeSearchText(result.room.name);
+  if (name === query) return 0;
+  if (name.startsWith(query)) return 1;
+  if (name.includes(query)) return 2;
+  return result.matchedEventName ? 4 : 3;
 }
 
 export function SearchBar() {
+  const isLandscapeSidePanel = useMediaQuery(LANDSCAPE_SIDE_QUERY);
+  const hasSidePanel = useMediaQuery(SIDE_PANEL_QUERY);
   const buildings = useCampusStore((s) => s.buildings);
+  const dining = useCampusStore((s) => s.dining);
+  const parking = useCampusStore((s) => s.parking);
   const loadingStatus = useCampusStore((s) => s.loading.status);
   const searchQuery = useCampusStore((s) => s.searchQuery);
   const setSearchQuery = useCampusStore((s) => s.setSearchQuery);
   const activeDateKey = useCampusStore((s) => s.activeDateKey);
   const select = useCampusStore((s) => s.select);
-  const requestFlyTo = useCampusStore((s) => s.requestFlyTo);
+  const expandMobileSheet = useExpandMobileSheet();
 
   const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeResult, setActiveResult] = useState({ query: searchQuery, index: 0 });
+  const activeIndex = activeResult.query === searchQuery ? activeResult.index : 0;
+  const setActiveIndex = (next: number | ((previous: number) => number)) => {
+    setActiveResult({
+      query: searchQuery,
+      index: typeof next === 'function' ? next(activeIndex) : next,
+    });
+  };
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const ready = loadingStatus === 'ready';
 
-  const { buildingResults, roomResults, flatResults } = useMemo(() => {
+  const { buildingResults, residenceResults, placeResults, mapResults, roomResults, flatResults } = useMemo(() => {
     const normalized = normalizeSearchText(searchQuery);
     if (!normalized || !ready) {
-      return { buildingResults: [] as BuildingResult[], roomResults: [] as RoomResult[], flatResults: [] as SearchResult[] };
+      return { buildingResults: [] as BuildingResult[], residenceResults: [] as ResidenceResult[], placeResults: [] as PlaceResult[], mapResults: [] as MapBuildingResult[], roomResults: [] as RoomResult[], flatResults: [] as SearchResult[] };
     }
 
     const bResults: BuildingResult[] = [];
+    const hResults: ResidenceResult[] = [];
+    const pResults: PlaceResult[] = [];
+    const mResults: MapBuildingResult[] = searchMapBuildings(normalized, buildings, dining, parking)
+      .slice(0, MAX_MAP_RESULTS).map((place) => ({ type: 'map-building', place }));
     const rResults: RoomResult[] = [];
 
     for (const building of buildings) {
       if (bResults.length < MAX_BUILDING_RESULTS && buildingMatchesQuery(building, normalized)) {
         bResults.push({ type: 'building', building });
       }
-      if (rResults.length < MAX_ROOM_RESULTS) {
-        const rooms = Array.isArray(building.rooms) ? building.rooms : [];
-        for (const room of rooms) {
-          const matched = matchRoom(room, building, normalized, activeDateKey);
-          if (matched) {
-            rResults.push({
-              type: 'room',
-              building,
-              room,
-              matchedEventName: matched.matchedEventName,
-            });
-            if (rResults.length >= MAX_ROOM_RESULTS) break;
-          }
+      const rooms = Array.isArray(building.rooms) ? building.rooms : [];
+      for (const room of rooms) {
+        const matched = matchRoom(room, building, normalized, activeDateKey);
+        if (matched) {
+          rResults.push({
+            type: 'room',
+            building,
+            room,
+            matchedEventName: matched.matchedEventName,
+          });
         }
       }
-      if (bResults.length >= MAX_BUILDING_RESULTS && rResults.length >= MAX_ROOM_RESULTS) break;
     }
 
-    return {
-      buildingResults: bResults,
-      roomResults: rResults,
-      flatResults: [...bResults, ...rResults] as SearchResult[],
-    };
-  }, [buildings, searchQuery, activeDateKey, ready]);
+    for (const place of dining) {
+      if (placeMatchesSearch(place.name, normalized)) {
+        pResults.push({ type: 'dining', place });
+      }
+    }
+    for (const place of parking) {
+      if (placeMatchesSearch(place.name, normalized)) {
+        pResults.push({ type: 'parking', place });
+      }
+    }
+    for (const hall of RESIDENCE_HALLS) {
+      if (normalizeSearchText(hall.name).includes(normalized)) hResults.push({ type: 'residence', hall });
+    }
+    hResults.sort((a, b) =>
+      Number(normalizeSearchText(a.hall.name) !== normalized) - Number(normalizeSearchText(b.hall.name) !== normalized) ||
+      a.hall.name.localeCompare(b.hall.name),
+    );
+    hResults.length = Math.min(hResults.length, MAX_PLACE_RESULTS);
+    pResults.sort((a, b) =>
+      placeResultRank(a, normalized) - placeResultRank(b, normalized) ||
+      a.place.name.localeCompare(b.place.name),
+    );
+    pResults.length = Math.min(pResults.length, MAX_PLACE_RESULTS);
 
-  // Reset the highlighted row whenever the result set changes.
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [searchQuery]);
+    // A direct room-number match must not disappear behind earlier class
+    // section-code matches when the suggestion list reaches its limit.
+    rResults.sort((a, b) => roomResultRank(a, normalized) - roomResultRank(b, normalized));
+    rResults.length = Math.min(rResults.length, MAX_ROOM_RESULTS);
+
+    // The portrait sheet shows buildings and places in its filtered list.
+    // Keep the dropdown for room/class matches without repeating those rows.
+    const suggestedBuildings = hasSidePanel ? bResults : [];
+    const suggestedResidences = hasSidePanel ? hResults : [];
+    const suggestedPlaces = hasSidePanel ? pResults : [];
+    const suggestedMap = hasSidePanel ? mResults : [];
+    return {
+      buildingResults: suggestedBuildings,
+      residenceResults: suggestedResidences,
+      placeResults: suggestedPlaces,
+      mapResults: suggestedMap,
+      roomResults: rResults,
+      flatResults: [...suggestedBuildings, ...suggestedResidences, ...suggestedPlaces, ...suggestedMap, ...rResults] as SearchResult[],
+    };
+  }, [buildings, dining, parking, searchQuery, activeDateKey, ready, hasSidePanel]);
 
   // Close the dropdown on outside pointer down.
   useEffect(() => {
@@ -119,11 +201,15 @@ export function SearchBar() {
     if (result.type === 'building') {
       const { building } = result;
       select({ kind: 'building', id: building.code });
-      requestFlyTo({ lat: building.lat, lng: building.lng, zoom: 17 });
-    } else {
+    } else if (result.type === 'room') {
       const { building, room } = result;
       select({ kind: 'room', id: roomSelectionId(building.code, room.id) });
-      requestFlyTo({ lat: building.lat, lng: building.lng, zoom: 17 });
+    } else if (result.type === 'residence') {
+      select({ kind: 'residence', id: result.hall.id });
+    } else if (result.type === 'map-building') {
+      select({ kind: 'map-building', id: result.place.id });
+    } else {
+      select({ kind: result.type, id: result.place.id });
     }
     setOpen(false);
   }
@@ -157,12 +243,13 @@ export function SearchBar() {
     }
   }
 
-  const showDropdown = open && ready && normalizeSearchText(searchQuery).length > 0;
+  const showDropdown = open && ready && normalizeSearchText(searchQuery).length > 0
+    && (hasSidePanel || flatResults.length > 0);
 
   return (
-    <div ref={rootRef} className="relative shrink-0 px-4 pt-3">
+    <div ref={rootRef} className={cn('relative shrink-0 px-5 pt-4 sm:px-6', !hasSidePanel && '!pt-3', isLandscapeSidePanel && '!px-3 !pt-2')}>
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground" />
         <input
           type="text"
           value={searchQuery}
@@ -171,17 +258,20 @@ export function SearchBar() {
             setSearchQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            expandMobileSheet();
+          }}
           onKeyDown={onKeyDown}
-          placeholder={ready ? 'Search buildings, rooms, classes…' : 'Loading buildings…'}
-          aria-label="Search buildings, rooms, and classes"
+          placeholder={ready ? 'Places, rooms, classes…' : 'Loading campus…'}
+          aria-label="Search campus places, rooms, and classes"
           role="combobox"
           aria-expanded={showDropdown}
           aria-controls="rooms-search-results"
           aria-activedescendant={
             showDropdown && flatResults[activeIndex] ? `search-result-${activeIndex}` : undefined
           }
-          className="h-10 w-full rounded-xl border border-input bg-background/80 pl-9 pr-9 text-sm text-foreground shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-11 w-full rounded-lg border border-input bg-background pl-10 pr-11 text-base text-foreground shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60"
         />
         {searchQuery && (
           <button
@@ -191,7 +281,7 @@ export function SearchBar() {
               setSearchQuery('');
               setOpen(false);
             }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="absolute right-0.5 top-1/2 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="size-4" />
           </button>
@@ -203,7 +293,10 @@ export function SearchBar() {
           id="rooms-search-results"
           role="listbox"
           ref={listRef}
-          className="absolute inset-x-4 top-full z-30 mt-2 max-h-80 overflow-y-auto rounded-xl border border-border/70 bg-popover p-1.5 shadow-xl shadow-black/10"
+          className={cn(
+            'absolute inset-x-5 top-full z-30 mt-2 max-h-80 overflow-y-auto rounded-xl border border-border bg-popover p-2 shadow-2xl shadow-black/15 sm:inset-x-6',
+            isLandscapeSidePanel && '!inset-x-3 !max-h-[calc(100dvh-9.5rem)]',
+          )}
         >
           {flatResults.length === 0 && (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">
@@ -213,7 +306,7 @@ export function SearchBar() {
 
           {buildingResults.length > 0 && (
             <div className="mb-1">
-              <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 Buildings
               </p>
               {buildingResults.map((result) => {
@@ -228,7 +321,7 @@ export function SearchBar() {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => activate(result)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
                       index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground'
                     )}
                   >
@@ -241,9 +334,102 @@ export function SearchBar() {
             </div>
           )}
 
+          {residenceResults.length > 0 && (
+            <div className="mb-1">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                Residence halls
+              </p>
+              {residenceResults.map((result) => {
+                const index = flatResults.indexOf(result);
+                return (
+                  <button
+                    key={resultKey(result)}
+                    id={`search-result-${index}`}
+                    data-result-index={index}
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => activate(result)}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
+                      index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground',
+                    )}
+                  >
+                    <House className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{result.hall.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{result.hall.community}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {placeResults.length > 0 && (
+            <div className="mb-1">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                Dining & parking
+              </p>
+              {placeResults.map((result) => {
+                const index = flatResults.indexOf(result);
+                const Icon = result.type === 'dining' ? UtensilsCrossed : CarFront;
+                return (
+                  <button
+                    key={resultKey(result)}
+                    id={`search-result-${index}`}
+                    data-result-index={index}
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => activate(result)}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
+                      index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground',
+                    )}
+                  >
+                    <Icon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{result.place.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {result.type === 'dining' ? 'Dining' : 'Parking'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {mapResults.length > 0 && (
+            <div className="mb-1">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                On the map
+              </p>
+              {mapResults.map((result) => {
+                const index = flatResults.indexOf(result);
+                return (
+                  <button
+                    key={resultKey(result)}
+                    id={`search-result-${index}`}
+                    data-result-index={index}
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => activate(result)}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
+                      index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground',
+                    )}
+                  >
+                    <Building2 className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{result.place.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{result.place.code ?? 'Map'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {roomResults.length > 0 && (
             <div>
-              <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 Rooms
               </p>
               {roomResults.map((result) => {
@@ -258,7 +444,7 @@ export function SearchBar() {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => activate(result)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
                       index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground'
                     )}
                   >

@@ -1,0 +1,8 @@
+Source: Maryland MD iMAP, SixInchImagery ImageServer
+https://mdgeodata.md.gov/imagery/rest/services/SixInch/SixInchImagery/ImageServer
+Attribution: Aerial imagery: MD iMAP
+Each image was exported in EPSG:3857 and positioned by its WGS84 bounds.
+campus-aerial-wide.jpg WGS84 bounds [west,south,east,north]: -76.96,38.975,-76.92,38.997
+campus-aerial-core.jpg WGS84 bounds [west,south,east,north]: -76.951,38.9805,-76.934,38.993
+The composite service selects the latest available statewide imagery; Prince George's County source imagery is from 2023.
+Design reference only. This imagery is not bundled or rendered by the site.

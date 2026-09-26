@@ -13,6 +13,9 @@ import { buildSceneGeometries } from '../src/components/map3d/scene/geometry';
 import { createProjection } from '../src/components/map3d/scene/projection';
 import { LANDMARK_MODULES, registerLandmark } from '../src/components/map3d/scene/landmarks';
 import { landmark as mckeldinLibrary } from '../src/components/map3d/scene/landmarks/buildings/mckeldin-library';
+import { landmark as hornbakeLibrary } from '../src/components/map3d/scene/landmarks/buildings/hornbake-library';
+import { landmark as mainAdministration } from '../src/components/map3d/scene/landmarks/buildings/main-administration';
+import { landmark as edwardStJohn } from '../src/components/map3d/scene/landmarks/buildings/edward-st-john';
 import { landmark as stampStudentUnion } from '../src/components/map3d/scene/landmarks/buildings/stamp-student-union';
 import { landmark as iribeCenter } from '../src/components/map3d/scene/landmarks/buildings/iribe-center';
 import { landmark as memorialChapel } from '../src/components/map3d/scene/landmarks/buildings/memorial-chapel';
@@ -24,6 +27,9 @@ import type { CampusData } from '../src/components/map3d/scene/types';
 if (Object.keys(LANDMARK_MODULES).length === 0) {
   [
     mckeldinLibrary,
+    hornbakeLibrary,
+    mainAdministration,
+    edwardStJohn,
     stampStudentUnion,
     iribeCenter,
     memorialChapel,

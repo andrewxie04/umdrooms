@@ -59,7 +59,9 @@ export interface CampusData {
   roads: CampusRoad[];
   areas: CampusArea[];
   waterways: CampusWaterway[];
-  trees: [number, number][];
+  /** [lng, lat, height metres, crown radius metres, kind]; the baked OSM
+   * fallback has coordinates only. kind: 0 deciduous, 1 conifer, 2 evergreen. */
+  trees: [number, number, number?, number?, number?][];
 }
 
 export interface FlyToTarget {
@@ -71,6 +73,9 @@ export interface FlyToTarget {
   pitch?: number;
   /** Degrees, clockwise from north. */
   bearing?: number;
+  /** Optional fractions of the canvas at which to frame the geographic point. */
+  screenX?: number;
+  screenY?: number;
 }
 
 export interface ProjectedPoint {
@@ -85,6 +90,8 @@ export interface CampusSceneHandle {
   setDarkMode(dark: boolean): void;
   flyTo(t: FlyToTarget): void;
   project(lng: number, lat: number): ProjectedPoint;
+  /** Center of the mapped main footprint for a UMD building code. */
+  getBuildingCenter(code: string): { lat: number; lng: number } | null;
   /** cb runs every rendered-frame tick while mounted; returns an unsubscribe fn. */
   onFrame(cb: () => void): () => void;
   setPulseRing(lng: number, lat: number): void;

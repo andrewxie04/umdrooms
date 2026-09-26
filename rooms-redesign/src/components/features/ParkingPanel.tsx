@@ -28,6 +28,10 @@ const RAW_STATUS_META: Record<string, { status: Status; label: string }> = {
   Restricted: { status: 'unavailable', label: 'Permit Required' },
 };
 
+function isParkingRecord(value: unknown): value is { status?: string; description?: string } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export function ParkingPanel() {
   const selected = useCampusStore((s) => s.selected);
   const parking = useCampusStore((s) => s.parking);
@@ -38,12 +42,13 @@ export function ParkingPanel() {
   if (selected?.kind !== 'parking') return null;
 
   const lot = parking.find((l) => String(l.id) === String(selected.id));
-  const raw: any = lot?.raw ?? {};
-  const meta = RAW_STATUS_META[String(raw.status ?? '')] ?? {
+  const rawValue: unknown = lot?.raw;
+  const raw = isParkingRecord(rawValue) ? rawValue : null;
+  const meta = RAW_STATUS_META[String(raw?.status ?? '')] ?? {
     status: lot?.status ?? 'unknown',
     label: 'Unknown',
   };
-  const description = raw.description || '';
+  const description = raw?.description || '';
 
   return (
     <PanelFrame eyebrow="Parking" title={lot?.name ?? 'Parking'} onBack={clearSelection}>
@@ -69,7 +74,7 @@ export function ParkingPanel() {
                 openWalkingDirections(lot.lat, lot.lng);
               }}
             >
-              Navigate to Lot
+              Walking directions
             </PrimaryButton>
             <GhostButton
               onClick={() => {

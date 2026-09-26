@@ -4,9 +4,8 @@
 
 /*
  * Rooms — UMD Campus Map design tokens.
- * Visual policy (plan.md): low-saturation warm neutrals, ample whitespace,
- * clear hierarchy. UMD red (#E21833) is the single accent. No blue-purple
- * gradients. Dark mode uses the `dark` class on <html> (class strategy),
+ * Campus interface: architectural limestone and ink neutrals with UMD red
+ * reserved for active controls. Dark mode uses the `dark` class on <html>,
  * synced from the campus store by src/lib/useDarkModeSync.ts.
  *
  * Status colors are exposed twice and must stay in sync:
@@ -16,30 +15,30 @@
 @layer base {
   :root {
     /* warm neutral surfaces (light) */
-    --background: 36 33% 97%;
-    --foreground: 26 14% 12%;
-    --card: 36 40% 99%;
-    --card-foreground: 26 14% 12%;
-    --popover: 36 40% 99%;
-    --popover-foreground: 26 14% 12%;
+    --background: 38 24% 97%;
+    --foreground: 22 15% 13%;
+    --card: 42 30% 99%;
+    --card-foreground: 22 15% 13%;
+    --popover: 42 30% 99%;
+    --popover-foreground: 22 15% 13%;
 
     /* UMD red accent */
-    --primary: 352 81% 45%;
+    --primary: 352 81% 43%;
     --primary-foreground: 36 40% 98%;
     --umd-red: 352 81% 49%;
 
-    --secondary: 36 20% 93%;
+    --secondary: 35 16% 93%;
     --secondary-foreground: 26 12% 18%;
-    --muted: 36 16% 93%;
-    --muted-foreground: 30 8% 42%;
-    --accent: 36 24% 94%;
+    --muted: 35 14% 94%;
+    --muted-foreground: 28 8% 41%;
+    --accent: 35 20% 94%;
     --accent-foreground: 352 81% 40%;
     --destructive: 352 70% 45%;
     --destructive-foreground: 36 40% 98%;
-    --border: 32 14% 88%;
-    --input: 32 14% 88%;
+    --border: 32 14% 86%;
+    --input: 32 14% 84%;
     --ring: 352 81% 45%;
-    --radius: 0.625rem;
+    --radius: 0.75rem;
 
     /* status palette (light) — mirrors STATUS_COLORS.light in lib/theme.ts */
     --status-available: 146 50% 36%;
@@ -59,12 +58,12 @@
 
   .dark {
     /* warm charcoal surfaces (dark) */
-    --background: 24 10% 8%;
-    --foreground: 36 20% 92%;
-    --card: 24 10% 11%;
-    --card-foreground: 36 20% 92%;
-    --popover: 24 10% 11%;
-    --popover-foreground: 36 20% 92%;
+    --background: 24 9% 9%;
+    --foreground: 38 17% 93%;
+    --card: 24 8% 12%;
+    --card-foreground: 38 17% 93%;
+    --popover: 24 8% 12%;
+    --popover-foreground: 38 17% 93%;
 
     /* UMD red accent, brightened for dark surfaces */
     --primary: 352 85% 58%;
@@ -108,6 +107,12 @@
   body,
   #root {
     height: 100%;
+  }
+  html {
+    font-family: Inter, "Avenir Next", "Segoe UI", sans-serif;
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
   body {
     @apply bg-background text-foreground;

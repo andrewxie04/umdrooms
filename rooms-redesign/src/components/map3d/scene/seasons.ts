@@ -12,7 +12,8 @@
 // only owner of those two colour attributes.
 //
 // How the tint is applied:
-//   - Trees are entirely foliage (two cones), so every vertex is repainted.
+//   - Tree canopy vertices are repainted; trunks and evergreens keep their
+//     original colors.
 //     A per-tree `seasonSeed` attribute (baked in geometry.buildTrees) shifts
 //     each tree's hue slightly, so autumn reads as a mix of gold/orange/red
 //     rather than one flat colour.
@@ -61,9 +62,9 @@ const YEAR: SeasonKey[] = [
   { day: 70, label: 'thaw', tree: 0x7a7d5f, grass: 0xa8ac86, treeMix: 0.55, grassMix: 0.6, spread: 0.03, ground: 0xb0b5a0, snow: 0.25 },
   { day: 92, label: 'blossom', tree: 0xf2b6cd, grass: 0x8fbc72, treeMix: 0.86, grassMix: 0.3, spread: 0.04, ground: 0xa8b190, snow: 0 },
   { day: 120, label: 'late spring', tree: 0x87b064, grass: 0x8dba6f, treeMix: 0.6, grassMix: 0.3, spread: 0.03, ground: 0xa8b190, snow: 0 },
-  { day: 190, label: 'high summer', tree: 0x6f8a5c, grass: 0x86ab68, treeMix: 0.45, grassMix: 0.2, spread: 0.03, ground: 0xa5b08c, snow: 0 },
-  { day: 250, label: 'first turn', tree: 0x93974f, grass: 0xa3ad6f, treeMix: 0.45, grassMix: 0.4, spread: 0.06, ground: 0xacae8b, snow: 0 },
-  { day: 295, label: 'peak autumn', tree: 0xc9762e, grass: 0xb8ad72, treeMix: 0.85, grassMix: 0.62, spread: 0.11, ground: 0xb3ab86, snow: 0 },
+  { day: 190, label: 'high summer', tree: 0x6f8a5c, grass: 0x86ab68, treeMix: 0.45, grassMix: 0.2, spread: 0.03, ground: 0x8fad79, snow: 0 },
+  { day: 260, label: 'first turn', tree: 0x718f5c, grass: 0x88ad71, treeMix: 0.32, grassMix: 0.22, spread: 0.04, ground: 0x96b484, snow: 0 },
+  { day: 300, label: 'peak autumn', tree: 0xc9762e, grass: 0xbab878, treeMix: 0.85, grassMix: 0.56, spread: 0.11, ground: 0xb8bb92, snow: 0 },
   { day: 325, label: 'bare', tree: 0x7d6a55, grass: 0xbdb794, treeMix: 0.78, grassMix: 0.72, spread: 0.05, ground: 0xb8b493, snow: 0.5 },
 ];
 
@@ -188,6 +189,9 @@ export function createSeasons(deps: SeasonsDeps): SeasonsHandle {
       const arr = treeAttr.array as Float32Array;
       const seeds = seedAttr?.array as Float32Array | undefined;
       for (let v = 0, i = 0; i < arr.length; i += 3, v++) {
+        // Trunks and evergreen foliage use a negative seed and keep their
+        // material through the year; only deciduous canopies change color.
+        if (seeds && seeds[v] < 0) continue;
         // Per-tree hue shift so autumn is a mix, not one flat orange.
         scratch.copy(cur.tree);
         if (seeds && cur.spread > 0) {

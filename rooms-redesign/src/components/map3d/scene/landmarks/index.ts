@@ -58,9 +58,11 @@ export function registerLandmark(mod: LandmarkModule): void {
 // the try/catch keeps node/esbuild (scripts/check-landmarks.ts, which
 // registers modules manually) from crashing on the undefined call.
 try {
-  const modules = import.meta.glob<{ landmark?: LandmarkModule }>('./buildings/*.ts', {
+  const modules = import.meta.glob<{ landmark?: LandmarkModule }>(
+    ['./buildings/*.ts', '!./buildings/*.test.ts'], {
     eager: true,
-  });
+    },
+  );
   for (const path of Object.keys(modules)) {
     const mod = modules[path].landmark;
     if (!mod) {
@@ -100,7 +102,8 @@ export function makeLandmarkCtx(
   pts: THREE.Vector2[],
   baseHeight: number,
   spec: LandmarkSpec,
+  holes: THREE.Vector2[][] = [],
 ): LandmarkBuildContext {
   const { cx, cy } = centroidOf(pts);
-  return { pts, cx, cy, baseHeight, spec, helpers: HELPERS };
+  return { pts, holes, cx, cy, baseHeight, spec, helpers: HELPERS };
 }

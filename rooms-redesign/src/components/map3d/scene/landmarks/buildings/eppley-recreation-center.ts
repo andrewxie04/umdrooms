@@ -108,7 +108,7 @@ export const landmark: LandmarkModule = {
   maxHeight: 17,
   build(ctx) {
     const { pts, baseHeight, spec, helpers } = ctx;
-    const base = helpers.withGlow(spec.color, spec.nightGlow);
+    const base = helpers.withGlow(0xa66c56, spec.nightGlow); // brick wall bands
     const roofShade = helpers.darkerShade(base, -0.1);
     const glass = helpers.withGlow(0xb9cfd4, 0.6); // natatorium curtain wall
     const skylight = helpers.withGlow(0xcfe0e3, 0.55); // ridge rooflights
@@ -154,6 +154,36 @@ export const landmark: LandmarkModule = {
       skylights.push(helpers.withColor(g, skylight));
     }
 
+    // Blue clerestory triangles beneath the repeated roof ridges and a
+    // narrower glazed entry line give the long brick elevation its scale.
+    const details: THREE.BufferGeometry[] = [];
+    const clerestoryPos: number[] = [];
+    for (let i = 0; i < GABLE_BAYS; i++) {
+      const x0 = fbb.minX + i * bayW + 0.75;
+      const x1 = fbb.minX + (i + 1) * bayW - 0.75;
+      const xm = (x0 + x1) / 2;
+      const z = -fbb.minY + 0.08;
+      clerestoryPos.push(x0, EAVE_H + 0.32, z, x1, EAVE_H + 0.32, z, xm, RIDGE_H - 0.55, z);
+      const bayWindow = new THREE.BoxGeometry(Math.max(1.3, bayW - 2.8), 2.45, 0.13);
+      bayWindow.translate(xm, 9.65, z);
+      details.push(helpers.withColor(bayWindow, glass));
+    }
+    const clerestory = new THREE.BufferGeometry();
+    clerestory.setAttribute('position', new THREE.Float32BufferAttribute(clerestoryPos, 3));
+    clerestory.computeVertexNormals();
+    details.push(helpers.withColor(clerestory, glass));
+
+    const nbb = helpers.bboxOf(nata);
+    for (let i = 0; i <= 8; i++) {
+      const x = nbb.minX + ((nbb.maxX - nbb.minX) * i) / 8;
+      const mullion = new THREE.BoxGeometry(0.22, 7.5, 0.28);
+      mullion.translate(x, 5.7, -nbb.minY + 0.17);
+      details.push(helpers.withColor(mullion, roofShade));
+    }
+    const poolRoof = helpers.extrudeFootprint(nata, 0.38);
+    poolRoof.translate(0, 10, 0);
+    details.push(helpers.withColor(poolRoof, roofShade));
+
     return [
       // 1. Podium over the full footprint.
       helpers.withColor(helpers.extrudeFootprint(pts, baseHeight), base),
@@ -166,6 +196,7 @@ export const landmark: LandmarkModule = {
       ...skylights,
       // 3. Natatorium: glass curtain wing on the east.
       helpers.withColor(helpers.extrudeFootprint(nata, 10), glass),
+      ...details,
     ];
   },
 };

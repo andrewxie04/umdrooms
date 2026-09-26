@@ -5,6 +5,10 @@ import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
 
+// The mobile map sheet is nonmodal. patches/vaul+1.1.2.patch forwards
+// modal={false} to Radix so the visible map controls stay in the accessibility
+// tree and keyboard focus can leave the sheet.
+
 function Drawer({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) {
@@ -48,8 +52,9 @@ function DrawerOverlay({
 function DrawerContent({
   className,
   children,
+  handle,
   ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Content>) {
+}: React.ComponentProps<typeof DrawerPrimitive.Content> & { handle?: React.ReactNode }) {
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay />
@@ -65,7 +70,7 @@ function DrawerContent({
         )}
         {...props}
       >
-        <div className="bg-muted mx-auto mt-4 hidden h-2 w-[100px] shrink-0 rounded-full group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
+        {handle ?? <div className="bg-muted mx-auto mt-4 hidden h-2 w-[100px] shrink-0 rounded-full group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />}
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>

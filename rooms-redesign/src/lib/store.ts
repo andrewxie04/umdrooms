@@ -2,7 +2,7 @@
 //
 // Zustand store implementing the plan.md "Store shape" contract, with the
 // full data-loading pipeline ported from the legacy CRA app's App.js:
-//   - bundled buildings_data.json fetch with download progress
+//   - small room inventory at boot; bundled schedule fetched on demand
 //   - coverage-range handling (bundled data covers a date span; outside it we
 //     refetch per-day availability through /.netlify/functions/availability-building)
 //   - LibCal study-room inventory + availability merge
@@ -38,10 +38,15 @@ import {
 import { getBuildingRenderState } from './availability.js';
 import { boundedCacheSet } from './cache.js';
 import { safeStorageGet, safeStorageSet } from './storage.js';
+import { invalidatePersistedDay, persistDay, readPersistedDay } from './dayCachePersistence';
+import { computeSunPosition } from './solar';
 import type {
+  CampusBuildingRecord,
+  CampusRoomRecord,
   BuildingEntry,
   CampusSelection,
   DiningHall,
+  LibraryBrowseDate,
   MapFlyTarget,
   OverlayKind,
   ParkingLot,
@@ -61,6 +66,7 @@ export interface CampusStore {
   parking: ParkingLot[];
   loading: { status: 'idle' | 'loading' | 'ready' | 'error'; progress: number; error?: string | null };
   coverage: { start?: string; end?: string } | null;
+  libcalStatus: 'idle' | 'loading' | 'ready' | 'error';
 
   // ui state
   viewMode: ViewMode;
@@ -71,9 +77,8 @@ export interface CampusStore {
   activeOverlays: OverlayKind[]; // which marker layers show
   selected: CampusSelection;
   darkMode: boolean;
-  /** When true (session default), the UI theme follows the solar day/night
-   * cycle via setDarkModeAuto; any manual toggleDarkMode() flips this to
-   * false for the rest of the session. Never persisted. */
+  /** When true, the UI theme follows the campus solar day/night cycle.
+   * The user's auto/day/night preference survives reloads. */
   darkModeAuto: boolean;
   favorites: string[]; // 'b:CODE' | 'r:CODE/ROOMID'
   flyTo: MapFlyTarget | null; // map listens and clears after flying
@@ -81,6 +86,9 @@ export interface CampusStore {
 
   // actions
   init(): Promise<void>; // full data load pipeline (ported from App.js)
+  retryDayData(): void;
+  refreshDayData(): void;
+  retryLibCal(): void;
   setViewMode(m: ViewMode): void;
   setScheduleDate(d: Date): void; // triggers availability refetch for that day
   setSearchQuery(q: string): void;
@@ -90,13 +98,10 @@ export interface CampusStore {
   select(s: CampusStore['selected'], opts?: { source?: 'map' | 'panel' }): void;
   clearSelection(): void;
   toggleDarkMode(): void;
-  /** Solar-cycle hook: sets darkMode WITHOUT persisting it and without
-   * clearing darkModeAuto. Only the manual toggleDarkMode() persists. */
+  /** Solar-cycle hook: sets darkMode without changing the preference. */
   setDarkModeAuto(dark: boolean): void;
-  /** 3-state time preference: 'auto' follows the real solar cycle (clears any
-   * manual override; the sunThemeTimer keeps darkMode synced to the sun);
-   * 'day'/'night' are manual overrides that persist darkMode and stop the
-   * solar sync until the user returns to 'auto'. */
+  /** Persisted 3-state preference: 'auto' follows the campus sun; 'day' and
+   * 'night' keep a manual appearance until the user changes it. */
   setTimePreference(pref: 'auto' | 'day' | 'night'): void;
   toggleFavorite(key: string): void;
   requestFlyTo(t: MapFlyTarget): void;
@@ -110,8 +115,19 @@ export interface CampusStore {
   activeDateKey: string;
   /** Deep-link target captured from the URL (?building=CODE&room=ID) at boot. */
   pendingDeepLink: { building: string | null; room: string | null } | null;
-  /** Where the latest selection came from; 'map' skips the redundant camera fly. */
+  /** Where the latest selection came from. */
   selectionSource: 'map' | 'panel' | null;
+  /** Desktop and landscape browse panel can be tucked away to explore the map. */
+  browsePanelHidden: boolean;
+  setBrowsePanelHidden(hidden: boolean): void;
+  /** Keeps the long-list room filter through responsive panel remounts. */
+  availableOnlyFilter: { key: string; enabled: boolean };
+  setAvailableOnlyFilter(key: string, enabled: boolean): void;
+  roomExpansion: { key: string; roomId: string | null };
+  setRoomExpansion(key: string, roomId: string | null): void;
+  /** Retains only the browsed date, never booking holds or form state. */
+  libraryBrowseDate: LibraryBrowseDate | null;
+  setLibraryBrowseDate(selectionId: string, dateKey: string): void;
   /** Favorites view open flag (rendered inside the shell panel). */
   favoritesOpen: boolean;
   setFavoritesOpen(open: boolean): void;
@@ -119,6 +135,8 @@ export interface CampusStore {
 
 export interface DayFetchState {
   status: 'idle' | 'loading' | 'ready' | 'error';
+  /** When the classroom feed last completed successfully (not a historical archive). */
+  updatedAt?: number;
   progress: number;
   indeterminate: boolean;
   error: string | null;
@@ -146,72 +164,86 @@ const EMPTY_DAY_FETCH_STATE: DayFetchState = {
 // ---------------------------------------------------------------------------
 
 const DAY_CACHE_LIMIT = 14;
+const NOW_REFRESH_MS = 15 * 60 * 1000;
+const SCHEDULE_CACHE_MS = 60 * 60 * 1000;
 const BASE_URL = import.meta.env.BASE_URL || '/';
 
-let bundledBuildings: any[] = []; // sorted bundled dataset (full availability)
-let inventorySkeleton: any[] = []; // bundled dataset with availability stripped
+let bundledBuildings: CampusBuildingRecord[] = []; // historical schedule, loaded only when needed
+let bundledBuildingsPromise: Promise<CampusBuildingRecord[]> | null = null;
+let inventorySkeleton: CampusBuildingRecord[] = []; // small room inventory without availability
 let bundledCoverage: { minDate: string; maxDate: string } | null = null;
-let metadataBuildings: any[] = []; // buildings_metadata.json (map skeleton fallback)
-let libraryInventory: any[] = getLibCalBuildingInventory(); // static LibCal metadata
-let classroomRaw: any[] = []; // classroom buildings for the active day
-let libraryRaw: any[] = []; // LibCal buildings for the active day
-let diningRaw: any[] = []; // dining halls + retail venues for the active day
+let metadataBuildings: CampusBuildingRecord[] = []; // buildings_metadata.json (map skeleton fallback)
+const libraryInventory: CampusBuildingRecord[] = getLibCalBuildingInventory(); // static LibCal metadata
+let classroomRaw: CampusBuildingRecord[] = []; // classroom buildings for the active day
+// A live day arrives one building at a time. Keep successful buildings usable
+// while the rest load, and never interpret a failed empty fallback as free.
+const resolvedClassroomCodes = new Set<string>();
+const failedClassroomCodes = new Set<string>();
+let libraryRaw: CampusBuildingRecord[] = []; // LibCal buildings for the active day
+let diningRaw: DiningRecord[] = []; // dining halls + retail venues for the active day
 
-const dayCache = new Map<string, any[]>();
-const libcalCache = new Map<string, any[]>();
-const diningCache = new Map<string, any[]>();
+interface DiningRecord {
+  id?: string | number;
+  name?: string;
+  latitude?: number;
+  longitude?: number;
+  meals?: Record<string, unknown>[];
+  dateKey?: string;
+  kind?: string;
+  [key: string]: unknown;
+}
+
+interface AvailabilityProgress {
+  index?: number;
+  building?: CampusBuildingRecord;
+  succeeded?: boolean;
+  ratio?: number;
+  indeterminate?: boolean;
+  completedRooms?: number;
+  totalRooms?: number;
+  completedBuildings?: number;
+  totalBuildings?: number;
+}
+
+// The data pipeline is JavaScript and its inferred options omit `signal` and
+// progress details. This is the shape the function actually accepts/emits.
+const fetchLiveAvailability = fetchAvailabilityForDate as unknown as (
+  buildings: CampusBuildingRecord[],
+  dateKey: string,
+  options: {
+    signal?: AbortSignal;
+    concurrency?: number;
+    onProgress?: (progress: AvailabilityProgress) => void;
+  }
+) => Promise<CampusBuildingRecord[]>;
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message) return message;
+  }
+  return fallback;
+}
+
+const dayCache = new Map<string, CampusBuildingRecord[]>();
+const dayCacheAt = new Map<string, number>();
+const libcalCache = new Map<string, CampusBuildingRecord[]>();
+const diningCache = new Map<string, DiningRecord[]>();
 const prefetchInFlight = new Set<string>();
 
-// ---------------------------------------------------------------------------
-// Persistent day cache (localStorage). A day outside the bundled coverage
-// costs a 337-room live fetch through the Netlify functions — persisting the
-// result makes a reload/revisit of the same day instant. Best-effort only:
-// TTL keeps intraday drift bounded, KEEP caps quota use, and every failure
-// path silently falls back to the network.
-// ---------------------------------------------------------------------------
-
-const PERSIST_DAY_PREFIX = 'dayCache.v1.';
-const PERSIST_DAY_TTL_MS = 60 * 60 * 1000; // 1h — availability drifts slowly
-const PERSIST_DAY_KEEP = 2; // newest N days kept in storage
-
-function readPersistedDay(dateKey: string): any[] | null {
-  const raw = safeStorageGet(`${PERSIST_DAY_PREFIX}${dateKey}`);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed?.buildings)) return null;
-    if (Date.now() - (parsed.at ?? 0) > PERSIST_DAY_TTL_MS) return null;
-    return parsed.buildings;
-  } catch {
-    return null;
+function cacheDay(dateKey: string, buildings: CampusBuildingRecord[], at = Date.now()): void {
+  boundedCacheSet(dayCache, dateKey, buildings, DAY_CACHE_LIMIT);
+  dayCacheAt.set(dateKey, at);
+  for (const key of dayCacheAt.keys()) {
+    if (!dayCache.has(key)) dayCacheAt.delete(key);
   }
 }
 
-function persistDay(dateKey: string, buildings: any[]): void {
-  safeStorageSet(
-    `${PERSIST_DAY_PREFIX}${dateKey}`,
-    JSON.stringify({ at: Date.now(), buildings }),
-  );
-  // Evict everything but the newest KEEP entries (by stored timestamp).
-  try {
-    const entries: { key: string; at: number }[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key?.startsWith(PERSIST_DAY_PREFIX)) continue;
-      let at = 0;
-      try {
-        at = JSON.parse(localStorage.getItem(key) ?? '{}')?.at ?? 0;
-      } catch {
-        /* unparseable entry sorts oldest */
-      }
-      entries.push({ key, at });
-    }
-    entries.sort((a, b) => b.at - a.at);
-    for (const e of entries.slice(PERSIST_DAY_KEEP)) localStorage.removeItem(e.key);
-  } catch {
-    /* storage unavailable — in-memory cache still works */
-  }
-}
+// ---------------------------------------------------------------------------
+// Persistent day cache. A day outside the bundled coverage costs a 337-room
+// live fetch; IndexedDB can hold the complete snapshot without localStorage's
+// quota errors. The in-memory map above remains bounded by DAY_CACHE_LIMIT.
+// ---------------------------------------------------------------------------
 
 let activeFetchId = 0;
 let dayAbort: AbortController | null = null;
@@ -224,21 +256,16 @@ let nowTicker: ReturnType<typeof setInterval> | null = null;
 // Persistence helpers (ported behavior; keys kept compatible with legacy app)
 // ---------------------------------------------------------------------------
 
-function loadDarkMode(): boolean {
-  const saved = safeStorageGet('darkMode');
-  if (saved != null) {
-    try {
-      return JSON.parse(saved);
-    } catch {
-      /* corrupted */
-    }
-  }
-  // Plan: system default (legacy app defaulted to dark when unset).
-  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  }
-  return true;
+type TimePreference = 'auto' | 'day' | 'night';
+
+function loadTimePreference(): TimePreference {
+  const saved = safeStorageGet('timePreference');
+  return saved === 'day' || saved === 'night' ? saved : 'auto';
 }
+
+const initialTimePreference = loadTimePreference();
+const initialDarkMode = initialTimePreference === 'night' ||
+  (initialTimePreference === 'auto' && computeSunPosition(new Date()).elevation < -1);
 
 const ALL_OVERLAYS: OverlayKind[] = ['classrooms', 'library', 'dining', 'parking'];
 
@@ -334,14 +361,36 @@ function readInitialSchedule(): { viewMode: ViewMode; scheduleDate: Date } {
 // Derivation helpers (raw records -> contract entries)
 // ---------------------------------------------------------------------------
 
-function sortBuildings(data: any[]): any[] {
-  return (Array.isArray(data) ? data : []).slice().sort((a, b) => a.name.localeCompare(b.name));
+function sortBuildings(data: unknown): CampusBuildingRecord[] {
+  return (Array.isArray(data) ? data as CampusBuildingRecord[] : [])
+    .slice().sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The older bundled schedule is useful for its own date range, but its
+ *  multi-megabyte JSON should never block a visit to today's room browser. */
+function loadBundledBuildings(): Promise<CampusBuildingRecord[]> {
+  if (bundledBuildings.length) return Promise.resolve(bundledBuildings);
+  if (!bundledBuildingsPromise) {
+    bundledBuildingsPromise = fetchJsonWithProgress(`${BASE_URL}buildings_data.json`)
+      .then((data: unknown) => {
+        if (!Array.isArray(data) || !data.length) throw new Error('Bundled schedule is empty');
+        bundledBuildings = sortBuildings(data);
+        return bundledBuildings;
+      })
+      .catch((error: unknown) => {
+        bundledBuildingsPromise = null; // a later date selection may retry
+        throw error;
+      });
+  }
+  return bundledBuildingsPromise;
 }
 
 // Ported verbatim from App.js: merges supplemental (LibCal) buildings into the
 // classroom dataset by code/name, appending non-duplicate rooms.
-function mergeBuildingCollections(baseBuildings: any[], supplementalBuildings: any[]): any[] {
-  const merged = new Map<string, any>();
+function mergeBuildingCollections(
+  baseBuildings: CampusBuildingRecord[], supplementalBuildings: CampusBuildingRecord[]
+): CampusBuildingRecord[] {
+  const merged = new Map<string, CampusBuildingRecord>();
 
   for (const building of baseBuildings || []) {
     const key = building.code || building.name;
@@ -362,7 +411,7 @@ function mergeBuildingCollections(baseBuildings: any[], supplementalBuildings: a
       continue;
     }
 
-    const existingRoomIds = new Set((existing.classrooms || []).map((room: any) => String(room.id)));
+    const existingRoomIds = new Set((existing.classrooms || []).map((room) => String(room.id)));
     const nextRooms = [...(existing.classrooms || [])];
 
     for (const room of building.classrooms || []) {
@@ -399,7 +448,7 @@ function toContractStatus(displayStatus: string | null | undefined): Status {
   }
 }
 
-const LIBCAL_CODES = new Set<string>(LIBCAL_BUILDING_METADATA.map((b: any) => b.code));
+const LIBCAL_CODES = new Set<string>(LIBCAL_BUILDING_METADATA.map((b) => b.code));
 
 interface DeriveContext {
   startTime: Date;
@@ -426,13 +475,14 @@ function currentContext(): DeriveContext {
 
 // Ported from legacy sidebarUtils.js roomMatchesCapacityFilter: rooms without
 // a numeric capacity are excluded when a minimum-seat filter is active.
-function roomMatchesCapacity(room: any, minCapacity: number): boolean {
+function roomMatchesCapacity(room: CampusRoomRecord, minCapacity: number): boolean {
   if (minCapacity <= 0) return true;
   const capacity = Number(room?.capacity);
   return Number.isFinite(capacity) && capacity >= minCapacity;
 }
 
 function deriveBuildings(ctx: DeriveContext): BuildingEntry[] {
+  const { dayFetch, libcalStatus } = useCampusStore.getState();
   const base = classroomRaw.length
     ? classroomRaw
     : inventorySkeleton.length
@@ -441,32 +491,59 @@ function deriveBuildings(ctx: DeriveContext): BuildingEntry[] {
   const supplemental = libraryRaw.length ? libraryRaw : libraryInventory;
   const merged = mergeBuildingCollections(base, supplemental);
 
-  return merged.map((b: any) => {
+  return merged.map((b) => {
     const allClassrooms = Array.isArray(b.classrooms) ? b.classrooms : [];
+    const hasClassroomFeedRooms = allClassrooms.some((room: { source?: string }) =>
+      room.source !== 'libcal' && room.source !== 'supplemental'
+    );
     // Capacity filter (legacy "Minimum seats" chips) applies before the
     // render-state summary so building counts reflect the filtered rooms.
-    const classrooms = allClassrooms.filter((room: any) =>
+    const classrooms = allClassrooms.filter((room) =>
       roomMatchesCapacity(room, ctx.minCapacity)
     );
-    const summary = getBuildingRenderState(classrooms, {
+    // The legacy JS helper infers null-only options; describe the values it
+    // accepts and returns at this TypeScript boundary.
+    const renderBuilding = getBuildingRenderState as unknown as (
+      rooms: CampusRoomRecord[],
+      options: { startTime: Date; endTime: Date | null; isNow: boolean; durationFilter: number }
+    ) => {
+      status: string;
+      totalRooms: number;
+      availableCount: number;
+      roomStates: { room: CampusRoomRecord; state: {
+        displayStatus?: string | null;
+        rawStatus?: string | null;
+        availableUntil?: string | null;
+      } }[];
+    };
+    const summary = renderBuilding(classrooms, {
       startTime: ctx.startTime,
       endTime: ctx.endTime,
       isNow: ctx.isNow,
       durationFilter: ctx.durationHours,
-    } as any);
-    const stateByRoom = new Map<any, any>();
+    });
+    const stateByRoom = new Map<CampusRoomRecord, {
+      displayStatus?: string | null;
+      rawStatus?: string | null;
+      availableUntil?: string | null;
+    }>();
     for (const rs of summary.roomStates || []) stateByRoom.set(rs.room, rs.state);
 
     const code = String(b.code ?? b.name ?? '');
-    const rooms: RoomEntry[] = classrooms.map((room: any, idx: number) => {
+    const classroomIssue = hasClassroomFeedRooms &&
+      (failedClassroomCodes.has(code) ||
+        (dayFetch.status !== 'ready' && !resolvedClassroomCodes.has(code)));
+    const rooms: RoomEntry[] = classrooms.map((room, idx: number) => {
       const st = stateByRoom.get(room);
+      const classroomPending = classroomIssue &&
+        room.source !== 'libcal' && room.source !== 'supplemental';
       return {
         id: String(room.id ?? room.name ?? idx),
         name: String(room.name ?? room.id ?? `Room ${idx + 1}`),
         buildingCode: code,
-        status: toContractStatus(st?.displayStatus ?? st?.rawStatus),
-        displayStatus: st?.displayStatus ?? st?.rawStatus ?? null,
-        availableUntil: st?.availableUntil ?? null,
+        status: classroomPending ? 'unknown' : toContractStatus(st?.displayStatus ?? st?.rawStatus),
+        displayStatus: classroomPending ? null : st?.displayStatus ?? st?.rawStatus ?? null,
+        availableUntil: classroomPending ? null : st?.availableUntil ?? null,
         events: Array.isArray(room.availability_times) ? room.availability_times : [],
         raw: room,
       };
@@ -474,6 +551,16 @@ function deriveBuildings(ctx: DeriveContext): BuildingEntry[] {
 
     const kind: BuildingEntry['kind'] =
       b.libcalBuilding === true || LIBCAL_CODES.has(code) ? 'library' : 'classroom';
+    const libraryIssue = LIBCAL_CODES.has(code) && libcalStatus !== 'ready';
+    const dataIssueSource = classroomIssue && libraryIssue ? 'both'
+      : classroomIssue ? 'classrooms'
+      : libraryIssue ? 'library'
+      : undefined;
+    const dataIssue = classroomIssue || libraryIssue
+      ? ((classroomIssue && (failedClassroomCodes.has(code) || dayFetch.status === 'error')) ||
+          (libraryIssue && libcalStatus === 'error')
+        ? 'error' : 'loading')
+      : undefined;
 
     return {
       id: code,
@@ -484,7 +571,9 @@ function deriveBuildings(ctx: DeriveContext): BuildingEntry[] {
       kind,
       totalRooms: summary.totalRooms ?? classrooms.length,
       availableRooms: summary.availableCount ?? 0,
-      status: summary.totalRooms ? toContractStatus(summary.status) : 'unknown',
+      status: dataIssue ? 'unknown' : summary.totalRooms ? toContractStatus(summary.status) : 'unknown',
+      dataIssue,
+      dataIssueSource,
       rooms,
       raw: b,
     };
@@ -492,7 +581,7 @@ function deriveBuildings(ctx: DeriveContext): BuildingEntry[] {
 }
 
 function deriveDining(ctx: DeriveContext): DiningHall[] {
-  return diningRaw.map((hall: any, idx: number) => {
+  return diningRaw.map((hall, idx: number) => {
     const info = getDiningStatusInfo(hall, ctx.referenceDate);
     const statusText = info?.badgeLabel
       ? info.summary
@@ -514,7 +603,7 @@ function deriveDining(ctx: DeriveContext): DiningHall[] {
 
 function deriveParking(ctx: DeriveContext): ParkingLot[] {
   const reference = getParkingReferenceDate(ctx.isNow ? 'now' : 'schedule', ctx.startTime);
-  return getParkingFeatures(reference).map((feature: any) => {
+  return getParkingFeatures(reference).map((feature) => {
     const p = feature.properties || {};
     // 'Visitor' (paid 24/7 garage) maps to amber 'opening-soon' as a
     // caution color; raw.kind === 'paid' preserves the exact semantics.
@@ -552,41 +641,81 @@ function recomputeDerived(): void {
 // Data pipeline (ported from App.js effects)
 // ---------------------------------------------------------------------------
 
-function roomTotal(buildings: any[]): number {
+function roomTotal(buildings: CampusBuildingRecord[]): number {
   return buildings.reduce((sum, b) => sum + (b.classrooms || []).length, 0);
 }
 
 /** Ensures classroom availability data for a campus date key (yyyy-MM-dd). */
-async function ensureDayData(dateKey: string): Promise<void> {
-  if (!bundledBuildings.length) return;
+async function ensureDayData(dateKey: string, force = false): Promise<void> {
+  if (!inventorySkeleton.length) return;
 
-  // Day is inside the bundled dataset's coverage — no network fetch needed.
+  // Fetch the historical archive only when the selected day is inside it.
   if (isDateCovered(dateKey, bundledCoverage)) {
     dayAbort?.abort();
-    activeFetchId += 1;
-    classroomRaw = bundledBuildings;
-    useCampusStore.setState({ dayFetch: { ...EMPTY_DAY_FETCH_STATE, status: 'ready', progress: 1, dateKey } });
+    const fetchId = ++activeFetchId;
+    resolvedClassroomCodes.clear();
+    failedClassroomCodes.clear();
+    classroomRaw = inventorySkeleton.slice();
+    useCampusStore.setState({ dayFetch: {
+      ...EMPTY_DAY_FETCH_STATE,
+      status: 'loading',
+      indeterminate: true,
+      dateKey,
+      totalRooms: roomTotal(inventorySkeleton),
+      totalBuildings: inventorySkeleton.length,
+    } });
     recomputeDerived();
-    return;
+    try {
+      const data = await loadBundledBuildings();
+      if (activeFetchId !== fetchId) return;
+      classroomRaw = data;
+      useCampusStore.setState({ dayFetch: {
+        ...EMPTY_DAY_FETCH_STATE,
+        status: 'ready',
+        progress: 1,
+        dateKey,
+        completedRooms: roomTotal(data),
+        totalRooms: roomTotal(data),
+        completedBuildings: data.length,
+        totalBuildings: data.length,
+      } });
+      recomputeDerived();
+      return;
+    } catch (error) {
+      if (activeFetchId !== fetchId) return;
+      console.warn('Bundled schedule unavailable; fetching the selected day live:', error);
+    }
   }
 
-  let cached = dayCache.get(dateKey);
-  if (!cached) {
+  const maxAge = useCampusStore.getState().viewMode === 'now'
+    ? NOW_REFRESH_MS : SCHEDULE_CACHE_MS;
+  let cached = force ? undefined : dayCache.get(dateKey);
+  if (cached && Date.now() - (dayCacheAt.get(dateKey) ?? 0) >= maxAge) {
+    dayCache.delete(dateKey);
+    dayCacheAt.delete(dateKey);
+    cached = undefined;
+  }
+  if (!cached && !force) {
     // Reload/revisit within the TTL: restore the persisted result instead of
     // re-running the full live fetch.
-    const persisted = readPersistedDay(dateKey);
-    if (persisted) {
-      cached = persisted;
-      boundedCacheSet(dayCache, dateKey, persisted, DAY_CACHE_LIMIT);
+    const cacheReadId = ++activeFetchId;
+    const persisted = await readPersistedDay<CampusBuildingRecord>(dateKey);
+    if (cacheReadId !== activeFetchId) return;
+    if (persisted && Date.now() - persisted.at < maxAge) {
+      cached = persisted.buildings;
+      cacheDay(dateKey, cached, persisted.at);
     }
   }
   if (cached) {
     dayAbort?.abort();
     activeFetchId += 1;
+    resolvedClassroomCodes.clear();
+    failedClassroomCodes.clear();
     classroomRaw = cached;
     useCampusStore.setState({
       dayFetch: {
         status: 'ready',
+        updatedAt: dayCacheAt.get(dateKey),
         progress: 1,
         indeterminate: false,
         error: null,
@@ -607,9 +736,11 @@ async function ensureDayData(dateKey: string): Promise<void> {
   const controller = new AbortController();
   dayAbort = controller;
   const fetchId = ++activeFetchId;
+  resolvedClassroomCodes.clear();
+  failedClassroomCodes.clear();
 
   // Show the availability-stripped inventory while the day loads.
-  classroomRaw = inventorySkeleton;
+  classroomRaw = inventorySkeleton.slice();
   useCampusStore.setState({
     dayFetch: {
       status: 'loading',
@@ -626,10 +757,20 @@ async function ensureDayData(dateKey: string): Promise<void> {
   recomputeDerived();
 
   try {
-    const data = await fetchAvailabilityForDate(inventorySkeleton, dateKey, {
+    if (force) {
+      await invalidatePersistedDay(dateKey);
+      if (activeFetchId !== fetchId || controller.signal.aborted) return;
+    }
+    const data = await fetchLiveAvailability(inventorySkeleton, dateKey, {
       signal: controller.signal,
-      onProgress: (progress: any) => {
+      onProgress: (progress: AvailabilityProgress) => {
         if (activeFetchId !== fetchId) return;
+        if (typeof progress.index === 'number' && Number.isInteger(progress.index) && progress.building) {
+          const code = String(inventorySkeleton[progress.index]?.code ?? progress.building.code ?? '');
+          classroomRaw[progress.index] = progress.building;
+          if (progress.succeeded) resolvedClassroomCodes.add(code);
+          else failedClassroomCodes.add(code);
+        }
         useCampusStore.setState({
           dayFetch: {
             status: 'loading',
@@ -643,19 +784,26 @@ async function ensureDayData(dateKey: string): Promise<void> {
             totalBuildings: progress.totalBuildings ?? 0,
           },
         });
+        if (typeof progress.index === 'number' && Number.isInteger(progress.index) && progress.building) recomputeDerived();
       },
-    } as any);
+    });
     if (activeFetchId !== fetchId) return;
     const sorted = sortBuildings(data);
-    boundedCacheSet(dayCache, dateKey, sorted, DAY_CACHE_LIMIT);
-    persistDay(dateKey, sorted);
+    if (failedClassroomCodes.size === 0) {
+      cacheDay(dateKey, sorted);
+      void persistDay(dateKey, sorted);
+    }
     classroomRaw = sorted;
+    const updatedAt = failedClassroomCodes.size ? undefined : Date.now();
     useCampusStore.setState({
       dayFetch: {
-        status: 'ready',
+        status: failedClassroomCodes.size ? 'error' : 'ready',
+        updatedAt,
         progress: 1,
         indeterminate: false,
-        error: null,
+        error: failedClassroomCodes.size
+          ? `${failedClassroomCodes.size} building${failedClassroomCodes.size === 1 ? '' : 's'} could not load availability.`
+          : null,
         dateKey,
         completedRooms: roomTotal(sorted),
         totalRooms: roomTotal(sorted),
@@ -664,16 +812,17 @@ async function ensureDayData(dateKey: string): Promise<void> {
       },
     });
     recomputeDerived();
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (controller.signal.aborted || activeFetchId !== fetchId) return;
     console.error(`Error fetching availability for ${dateKey}:`, err);
-    classroomRaw = inventorySkeleton;
+    // Successful buildings already streamed to the list; retain them while
+    // marking the unfinished buildings unknown and offering a retry.
     useCampusStore.setState({
       dayFetch: {
         status: 'error',
         progress: 0,
         indeterminate: false,
-        error: err?.message || 'Failed to fetch that day.',
+        error: errorMessage(err, 'Failed to fetch that day.'),
         dateKey,
         completedRooms: 0,
         totalRooms: roomTotal(inventorySkeleton),
@@ -685,10 +834,101 @@ async function ensureDayData(dateKey: string): Promise<void> {
   }
 }
 
+/** A partial live-day failure should not repeat the successful requests. */
+async function retryFailedDayData(dateKey: string): Promise<void> {
+  if (useCampusStore.getState().dayFetch.status === 'loading') return;
+  const failedIndexes = inventorySkeleton
+    .map((building, index) => failedClassroomCodes.has(String(building.code ?? '')) ? index : -1)
+    .filter((index) => index >= 0);
+  if (!failedIndexes.length || useCampusStore.getState().dayFetch.dateKey !== dateKey) {
+    await ensureDayData(dateKey);
+    return;
+  }
+
+  dayAbort?.abort();
+  const controller = new AbortController();
+  dayAbort = controller;
+  const fetchId = ++activeFetchId;
+  const pendingCodes = failedIndexes.map((index) => String(inventorySkeleton[index].code ?? ''));
+  const pendingBuildings = failedIndexes.map((index) => inventorySkeleton[index]);
+  failedClassroomCodes.clear();
+  useCampusStore.setState({ dayFetch: {
+    ...EMPTY_DAY_FETCH_STATE,
+    status: 'loading',
+    dateKey,
+    totalRooms: roomTotal(pendingBuildings),
+    totalBuildings: pendingBuildings.length,
+  } });
+  recomputeDerived();
+
+  try {
+    await fetchLiveAvailability(pendingBuildings, dateKey, {
+      signal: controller.signal,
+      onProgress: (progress: AvailabilityProgress) => {
+        if (activeFetchId !== fetchId) return;
+        if (typeof progress.index === 'number' && Number.isInteger(progress.index) && progress.building) {
+          const fullIndex = failedIndexes[progress.index];
+          const code = pendingCodes[progress.index];
+          classroomRaw[fullIndex] = progress.building;
+          if (progress.succeeded) resolvedClassroomCodes.add(code);
+          else failedClassroomCodes.add(code);
+          recomputeDerived();
+        }
+        useCampusStore.setState({ dayFetch: {
+          status: 'loading',
+          progress: progress.ratio ?? 0,
+          indeterminate: Boolean(progress.indeterminate),
+          error: null,
+          dateKey,
+          completedRooms: progress.completedRooms ?? 0,
+          totalRooms: progress.totalRooms ?? roomTotal(pendingBuildings),
+          completedBuildings: progress.completedBuildings ?? 0,
+          totalBuildings: progress.totalBuildings ?? pendingBuildings.length,
+        } });
+      },
+    });
+    if (activeFetchId !== fetchId) return;
+    const sorted = sortBuildings(classroomRaw);
+    classroomRaw = sorted;
+    if (failedClassroomCodes.size === 0) {
+      cacheDay(dateKey, sorted);
+      void persistDay(dateKey, sorted);
+    }
+    useCampusStore.setState({ dayFetch: {
+      status: failedClassroomCodes.size ? 'error' : 'ready',
+      updatedAt: failedClassroomCodes.size ? undefined : Date.now(),
+      progress: 1,
+      indeterminate: false,
+      error: failedClassroomCodes.size
+        ? `${failedClassroomCodes.size} building${failedClassroomCodes.size === 1 ? '' : 's'} could not load availability.`
+        : null,
+      dateKey,
+      completedRooms: roomTotal(sorted),
+      totalRooms: roomTotal(sorted),
+      completedBuildings: sorted.length,
+      totalBuildings: sorted.length,
+    } });
+    recomputeDerived();
+  } catch (error) {
+    if (controller.signal.aborted || activeFetchId !== fetchId) return;
+    for (const code of pendingCodes) {
+      if (!resolvedClassroomCodes.has(code)) failedClassroomCodes.add(code);
+    }
+    console.error(`Error retrying availability for ${dateKey}:`, error);
+    useCampusStore.setState({ dayFetch: {
+      ...EMPTY_DAY_FETCH_STATE,
+      status: 'error',
+      error: `${failedClassroomCodes.size} building${failedClassroomCodes.size === 1 ? '' : 's'} could not load availability.`,
+      dateKey,
+    } });
+    recomputeDerived();
+  }
+}
+
 /** Prefetches the days before/after the active one (schedule mode only). */
 function prefetchAdjacentDays(dateKey: string): void {
   const s = useCampusStore.getState();
-  if (s.viewMode === 'now' || !inventorySkeleton.length || !bundledBuildings.length) return;
+  if (s.viewMode === 'now' || !inventorySkeleton.length) return;
 
   const baseDate = new Date(`${dateKey}T12:00:00`);
   for (const offset of [-1, 1]) {
@@ -704,9 +944,18 @@ function prefetchAdjacentDays(dateKey: string): void {
       continue;
     }
     prefetchInFlight.add(key);
-    fetchAvailabilityForDate(inventorySkeleton, key, { concurrency: 4 })
+    let failed = false;
+    const options = {
+      concurrency: 4,
+      onProgress: (progress: { succeeded?: boolean }) => {
+        if (progress.succeeded === false) failed = true;
+      },
+    };
+    fetchAvailabilityForDate(inventorySkeleton, key, options)
       .then((data) => {
-        boundedCacheSet(dayCache, key, sortBuildings(data), DAY_CACHE_LIMIT);
+        if (!failed) {
+          cacheDay(key, sortBuildings(data));
+        }
       })
       .catch((err) => {
         console.error(`Error prefetching availability for ${key}:`, err);
@@ -717,10 +966,11 @@ function prefetchAdjacentDays(dateKey: string): void {
   }
 }
 
-async function ensureLibCal(dateKey: string): Promise<void> {
-  const cached = libcalCache.get(dateKey);
+async function ensureLibCal(dateKey: string, force = false): Promise<void> {
+  const cached = force ? undefined : libcalCache.get(dateKey);
   if (cached) {
     libraryRaw = cached;
+    useCampusStore.setState({ libcalStatus: 'ready' });
     recomputeDerived();
     return;
   }
@@ -728,22 +978,38 @@ async function ensureLibCal(dateKey: string): Promise<void> {
   libcalAbort?.abort();
   const controller = new AbortController();
   libcalAbort = controller;
+  libraryRaw = [];
+  useCampusStore.setState({ libcalStatus: 'loading' });
+  recomputeDerived();
 
-  try {
-    const data = await fetchLibCalAvailabilityForDate(dateKey, { signal: controller.signal });
-    const buildings = Array.isArray(data) ? data : [];
-    boundedCacheSet(libcalCache, dateKey, buildings, DAY_CACHE_LIMIT);
-    libraryRaw = buildings;
-  } catch (err: any) {
+  let lastError: unknown;
+  for (const delay of [0, 350, 1000]) {
+    if (delay) await new Promise<void>((resolve) => setTimeout(resolve, delay));
     if (controller.signal.aborted) return;
-    console.error(`Error loading LibCal availability for ${dateKey}:`, err);
-    libraryRaw = [];
+    try {
+      const buildings = await fetchLibCalAvailabilityForDate(dateKey, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      const returnedCodes = new Set(buildings.map((building: { code?: unknown }) => String(building.code ?? '')));
+      if ([...LIBCAL_CODES].some((code) => !returnedCodes.has(code))) {
+        throw new Error('Incomplete library room response');
+      }
+      boundedCacheSet(libcalCache, dateKey, buildings, DAY_CACHE_LIMIT);
+      libraryRaw = buildings;
+      useCampusStore.setState({ libcalStatus: 'ready' });
+      recomputeDerived();
+      return;
+    } catch (err: unknown) {
+      if (controller.signal.aborted) return;
+      lastError = err;
+    }
   }
+  console.error(`Error loading LibCal availability for ${dateKey}:`, lastError);
+  useCampusStore.setState({ libcalStatus: 'error' });
   recomputeDerived();
 }
 
-async function ensureDining(dateKey: string): Promise<void> {
-  const cached = diningCache.get(dateKey);
+async function ensureDining(dateKey: string, force = false): Promise<void> {
+  const cached = force ? undefined : diningCache.get(dateKey);
   if (cached) {
     diningRaw = cached;
     recomputeDerived();
@@ -759,7 +1025,7 @@ async function ensureDining(dateKey: string): Promise<void> {
     const halls = Array.isArray(data) ? data : [];
     boundedCacheSet(diningCache, dateKey, halls, DAY_CACHE_LIMIT);
     diningRaw = halls;
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (controller.signal.aborted) return;
     console.error(`Error loading dining information for ${dateKey}:`, err);
     diningRaw = [];
@@ -768,21 +1034,40 @@ async function ensureDining(dateKey: string): Promise<void> {
 }
 
 /** Refetches everything keyed by the active campus day, then re-derives. */
-function refreshForActiveDate(): void {
+function refreshForActiveDate(force = false): void {
   const dateKey = useCampusStore.getState().activeDateKey;
-  if (!bundledBuildings.length) {
+  if (!inventorySkeleton.length) {
     recomputeDerived();
     return;
   }
-  void ensureDayData(dateKey).then(() => prefetchAdjacentDays(dateKey));
-  void ensureLibCal(dateKey);
-  void ensureDining(dateKey);
+  void ensureDayData(dateKey, force).then(() => prefetchAdjacentDays(dateKey));
+  void ensureLibCal(dateKey, force);
+  void ensureDining(dateKey, force);
 }
 
-/** 60s tick in 'now' mode so statuses/parking/dining stay time-accurate. */
+function maybeRefreshNow(): void {
+  const s = useCampusStore.getState();
+  if (s.viewMode !== 'now' || s.dayFetch.status !== 'ready' ||
+      isDateCovered(s.activeDateKey, bundledCoverage) ||
+      (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return;
+  const lastFetch = dayCacheAt.get(s.activeDateKey) ?? 0;
+  if (Date.now() - lastFetch < NOW_REFRESH_MS) return;
+  // A failed refresh must not make an older snapshot look fresh on a later
+  // mode switch. The loading state prevents overlapping refreshes.
+  dayCache.delete(s.activeDateKey);
+  dayCacheAt.delete(s.activeDateKey);
+  refreshForActiveDate(true);
+}
+
+function onNowVisible(): void {
+  if (document.visibilityState === 'visible') maybeRefreshNow();
+}
+
+/** 60s tick in 'now' mode keeps statuses current and renews older feeds. */
 function syncNowTicker(): void {
   const isNow = useCampusStore.getState().viewMode === 'now';
   if (isNow && nowTicker == null) {
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onNowVisible);
     nowTicker = setInterval(() => {
       const s = useCampusStore.getState();
       if (s.viewMode !== 'now') return;
@@ -792,11 +1077,14 @@ function syncNowTicker(): void {
         refreshForActiveDate(); // crossed midnight — refetch the new day
       } else {
         recomputeDerived();
+        maybeRefreshNow();
       }
     }, 60000);
+    maybeRefreshNow();
   } else if (!isNow && nowTicker != null) {
     clearInterval(nowTicker);
     nowTicker = null;
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onNowVisible);
   }
 }
 
@@ -817,7 +1105,7 @@ async function runInit(): Promise<void> {
     .catch((err) => console.error('Error loading building metadata:', err));
 
   try {
-    const data = await fetchJsonWithProgress(`${BASE_URL}buildings_data.json`, {
+    const data = await fetchJsonWithProgress(`${BASE_URL}buildings_inventory.json`, {
       onProgress: ({ ratio }: { ratio: number | null }) => {
         useCampusStore.setState((prev) => ({
           loading: {
@@ -829,10 +1117,15 @@ async function runInit(): Promise<void> {
       },
     });
 
-    const sorted = sortBuildings(data);
-    bundledBuildings = sorted;
-    inventorySkeleton = stripAvailability(sorted);
-    bundledCoverage = getCoverageRange(sorted);
+    // The generated inventory has the same rooms and metadata as the large
+    // archive, but no old time slots. Accept an array in older test fixtures.
+    const legacyArray = Array.isArray(data);
+    const source = legacyArray ? data : data?.buildings;
+    if (!Array.isArray(source) || !source.length) throw new Error('Room inventory is empty');
+    const sorted = sortBuildings(source);
+    inventorySkeleton = legacyArray ? stripAvailability(sorted) : sorted;
+    if (legacyArray) bundledBuildings = sorted;
+    bundledCoverage = legacyArray ? getCoverageRange(sorted) : data.coverage ?? null;
 
     useCampusStore.setState({
       coverage: bundledCoverage
@@ -849,14 +1142,14 @@ async function runInit(): Promise<void> {
     recomputeDerived();
     prefetchAdjacentDays(useCampusStore.getState().activeDateKey);
     syncNowTicker();
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Error loading building data:', err);
     initPromise = null; // allow a later init() call to retry
     useCampusStore.setState({
       loading: {
         status: 'error',
         progress: 0,
-        error: err?.message || 'Failed to load room data.',
+        error: errorMessage(err, 'Failed to load room data.'),
       },
     });
   }
@@ -875,6 +1168,7 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
   parking: [],
   loading: { status: 'idle', progress: 0, error: null },
   coverage: null,
+  libcalStatus: 'idle',
 
   // ui state
   viewMode: initialSchedule.viewMode,
@@ -884,8 +1178,8 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
   searchQuery: '',
   activeOverlays: loadOverlays(),
   selected: null,
-  darkMode: loadDarkMode(),
-  darkModeAuto: true,
+  darkMode: initialDarkMode,
+  darkModeAuto: initialTimePreference === 'auto',
   favorites: loadFavorites(),
   flyTo: null,
   legendOpen: false,
@@ -897,6 +1191,10 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
   ),
   pendingDeepLink: readDeepLink(),
   selectionSource: null,
+  browsePanelHidden: false,
+  availableOnlyFilter: { key: '', enabled: false },
+  roomExpansion: { key: '', roomId: null },
+  libraryBrowseDate: null,
   favoritesOpen: false,
 
   // actions
@@ -906,6 +1204,16 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
     }
     return initPromise;
   },
+  retryDayData: () => { void retryFailedDayData(get().activeDateKey); },
+  refreshDayData: () => {
+    const state = get();
+    if (state.viewMode !== 'now' || state.dayFetch.status !== 'ready') return;
+    dayCache.delete(state.activeDateKey);
+    dayCacheAt.delete(state.activeDateKey);
+    refreshForActiveDate(true);
+  },
+  // A failed refresh may leave an older cached success; Retry must recheck the feed.
+  retryLibCal: () => { void ensureLibCal(get().activeDateKey, true); },
 
   setViewMode: (m) => {
     if (get().viewMode === m) return;
@@ -948,14 +1256,34 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
     set({ activeOverlays: next });
   },
 
-  select: (s, opts) => set({ selected: s, selectionSource: opts?.source ?? 'panel' }),
+  select: (s, opts) => set((state) => ({
+    selected: s,
+    selectionSource: opts?.source ?? 'panel',
+    libraryBrowseDate: s?.kind === 'room' && state.selected?.kind === 'room' &&
+      s.id === state.selected.id ? state.libraryBrowseDate : null,
+    // A map pick needs its details visible, even if the user was exploring
+    // with the desktop browser tucked away.
+    browsePanelHidden: s ? false : state.browsePanelHidden,
+  })),
 
-  clearSelection: () => set({ selected: null, selectionSource: null }),
+  setBrowsePanelHidden: (hidden) => set({ browsePanelHidden: hidden }),
+  setAvailableOnlyFilter: (key, enabled) => set({ availableOnlyFilter: { key, enabled } }),
+  setRoomExpansion: (key, roomId) => set({ roomExpansion: { key, roomId } }),
+  setLibraryBrowseDate: (selectionId, dateKey) => {
+    const state = get();
+    if (state.selected?.kind !== 'room' || state.selected.id !== selectionId) return;
+    if (state.libraryBrowseDate?.selectionId === selectionId &&
+        state.libraryBrowseDate.dateKey === dateKey) return;
+    set({ libraryBrowseDate: { selectionId, dateKey } });
+  },
+
+  clearSelection: () => set({ selected: null, selectionSource: null, libraryBrowseDate: null }),
 
   toggleDarkMode: () => {
     const next = !get().darkMode;
     safeStorageSet('darkMode', JSON.stringify(next));
-    set({ darkMode: next, darkModeAuto: false }); // manual override for the session
+    safeStorageSet('timePreference', next ? 'night' : 'day');
+    set({ darkMode: next, darkModeAuto: false });
   },
 
   setDarkModeAuto: (dark) => {
@@ -964,11 +1292,12 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
   },
 
   setTimePreference: (pref) => {
+    safeStorageSet('timePreference', pref);
     if (pref === 'auto') {
-      // Back to realtime: clear the manual override. darkMode itself is left
-      // alone — the sunThemeTimer / immediate syncThemeFromSun snaps it to
-      // the real sun within a frame, so there is no theme flash.
-      if (!get().darkModeAuto) set({ darkModeAuto: true });
+      // Match the sun immediately, including when the scene is still loading.
+      const state = get();
+      const date = state.viewMode === 'schedule' ? state.scheduleDate : new Date();
+      set({ darkModeAuto: true, darkMode: computeSunPosition(date).elevation < -1 });
       return;
     }
     const dark = pref === 'night';

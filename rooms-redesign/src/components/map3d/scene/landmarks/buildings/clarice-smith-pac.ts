@@ -1,15 +1,12 @@
 // Clarice Smith Performing Arts Center ("The Clarice") — way/23547877.
 //
-// NOTE: the bake (public/campus-data.json at authoring time) does NOT include
-// this way — OSM maps the Clarice as multipolygon relation 9660599 with all
-// tags on the relation, so the untagged outer way 23547877 was dropped (the
-// dataset contains zero relation/* entries). This module is keyed to the real
-// outer way id; it renders as soon as the bake includes way/23547877. UMD
-// building code: PAC (buildings_metadata.json id 386, 38.99068, -76.95044).
+// The current campus-data.json bake includes this way with umdCode PAC.
+// The Clarice's official venue guide identifies six halls and the Grand
+// Pavilion as the main entrance; UMD describes ten connected structures.
 //
-// ARCHITECTURE (Moore Ruble Yudell, 2001; verified against Esri World
-// Imagery z19 aerial + Wikipedia): a white "arts village" of low limestone
-// wings (School of Music / TDPS, ~11m) wrapped around three signature masses:
+// ARCHITECTURE (verified against UMD venues/grounds and local MD iMAP aerial):
+// a red-brown brick "arts village" of low wings (School of Music / TDPS,
+// ~11m) with pale limestone accents, wrapped around three signature masses:
 //   - Dekelboum Concert Hall: cylindrical DRUM (~18m) in the NE quadrant,
 //     wrapped on the plaza side by the curved glass Grand Pavilion.
 //   - Kay Theatre: tall blank FLY TOWER (~30m box) over the stage house on
@@ -44,18 +41,20 @@ export const landmark: LandmarkModule = {
   id: 'way/23547877',
   spec: {
     name: 'Clarice Smith Performing Arts Center',
-    color: 0xece7d8, // warm-white limestone panels
+    color: 0x8b6256, // red-brown brick on UMD's exterior photographs
     height: 11, // village wing baseline
-    accent: 0xdfe9ec, // angled glass lobby / Grand Pavilion
+    accent: 0x688993, // blue-gray angled glass lobby / Grand Pavilion
     nightGlow: 0.4, // lobby glass glows warm at night
   },
   maxHeight: 32, // fly tower box (30m) + roof lip
   build(ctx) {
-    const { pts, baseHeight, spec, helpers } = ctx;
-    const white = helpers.withGlow(spec.color, spec.nightGlow);
-    const whiteDark = helpers.darkerShade(white, -0.06);
+    const { pts, holes, baseHeight, spec, helpers } = ctx;
+    const brick = helpers.withGlow(spec.color, spec.nightGlow);
+    const brickDark = helpers.darkerShade(brick, -0.06);
+    const pale = new THREE.Color(0xd6d2c4);
+    const roof = new THREE.Color(0x636865);
     const glassGlow = Math.min(1, (spec.nightGlow ?? 0) + 0.4);
-    const glass = helpers.withGlow(spec.accent ?? 0xdfe9ec, glassGlow);
+    const glass = helpers.withGlow(spec.accent ?? 0x688993, glassGlow);
 
     const { minX, maxX, minY, maxY } = helpers.bboxOf(pts);
     const w = maxX - minX;
@@ -72,7 +71,10 @@ export const landmark: LandmarkModule = {
           pointInRing(pts, x0, y0) &&
           pointInRing(pts, x1, y0) &&
           pointInRing(pts, x1, y1) &&
-          pointInRing(pts, x0, y1);
+          pointInRing(pts, x0, y1) &&
+          !holes.some((hole) => [
+            [x0, y0], [x1, y0], [x1, y1], [x0, y1],
+          ].some(([x, y]) => pointInRing(hole, x, y)));
         if (ok) break;
         const mx = (x0 + x1) / 2;
         const my = (y0 + y1) / 2;
@@ -123,7 +125,7 @@ export const landmark: LandmarkModule = {
     const drumC = { x: ax(0.571), y: ay(0.648) }; // Dekelboum drum center
     const DRUM_R = 18;
     const DRUM_H = 18;
-    const HOLE_R = 24; // annulus carved from the base for the drum + pavilion
+    const HOLE_R = 23.3; // pavilion outer edge overlaps the village wall
     const GLASS_H = 13; // glass pieces rise ~2m above the 11m village roofs
 
     const parts: THREE.BufferGeometry[] = [];
@@ -132,39 +134,46 @@ export const landmark: LandmarkModule = {
     //    around the drum so the Grand Pavilion glass reads against open air.
     parts.push(
       helpers.withColor(
-        helpers.extrudeWithHoles(pts, [circle(drumC.x, drumC.y, HOLE_R, 36)], baseHeight),
-        white,
+        helpers.extrudeWithHoles(pts, [...holes, circle(drumC.x, drumC.y, HOLE_R, 36)], baseHeight),
+        brick,
       ),
     );
+    // The old all-white footprint top read as a single chalky slab from
+    // above. A low charcoal roof plate restores the dark bands in UMD's
+    // exterior and the mapped aerial while keeping courtyards open.
+    parts.push(helpers.withColor(
+      helpers.extrudeWithHoles(pts, [...holes, circle(drumC.x, drumC.y, HOLE_R, 36)], 0.14)
+        .translate(0, baseHeight + 0.03, 0), roof,
+    ));
 
     // 2. East service/scene-shop block along the Stadium Drive frontage.
     parts.push(
-      helpers.withColor(helpers.extrudeFootprint(fitRect(0.735, 0.207, 0.985, 0.545), 14), white),
+      helpers.withColor(helpers.extrudeFootprint(fitRect(0.82, 0.207, 0.985, 0.545), 14), brick),
     );
 
     // 3. Kay Theatre auditorium block (proscenium hall, N-S ridge).
     parts.push(
-      helpers.withColor(helpers.extrudeFootprint(fitRect(0.594, 0.306, 0.726, 0.542), 17), white),
+      helpers.withColor(helpers.extrudeFootprint(fitRect(0.594, 0.306, 0.726, 0.542), 17), brick),
     );
 
     // 4. Fly tower: tall blank box over the stage house + thin roof lip.
     const tower = fitRect(0.612, 0.439, 0.712, 0.536);
-    parts.push(helpers.withColor(helpers.extrudeFootprint(tower, 30), white));
+    parts.push(helpers.withColor(helpers.extrudeFootprint(tower, 30), brick));
     const { cx: tcx, cy: tcy } = helpers.centroidOf(tower);
     parts.push(
       helpers.withColor(
         helpers.extrudeFootprint(helpers.scaleAbout(tower, tcx, tcy, 0.86), 30.8),
-        whiteDark,
+        brickDark,
       ),
     );
 
     // 5. Dekelboum drum: faceted cylinder + inset darker roof cap.
     const drum = new THREE.CylinderGeometry(DRUM_R, DRUM_R, DRUM_H, 28);
     drum.translate(drumC.x, DRUM_H / 2, -drumC.y); // world z = -north
-    parts.push(helpers.withColor(drum, white));
+    parts.push(helpers.withColor(drum, pale));
     const cap = new THREE.CylinderGeometry(DRUM_R - 3, DRUM_R - 3, 1.8, 28);
     cap.translate(drumC.x, DRUM_H - 0.15 + 0.9, -drumC.y); // overlaps drum top — no coplanar faces
-    parts.push(helpers.withColor(cap, whiteDark));
+    parts.push(helpers.withColor(cap, roof));
 
     // 6. Grand Pavilion: curved glass band wrapping the drum's plaza side
     //    (S -> SE -> E -> NE) inside the carved annulus.
@@ -178,9 +187,33 @@ export const landmark: LandmarkModule = {
     }
     for (let i = SEG; i >= 0; i--) {
       const t = T0 + ((T1 - T0) * i) / SEG;
-      band.push(new THREE.Vector2(drumC.x + 19.5 * Math.cos(t), drumC.y + 19.5 * Math.sin(t)));
+      // The inner edge joins the 18m drum; the outer edge joins the village
+      // at the 23.3m annulus instead of standing alone in its courtyard.
+      band.push(new THREE.Vector2(drumC.x + 17.85 * Math.cos(t), drumC.y + 17.85 * Math.sin(t)));
     }
     parts.push(helpers.withColor(helpers.extrudeFootprint(band, GLASS_H), glass));
+    // Vertical mullions and a thin pale roof rim make the Grand Pavilion
+    // recognizable as a curved glazed entrance, rather than another opaque
+    // cylinder beside the concert-hall drum.
+    for (let i = 0; i <= SEG; i++) {
+      const angle = T0 + ((T1 - T0) * i) / SEG;
+      const r = 23.66;
+      const mullion = new THREE.BoxGeometry(0.42, GLASS_H - 0.45, 0.35);
+      mullion.rotateY(angle + Math.PI / 2);
+      mullion.translate(drumC.x + r * Math.cos(angle), GLASS_H / 2,
+        -(drumC.y + r * Math.sin(angle)));
+      parts.push(helpers.withColor(mullion, pale));
+      if (i < SEG) {
+        const next = T0 + ((T1 - T0) * (i + 1)) / SEG;
+        const middle = (angle + next) / 2;
+        const chord = 2 * r * Math.sin((next - angle) / 2);
+        const rim = new THREE.BoxGeometry(chord + 0.15, 0.36, 0.56);
+        rim.rotateY(middle + Math.PI / 2);
+        rim.translate(drumC.x + r * Math.cos(middle), GLASS_H - 0.05,
+          -(drumC.y + r * Math.sin(middle)));
+        parts.push(helpers.withColor(rim, pale));
+      }
+    }
 
     // 7. Angled glass lobby bars: the atrium spine running SW from the drum
     //    through the village, plus the far-west link along the prong wing.
@@ -196,20 +229,41 @@ export const landmark: LandmarkModule = {
         glass,
       ),
     );
+    // A narrow raised glass roof light traces the public atrium spine.
+    parts.push(helpers.withColor(
+      helpers.extrudeFootprint(
+        bar(ax(0.306), ay(0.513), ax(0.49), ay(0.624), 3.2), 0.82,
+      ).translate(0, GLASS_H, 0), pale,
+    ));
+
+    // Alternating dark and pale roof monitors along the music/studio wing
+    // preserve the sawtooth rhythm visible in the design-reference aerial.
+    // They sit above the low wings instead of turning the entire PAC into one
+    // uniform roof plate.
+    for (let i = 0; i < 4; i++) {
+      const fx0 = 0.24 + i * 0.045;
+      const monitor = fitRect(fx0, 0.42, fx0 + 0.029, 0.59);
+      parts.push(
+        helpers.withColor(
+          helpers.extrudeFootprint(monitor, 1.1).translate(0, baseHeight, 0),
+          i % 2 === 0 ? roof : pale,
+        ),
+      );
+    }
 
     // 8. North tip: recital-hall pavilions with hipped roofs (Gildenhorn
     //    block reads as small hip-roofed pavilions on the aerial).
     const pavH1 = 12 + helpers.hash01(`${spec.name}:pav1`) * 1.5;
     const pav1 = fitRect(0.319, 0.799, 0.43, 0.885);
-    parts.push(helpers.withColor(helpers.extrudeFootprint(pav1, pavH1), white));
+    parts.push(helpers.withColor(helpers.extrudeFootprint(pav1, pavH1), pale));
     parts.push(
-      helpers.withColor(helpers.buildHippedRoof(pav1, pavH1, 2.5), helpers.darkerShade(white, -0.075)),
+      helpers.withColor(helpers.buildHippedRoof(pav1, pavH1, 2.5), roof),
     );
     const pavH2 = 12 + helpers.hash01(`${spec.name}:pav2`) * 1.5;
     const pav2 = fitRect(0.42, 0.83, 0.51, 0.97);
-    parts.push(helpers.withColor(helpers.extrudeFootprint(pav2, pavH2), white));
+    parts.push(helpers.withColor(helpers.extrudeFootprint(pav2, pavH2), brick));
     parts.push(
-      helpers.withColor(helpers.buildHippedRoof(pav2, pavH2, 2.5), helpers.darkerShade(white, -0.075)),
+      helpers.withColor(helpers.buildHippedRoof(pav2, pavH2, 2.5), roof),
     );
 
     return parts;

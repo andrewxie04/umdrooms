@@ -14,7 +14,9 @@
 // can give them a dedicated glint material.
 
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
+  bboxOf,
   centroidOf,
   extrudeFootprint,
   extrudeWithHoles,
@@ -60,6 +62,8 @@ export interface CampusGeometries {
   /** Merged lit-window facade quads (deterministic lit subset only, positions
    * only — no normals/uv/color); scene.ts drives the warm glow opacity. */
   windows: THREE.BufferGeometry;
+  /** Daylight glazing on named campus buildings; merged into one draw call. */
+  dayWindows: THREE.BufferGeometry;
   /** Merged water/fountain/pool polygons + waterway ribbons, pulled out of
    * the flat areas mesh so scene.ts can use a dedicated MeshPhongMaterial
    * (soft sun/moon glint). Baked vertex colors: teal shore -> deep-blue
@@ -95,15 +99,15 @@ export const COLORS = {
   building: new THREE.Color(0xf8f4ea), // bright warm off-white (per-building hue+lightness jitter)
   road: new THREE.Color(0x9d9c96), // cooler grays, less tan
   service: new THREE.Color(0xb1b0a8),
-  path: new THREE.Color(0xcccabf), // lightest
-  grass: new THREE.Color(0x8ab06e), // clear warm green
+  path: new THREE.Color(0xbdbcb5), // concrete walks; quieter against the lawns
+  grass: new THREE.Color(0x79ad6b), // Maryland lawn green
   water: new THREE.Color(0x7ea9c8), // clear sky blue
   fountain: new THREE.Color(0x7ea9c8), // same blue as open water
   pool: new THREE.Color(0x7ea9c8), // same blue as open water
   parking: new THREE.Color(0x84837b), // neutral dark gray
-  sport: new THREE.Color(0x7b9c5e), // deeper green than grass
-  tree: new THREE.Color(0x7c9068),
-  treeTop: new THREE.Color(0x87996f),
+  sport: new THREE.Color(0x689553), // deeper green than grass
+  tree: new THREE.Color(0x567b4f),
+  treeTop: new THREE.Color(0x78a567),
 };
 
 // NOTE: hash01, signedArea, ringToShapePoints, withColor, mergeAll,
@@ -117,14 +121,237 @@ export const COLORS = {
 // hand-tuned procedural detail instead (see the Landmarks section below).
 // ---------------------------------------------------------------------------
 
-function buildingTint(id: string): THREE.Color {
-  const c = COLORS.building.clone();
+function buildingTint(b: CampusBuilding): THREE.Color {
+  const name = (b.name ?? '').toLowerCase();
+  // Apply campus materials by known building families. A title like
+  // "Engineering" or "Library" says nothing reliable about its facade:
+  // McKeldin, Hornbake and many engineering halls are red brick.
+  const garage = /parking garage|garage|utility|scub|maintenance|hvac/.test(name);
+  const venue = /stadium|arena|fieldhouse|recreation|sports|xfinity/.test(name);
+  const modern = /iribe|physical sciences|idea factory|thurgood marshall|hotel|clarice smith|jeong h\. kim/.test(name);
+  const brick = [0x9a6554, 0xa46b57, 0x98604d, 0xa8735e];
+  const c = !b.name ? COLORS.building.clone()
+    : new THREE.Color(garage ? 0xb9b8b0 : venue ? 0xc6bcae : modern ? 0xb4bdbb
+      : brick[Math.floor(hash01(`${b.id}:masonry`) * brick.length)]);
   c.offsetHSL(
-    (hash01(`${id}:hh`) - 0.5) * 0.04, // ±2% hue variance, not just lightness
-    (hash01(`${id}:ss`) - 0.5) * 0.05,
-    (hash01(`${id}:ll`) - 0.5) * 0.055,
+    (hash01(`${b.id}:hh`) - 0.5) * 0.012,
+    (hash01(`${b.id}:ss`) - 0.5) * 0.03,
+    (hash01(`${b.id}:ll`) - 0.5) * 0.035,
   );
   return c;
+}
+
+function colorizeBuilding(geom: THREE.BufferGeometry, facade: THREE.Color, b: CampusBuilding): THREE.BufferGeometry {
+  const result = withColor(geom, facade);
+  const normals = result.getAttribute('normal');
+  const colors = result.getAttribute('color');
+  const name = (b.name ?? '').toLowerCase();
+  const modern = /iribe|physical sciences|idea factory|thurgood marshall|hotel|clarice smith|jeong h\. kim/.test(name);
+  const garage = /parking garage|garage|utility|scub|maintenance|hvac/.test(name);
+  // The aerial shows membrane roofs in several *material* families: pale
+  // reflective roofs on larger halls, slate-gray academic roofs, and darker
+  // mechanical/garage roofs. Keep the choice stable per building.
+  const roofFamily = hash01(`${b.id}:roof-style`);
+  const roof = new THREE.Color(garage ? 0x737c7e
+    : modern ? (roofFamily < 0.5 ? 0xc4c5bf : 0x818d90)
+      : b.name ? (roofFamily < 0.25 ? 0xd0d0c7 : roofFamily < 0.7 ? 0x969d9d : 0x686f72)
+        : 0xb5b3aa);
+  roof.offsetHSL(0, 0, (hash01(`${b.id}:roof`) - 0.5) * 0.025);
+  // Extruded caps already have separate vertices from the walls. Recoloring
+  // upward faces gives every footprint a legible roof without extra meshes.
+  for (let i = 0; i < normals.count; i++) {
+    if (normals.getY(i) > 0.75) colors.setXYZ(i, roof.r, roof.g, roof.b);
+  }
+  return result;
+}
+
+function brickCornice(pts: THREE.Vector2[], height: number): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const y0 = height - 0.8;
+  const y1 = height - 0.38;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1.5) continue;
+    const nx = dy / len;
+    const nz = dx / len;
+    const ax = a.x + nx * 0.09;
+    const az = -a.y + nz * 0.09;
+    const bx = b.x + nx * 0.09;
+    const bz = -b.y + nz * 0.09;
+    positions.push(ax, y0, az, bx, y0, bz, bx, y1, bz,
+      ax, y0, az, bx, y1, bz, ax, y1, az);
+    for (let k = 0; k < 6; k++) normals.push(nx, 0, nz);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  return withColor(geom, new THREE.Color(0xe5d9bf));
+}
+
+const TRIMMED_HISTORIC_BUILDINGS = new Set([
+  'way/23502752', // Woods Hall
+  'way/23544831', // Marie Mount Hall
+  'way/23544871', // Francis Scott Key Hall
+  'way/23546167', // Tydings Hall
+  'way/23579209', // Skinner Building
+  'way/23579330', // Shoemaker Building
+  'way/23937007', // Symons Hall
+  'way/24306090', // Morrill Hall
+  'way/23546179', // Chincoteague Hall
+  'way/23891414', // Queen Anne's Hall
+  'way/23891435', // Somerset Hall
+  'way/23579434', // Caroline Hall
+  'way/23546215', // Worcester Hall
+]);
+
+/** Shallow projected courses give the flat OSM wall extrusions a readable
+ * plinth, floor scale and roof edge. The strips share the buildings' one
+ * vertex-colored mesh; no additional draw calls or material slots are used. */
+function facadeCourses(pts: THREE.Vector2[], height: number, b: CampusBuilding): THREE.BufferGeometry {
+  const name = (b.name ?? '').toLowerCase();
+  const historic = TRIMMED_HISTORIC_BUILDINGS.has(b.id);
+  const modern = /iribe|physical sciences|idea factory|thurgood marshall|hotel|clarice smith|jeong h\. kim|engineering|science|technology/.test(name);
+  const garage = /parking garage|garage/.test(name);
+  const pos: number[] = [];
+  const norm: number[] = [];
+  const cols: number[] = [];
+  const plinth = new THREE.Color(garage ? 0x8c8982 : modern ? 0x8f9897 : 0x8d7669);
+  const eave = new THREE.Color(garage ? 0xa9aaa5 : modern ? 0x9fa9a8 : historic ? 0xe2d9c8 : 0x926f60);
+  const belt = new THREE.Color(modern ? 0x879391 : historic ? 0xd2c4ae : 0xa37361);
+  const roofLip = new THREE.Color(modern ? 0x969f9c : historic ? 0xc9c5b7 : 0x898d88);
+  const add = (a: THREE.Vector2, c: THREE.Vector2, y0: number, y1: number, off: number, color: THREE.Color) => {
+    const dx = c.x - a.x;
+    const dy = c.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 2.5) return;
+    // CCW shape-space ring: right side is the exterior. World z is -north.
+    const nx = dy / len;
+    const nz = dx / len;
+    const ax = a.x + nx * off;
+    const az = -a.y + nz * off;
+    const bx = c.x + nx * off;
+    const bz = -c.y + nz * off;
+    pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz,
+      ax, y0, az, bx, y1, bz, ax, y1, az);
+    for (let j = 0; j < 6; j++) {
+      norm.push(nx, 0, nz);
+      cols.push(color.r, color.g, color.b);
+    }
+  };
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const c = pts[(i + 1) % pts.length];
+    const dx = c.x - a.x;
+    const dy = c.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 2.5) continue;
+    const nx = dy / len;
+    const nz = dx / len;
+    add(a, c, 0.34, Math.min(0.96, height * 0.14), 0.045, plinth);
+    // Historic buildings already have a projecting pale cornice.
+    if (!historic) add(a, c, height - 0.42, height - 0.07, 0.11, eave);
+    if (historic && height > 9) add(a, c, 3.65, 3.82, 0.07, belt);
+    if (height > 10) {
+      for (let y = 3.55; y < height - 1.4; y += 3.45) {
+        add(a, c, y, y + (modern || garage ? 0.16 : 0.11), 0.075, belt);
+      }
+    }
+    // A vertical parapet reads as roof depth from an oblique camera. The old
+    // 2.5cm horizontal lip nearly shared the roof's depth plane and its strips
+    // overlapped at corners. This wall is separated in both height and plan.
+    const y0 = height + 0.04;
+    const y1 = height + (garage ? 0.48 : 0.36);
+    const ax = a.x + nx * 0.13;
+    const az = -a.y + nz * 0.13;
+    const bx = c.x + nx * 0.13;
+    const bz = -c.y + nz * 0.13;
+    pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz,
+      ax, y0, az, bx, y1, bz, ax, y1, az);
+    for (let j = 0; j < 6; j++) {
+      norm.push(nx, 0, nz);
+      cols.push(roofLip.r, roofLip.g, roofLip.b);
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geom.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  geom.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  return geom;
+}
+
+/** Keep every raised part clear of roof edges and courtyard voids. Sampling
+ * across the rectangle also catches narrow concave wings where corners alone
+ * can be inside the outline while the middle crosses open air. */
+function roofRectFits(
+  x: number, y: number, w: number, d: number,
+  pts: THREE.Vector2[], holes: THREE.Vector2[][],
+): boolean {
+  for (let ix = -2; ix <= 2; ix++) for (let iy = -2; iy <= 2; iy++) {
+    const px = x + ix * (w / 4 + 0.2);
+    const py = y + iy * (d / 4 + 0.2);
+    if (!pointInShapeRing(px, py, pts) || holes.some((hole) => pointInShapeRing(px, py, hole))) return false;
+  }
+  return true;
+}
+
+/** The campus aerial has small clusters of low mechanical housings, raised
+ * access boxes and skylights on flat roofs. These are actual volumes, never
+ * coplanar decals, with deterministic positions for stable rerenders. */
+function rooftopEquipment(
+  pts: THREE.Vector2[], holes: THREE.Vector2[][], height: number, b: CampusBuilding,
+): THREE.BufferGeometry | null {
+  if (!b.name || height < 8) return null;
+  const bb = bboxOf(pts);
+  const roofW = bb.maxX - bb.minX;
+  const roofD = bb.maxY - bb.minY;
+  if (roofW < 9 || roofD < 9) return null;
+  const { cx, cy } = centroidOf(pts);
+  const garage = /parking garage|garage/.test(b.name.toLowerCase());
+  const parts: THREE.BufferGeometry[] = [];
+  const placed: { x: number; y: number; w: number; d: number }[] = [];
+  const box = (x: number, y: number, w: number, d: number, bottom: number, top: number, color: number) => {
+    const g = new THREE.BoxGeometry(w, top - bottom, d);
+    g.translate(x, (bottom + top) / 2, -y);
+    parts.push(withColor(g, new THREE.Color(color)));
+  };
+  const candidates = [
+    [cx, cy],
+    [cx - roofW * 0.24, cy + roofD * 0.22],
+    [cx + roofW * 0.24, cy - roofD * 0.22],
+    [cx + roofW * 0.24, cy + roofD * 0.22],
+    [cx - roofW * 0.24, cy - roofD * 0.22],
+    [cx, cy + roofD * 0.3],
+    [cx, cy - roofD * 0.3],
+  ];
+  const count = roofW * roofD > 1200 ? 3 : roofW * roofD > 350 ? 2 : 1;
+  for (let i = 0; i < candidates.length && placed.length < count; i++) {
+    const [x, y] = candidates[i];
+    const kind = garage ? 'vent' : i === 0 && roofW * roofD > 500 && hash01(`${b.id}:penthouse`) < 0.55
+      ? 'access' : hash01(`${b.id}:unit:${i}`) < 0.28 ? 'skylight' : 'vent';
+    const w = Math.min(kind === 'access' ? 5.8 : kind === 'skylight' ? 3.4 : 3.2, roofW * 0.15);
+    const d = Math.min(kind === 'access' ? 4.8 : kind === 'skylight' ? 2.4 : 2.8, roofD * 0.15);
+    if (!roofRectFits(x, y, w, d, pts, holes)) continue;
+    if (placed.some((p) => Math.abs(p.x - x) < (p.w + w) / 2 + 1.2 && Math.abs(p.y - y) < (p.d + d) / 2 + 1.2)) continue;
+    placed.push({ x, y, w, d });
+    if (kind === 'access') {
+      box(x, y, w + 0.22, d + 0.22, height + 0.025, height + 0.12, 0x686f70);
+      box(x, y, w, d, height + 0.14, height + 0.75, 0xc3c1b7);
+      box(x, y, w + 0.16, d + 0.16, height + 0.77, height + 0.82, 0x555f63);
+    } else if (kind === 'skylight') {
+      box(x, y, w + 0.18, d + 0.18, height + 0.025, height + 0.14, 0x777f7d);
+      box(x, y, w, d, height + 0.16, height + 0.22, 0x637f8b);
+    } else {
+      box(x, y, w + 0.16, d + 0.16, height + 0.025, height + 0.12, 0x5e6566);
+      box(x, y, w, d, height + 0.14, height + 0.57, 0xadb5b2);
+      box(x, y, w * 0.7, d * 0.68, height + 0.59, height + 0.64, 0x566064);
+    }
+  }
+  return parts.length ? mergeAll(parts) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,13 +379,12 @@ function buildingBaseHeight(b: CampusBuilding): number {
   return Math.max(1.5, (b.height ?? 11) * jitter);
 }
 
-/** Tallest point of the building including its landmark roof treatment
- * (parapet setback / hipped ridge / spire cone) or a custom builder's
- * declared maxHeight. Plain extrusions top out at the base height. */
+/** Tallest point of the building including generic roof equipment, landmark
+ * roof treatment, or a custom builder's declared maxHeight. */
 export function buildingMaxHeight(b: CampusBuilding): number {
   const base = buildingBaseHeight(b);
   const landmark = LANDMARK_MODULES[b.id];
-  if (!landmark) return base;
+  if (!landmark) return base + (b.name && base > 8 ? 0.82 : 0);
   // Custom builders that rise above the preset silhouette declare their apex.
   if (landmark.maxHeight != null) return landmark.maxHeight;
   switch (landmark.spec.roof) {
@@ -195,12 +421,13 @@ function buildBuildings(data: CampusData, proj: Projection): THREE.BufferGeometr
     if (!b.footprint || b.footprint.length < 3) continue;
     const pts = ringToShapePoints(b.footprint, proj);
     if (pts.length < 3) continue;
+    const holes = holeShapePoints(b, proj);
     const landmark = LANDMARK_MODULES[b.id];
     if (landmark) {
       const base = buildingBaseHeight(b);
       if (landmark.build) {
         // Custom per-building builder module (scene/landmarks/buildings/).
-        parts.push(...landmark.build(makeLandmarkCtx(pts, base, landmark.spec)));
+        parts.push(...landmark.build(makeLandmarkCtx(pts, base, landmark.spec, holes)));
       } else {
         parts.push(...landmarkPresetParts(pts, base, landmark.spec));
       }
@@ -208,13 +435,22 @@ function buildBuildings(data: CampusData, proj: Projection): THREE.BufferGeometr
     }
     // Courtyard buildings (relation multipolygons) extrude as a band so the
     // inner yard stays open; everything else takes the plain solid path.
-    const holes = holeShapePoints(b, proj);
+    const height = buildingBaseHeight(b);
     const solid =
       holes.length > 0
-        ? extrudeWithHoles(pts, holes, buildingBaseHeight(b))
-        : extrudeFootprint(pts, buildingBaseHeight(b));
-    parts.push(withColor(solid, buildingTint(b.id)));
+        ? extrudeWithHoles(pts, holes, height)
+        : extrudeFootprint(pts, height);
+    parts.push(colorizeBuilding(solid, buildingTint(b), b));
+    if (b.name && height > 5) {
+      parts.push(facadeCourses(pts, height, b));
+      const equipment = rooftopEquipment(pts, holes, height, b);
+      if (equipment) parts.push(equipment);
+      if (TRIMMED_HISTORIC_BUILDINGS.has(b.id) && height > 6) {
+        parts.push(brickCornice(pts, height));
+      }
+    }
   }
+  parts.push(buildWindowReveals(data, proj));
   return mergeAll(parts);
 }
 
@@ -533,34 +769,95 @@ function buildWater(data: CampusData, proj: Projection): THREE.BufferGeometry {
 }
 
 // ---------------------------------------------------------------------------
-// Trees — two-cone low-poly pines (only ~24, decorative). Scaled ~1.8x up
-// from the original tiny pines so canopies read at whole-campus zoom; the
-// deterministic per-tree hash jitter is preserved.
+// Trees come from UMD's surveyed campus plant inventory. The source gives
+// actual trunk coordinates, height and crown radius, so the oaks along the
+// Mall and irregular groves keep their real spacing.
 // ---------------------------------------------------------------------------
-
-const TREE_SCALE = 1.8; // campus-wide enlargement (canopy radius AND height)
 
 function buildTrees(data: CampusData, proj: Projection): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  /** Per-vertex seed, constant within a tree — seasons.ts uses it so autumn
-   * turns each tree a slightly different gold/red instead of repainting the
-   * whole campus one flat orange. Both cones of a tree share the value. */
   const seeds: number[] = [];
-  data.trees.forEach(([lng, lat], i) => {
+  data.trees.forEach(([lng, lat, mappedHeight, mappedCrown, kind], i) => {
     const p = proj.toLocal(lng, lat);
-    const s = (0.85 + 0.3 * hash01(`tree:${i}`)) * TREE_SCALE;
+    const height = mappedHeight ?? 10;
+    const radius = mappedCrown ?? 3.7;
     const seed = hash01(`tree:${i}:season`);
-    const lower = new THREE.ConeGeometry(2.6 * s, 5.5 * s, 6);
-    lower.translate(p.x, 2.75 * s, p.z);
-    const lowerColored = withColor(lower, COLORS.tree);
-    parts.push(lowerColored);
-    const upper = new THREE.ConeGeometry(1.7 * s, 3.6 * s, 6);
-    upper.translate(p.x, 5.6 * s, p.z);
-    const upperColored = withColor(upper, COLORS.treeTop);
-    parts.push(upperColored);
-    const n =
-      lowerColored.getAttribute('position').count + upperColored.getAttribute('position').count;
-    for (let k = 0; k < n; k++) seeds.push(seed);
+    const add = (geom: THREE.BufferGeometry, color: THREE.Color, seasonSeed: number) => {
+      const colored = withColor(geom, color);
+      parts.push(colored);
+      for (let k = 0; k < colored.getAttribute('position').count; k++) seeds.push(seasonSeed);
+    };
+    // Campus oaks have a low, broad crown. Tucking the visible trunk into the
+    // lower lobes avoids the lollipop silhouette at the map's home zoom.
+    const trunkHeight = Math.max(2.4, height - radius * 1.55);
+    const trunkRadius = THREE.MathUtils.clamp(height * 0.035, 0.25, 0.72);
+    const trunk = new THREE.CylinderGeometry(trunkRadius * 0.78, trunkRadius, trunkHeight, 8);
+    trunk.translate(p.x, trunkHeight / 2, p.z);
+    add(trunk, new THREE.Color(0x635342), -1);
+    if (kind === 1) {
+      const lower = new THREE.ConeGeometry(radius, height * 0.78, 10);
+      lower.translate(p.x, height * 0.51, p.z);
+      add(lower, new THREE.Color(0x425d47), -1);
+      const upper = new THREE.ConeGeometry(radius * 0.7, height * 0.58, 10);
+      upper.translate(p.x, height * 0.7, p.z);
+      add(upper, new THREE.Color(0x567555), -1);
+    } else {
+      const foliage = kind === 2 ? new THREE.Color(0x4a7550) : COLORS.tree;
+      const foliageSeed = kind === 2 ? -1 : seed;
+      const phase = hash01(`tree:${i}:crown`) * Math.PI * 2;
+      const shape = hash01(`tree:${i}:shape`);
+      // Three overlapping lobes read as one broad oak from the map and show
+      // irregular branching up close. Low-detail smooth meshes cost fewer
+      // vertices together than the previous single high-detail sphere.
+      const dx = Math.cos(phase), dz = Math.sin(phase);
+      const lobes = [
+        { x: 0, z: 0, y: 0.8, sx: 0.77 + shape * 0.08, sy: 0.86, sz: 0.77, tone: 1 },
+        { x: dx * 0.31, z: dz * 0.31, y: 1.06, sx: 0.69, sy: 0.66, sz: 0.67, tone: 0.97 },
+        { x: -dx * 0.31, z: -dz * 0.31, y: 1.01, sx: 0.7, sy: 0.7, sz: 0.65, tone: 1.02 },
+      ];
+      for (let l = 0; l < lobes.length; l++) {
+        const lobe = lobes[l];
+        const crown = new THREE.IcosahedronGeometry(1, 1);
+        const positions = crown.getAttribute('position');
+        for (let v = 0; v < positions.count; v++) {
+          const x = positions.getX(v), y = positions.getY(v), z = positions.getZ(v);
+          const angle = Math.atan2(z, x);
+          const edge = 1 + 0.075 * Math.sin(3 * angle + phase + l * 1.8 + y)
+            + 0.035 * Math.sin(6 * angle - phase + y * 2);
+          positions.setXYZ(v,
+            p.x + radius * (lobe.x + x * lobe.sx * edge),
+            height - radius * lobe.y + radius * y * lobe.sy,
+            p.z + radius * (lobe.z + z * lobe.sz * edge),
+          );
+        }
+        crown.deleteAttribute('uv');
+        crown.deleteAttribute('normal');
+        const smoothCrown = mergeVertices(crown, 1e-4);
+        smoothCrown.computeVertexNormals();
+        const colored = withColor(smoothCrown, foliage);
+        const colors = colored.getAttribute('color');
+        const crownPositions = colored.getAttribute('position');
+        const bottom = foliage.clone().multiplyScalar(0.84 * lobe.tone);
+        const top = foliage.clone().lerp(COLORS.treeTop, kind === 2 ? 0.14 : 0.44)
+          .multiplyScalar(lobe.tone);
+        for (let v = 0; v < colors.count; v++) {
+          const t = THREE.MathUtils.clamp(
+            (crownPositions.getY(v) - (height - radius * 1.8)) / (radius * 1.85), 0, 1,
+          );
+          const localX = crownPositions.getX(v) - p.x;
+          const localZ = crownPositions.getZ(v) - p.z;
+          const fleck = 0.975 + 0.025 * Math.sin(localX * 1.7 + phase)
+            * Math.sin(localZ * 2.1 - phase * 0.6 + t * 4);
+          colors.setXYZ(v,
+            THREE.MathUtils.lerp(bottom.r, top.r, t) * fleck,
+            THREE.MathUtils.lerp(bottom.g, top.g, t) * fleck,
+            THREE.MathUtils.lerp(bottom.b, top.b, t) * fleck,
+          );
+        }
+        parts.push(colored);
+        for (let v = 0; v < colors.count; v++) seeds.push(foliageSeed);
+      }
+    }
   });
   const merged = mergeAll(parts);
   merged.setAttribute('seasonSeed', new THREE.BufferAttribute(new Float32Array(seeds), 1));
@@ -1058,9 +1355,10 @@ function buildShrubs(data: CampusData, proj: Projection, lampPoints: LampPoint[]
 // ---------------------------------------------------------------------------
 // Lit windows — ONE merged mesh of small facade quads for the cozy night
 // look. A deterministic per-building hash picks a stable 25–45% lit subset of
-// a window grid (columns ~2.8m, rows ~3.0m) on every building's MAIN mass;
+// a window grid (columns ~2.8m, rows ~3.0m) on generic buildings and
+// landmarks that explicitly opt in to full-wall glazing;
 // only LIT windows are baked (unlit ones would be invisible at night anyway),
-// so day mode renders nothing extra. Quads float 6cm off the facade so they
+// so day mode renders nothing extra. Quads sit 10cm from the facade so they
 // never z-fight it. Positions only (the scene material is unlit) — ONE draw
 // call, zero per-frame work beyond the material opacity ramp in scene.ts.
 // Landmark roof parts (parapet setback / hipped ridge / spire cone / stadium
@@ -1074,30 +1372,54 @@ const WIN_H = 1.3;
 const WIN_FIRST_Y = 1.7; // bottom of the first lit row
 const WIN_TOP_MARGIN = 1.2; // keep the top row clear of the roofline
 const WIN_EDGE_MARGIN = 0.5; // keep windows off the wall corners
-const WIN_OFFSET = 0.06; // meters off the facade — z-fighting guard
+const WIN_OFFSET = 0.10; // glass close to the wall; reveals sit 2cm proud of it
 const WIN_CAP = 42000; // quad budget (deterministic campus-wide spread)
 
-function buildWindows(data: CampusData, proj: Projection): THREE.BufferGeometry {
-  interface Win {
-    cx: number;
-    cz: number;
-    y0: number;
-    tx: number;
-    tz: number;
-    h: number;
-  }
-  const wins: Win[] = [];
+interface FacadeWindow {
+  cx: number;
+  cz: number;
+  y0: number;
+  tx: number;
+  tz: number;
+  width: number;
+  height: number;
+  style: 'brick' | 'stone' | 'metal';
+  h: number;
+}
+
+/** One layout feeds daylight glazing, night lights, and their dark reveals.
+ * The shared positions prevent a second facade pattern from drifting out of
+ * alignment as the user switches time of day. */
+export function windowPlacements(data: CampusData, proj: Projection, daylight: boolean): FacadeWindow[] {
+  const wins: FacadeWindow[] = [];
   for (const b of data.buildings) {
+    if (daylight && !b.name) continue;
+    const name = (b.name ?? '').toLowerCase();
+    if (/stadium|arena|fieldhouse|field house|recreation|xfinity|parking garage|garage|utility|scub|hvac/.test(name)) continue;
     if (!b.footprint || b.footprint.length < 3) continue;
     const pts = ringToShapePoints(b.footprint, proj);
     if (pts.length < 3) continue;
+    const modern = /iribe|physical sciences|edward st|idea factory|thurgood marshall|hotel|clarice smith|jeong h\. kim|engineering|science|technology/.test(name);
+    const historic = TRIMMED_HISTORIC_BUILDINGS.has(b.id) || b.id === 'way/23408799' || b.id === 'way/23580263' || b.id === 'way/23544752';
+    const width = modern ? 1.42 : historic ? 1.04 : WIN_W;
+    // The sill is wider than the glass. Reserve enough wall at both ends for
+    // the entire surround; otherwise the first/last sill hangs past a corner.
+    const trimHalfWidth = (width + 0.46) / 2;
+    const windowH = modern ? 1.6 : historic ? 1.48 : WIN_H;
+    const style: FacadeWindow['style'] = modern ? 'metal' : historic ? 'stone' : 'brick';
     // Windows live on the main mass only: a hipped landmark's walls stop at
     // 80% height (the ridge above carries none); every other part tops out at
     // or above the base walls, so the base height is the right cap.
     const landmark = LANDMARK_MODULES[b.id];
+    if (landmark?.build && !landmark.spec.genericWindows) continue;
     const baseH = buildingBaseHeight(b);
     const wallH = landmark?.spec.roof === 'hipped' ? baseH * 0.8 : baseH;
-    if (wallH < WIN_FIRST_Y + WIN_H + WIN_TOP_MARGIN) continue;
+    if (wallH < WIN_FIRST_Y + windowH + WIN_TOP_MARGIN) continue;
+    const cambridgeFloors = b.id === 'way/23543989' || b.id === 'way/23543940' || b.id === 'way/23543980'
+      ? 4
+      : b.id === 'way/23543957' || b.id === 'way/23543927' ? 9 : null;
+    const firstRowY = cambridgeFloors ? 1.45 : WIN_FIRST_Y;
+    const rowSpacing = cambridgeFloors ? (wallH - 2.7) / cambridgeFloors : WIN_ROW_SPACING;
     const litFrac = 0.25 + 0.2 * hash01(`${b.id}:litfrac`); // 25–45% lit
     const phase = WIN_COL_SPACING * hash01(`${b.id}:winphase`);
     let wi = 0; // window ordinal — hashed lit-or-not, so the subset is stable
@@ -1107,26 +1429,31 @@ function buildWindows(data: CampusData, proj: Projection): THREE.BufferGeometry 
       const dx = c.x - a.x;
       const dy = c.y - a.y;
       const len = Math.hypot(dx, dy);
-      if (len < WIN_EDGE_MARGIN * 2 + WIN_W) continue;
+      if (len < WIN_EDGE_MARGIN * 2 + trimHalfWidth * 2) continue;
       const ux = dx / len; // edge direction (shape space: x east, y north)
       const uy = dy / len;
       // CCW ring -> interior is left of each edge, so outward is right.
       const ox = uy;
       const oy = -ux;
-      for (let d = WIN_EDGE_MARGIN + phase; d + WIN_W / 2 <= len - WIN_EDGE_MARGIN; d += WIN_COL_SPACING) {
-        for (let y0 = WIN_FIRST_Y; y0 + WIN_H <= wallH - WIN_TOP_MARGIN; y0 += WIN_ROW_SPACING) {
+      for (let d = WIN_EDGE_MARGIN + trimHalfWidth + phase;
+        d + trimHalfWidth <= len - WIN_EDGE_MARGIN; d += WIN_COL_SPACING) {
+        for (let y0 = firstRowY; y0 + windowH <= wallH - WIN_TOP_MARGIN; y0 += rowSpacing) {
           const lit = hash01(`${b.id}:win:${wi}`) < litFrac;
           const h = hash01(`${b.id}:winord:${wi}`);
           wi++;
-          if (!lit) continue;
-          const mx = a.x + ux * d + ox * WIN_OFFSET;
-          const my = a.y + uy * d + oy * WIN_OFFSET;
+          if (!daylight && !lit) continue;
+          const offset = daylight ? WIN_OFFSET : WIN_OFFSET + 0.025;
+          const mx = a.x + ux * d + ox * offset;
+          const my = a.y + uy * d + oy * offset;
           wins.push({
             cx: mx,
             cz: -my, // shape y = north -> world z = -north
             y0,
             tx: ux, // world tangent = (ux, -uy)/len
             tz: -uy,
+            width,
+            height: windowH,
+            style,
             h,
           });
         }
@@ -1135,17 +1462,21 @@ function buildWindows(data: CampusData, proj: Projection): THREE.BufferGeometry 
   }
   // Over budget -> deterministic campus-wide spread (same trick as lamps).
   wins.sort((p, q) => p.h - q.h);
-  if (wins.length > WIN_CAP) wins.length = WIN_CAP;
+  if (wins.length > (daylight ? 30000 : WIN_CAP)) wins.length = daylight ? 30000 : WIN_CAP;
+  return wins;
+}
 
+function buildWindows(data: CampusData, proj: Projection, daylight = false): THREE.BufferGeometry {
+  const wins = windowPlacements(data, proj, daylight);
   const positions = new Float32Array(wins.length * 18);
   let o = 0;
-  const hw = WIN_W / 2;
   for (const w of wins) {
+    const hw = w.width / 2;
     const ax = w.cx - w.tx * hw;
     const az = w.cz - w.tz * hw;
     const bx = w.cx + w.tx * hw;
     const bz = w.cz + w.tz * hw;
-    const y1 = w.y0 + WIN_H;
+    const y1 = w.y0 + w.height;
     // (A,B,C) + (A,C,D): winding gives the outward normal (tangent x up).
     positions[o++] = ax; positions[o++] = w.y0; positions[o++] = az;
     positions[o++] = bx; positions[o++] = w.y0; positions[o++] = bz;
@@ -1156,6 +1487,51 @@ function buildWindows(data: CampusData, proj: Projection): THREE.BufferGeometry 
   }
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  return geom;
+}
+
+/** Recess shadow plus a thin projecting sill. The daytime and night panes
+ * both share the same placement; these details remain in the buildings mesh
+ * and add no draw calls. */
+function buildWindowReveals(data: CampusData, proj: Projection): THREE.BufferGeometry {
+  const wins = windowPlacements(data, proj, true);
+  const pos: number[] = [];
+  const norm: number[] = [];
+  const cols: number[] = [];
+  const dark = new THREE.Color(0x42494a);
+  const metal = new THREE.Color(0x465963);
+  const stone = new THREE.Color(0xc7bfaf);
+  const brickSill = new THREE.Color(0xab8e7d);
+  const metalSill = new THREE.Color(0x899899);
+  const quad = (w: FacadeWindow, y0: number, y1: number, width: number, offset: number, color: THREE.Color) => {
+    const nx = -w.tz;
+    const nz = w.tx;
+    const cx = w.cx + nx * offset;
+    const cz = w.cz + nz * offset;
+    const hw = width / 2;
+    const ax = cx - w.tx * hw;
+    const az = cz - w.tz * hw;
+    const bx = cx + w.tx * hw;
+    const bz = cz + w.tz * hw;
+    pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz,
+      ax, y0, az, bx, y1, bz, ax, y1, az);
+    for (let i = 0; i < 6; i++) {
+      norm.push(nx, 0, nz);
+      cols.push(color.r, color.g, color.b);
+    }
+  };
+  for (const w of wins) {
+    // The dark surround sits 8cm behind the glazing plane so both remain
+    // depth-distinct while the camera is zoomed out over campus.
+    quad(w, w.y0 - 0.14, w.y0 + w.height + 0.14, w.width + 0.28, -0.08,
+      w.style === 'metal' ? metal : dark);
+    quad(w, w.y0 - 0.2, w.y0 - 0.08, w.width + 0.46, 0.055,
+      w.style === 'metal' ? metalSill : w.style === 'stone' ? stone : brickSill);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geom.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  geom.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
   return geom;
 }
 
@@ -1234,6 +1610,7 @@ export function buildSceneGeometries(data: CampusData, proj: Projection): Campus
     lampFlickerLate: lamps.flickerLate,
     snowPatches: buildSnowPatches(data, proj),
     windows: buildWindows(data, proj),
+    dayWindows: buildWindows(data, proj, true),
     shrubs: buildShrubs(data, proj, lamps.points),
     parkedCars: buildParkedCars(data, proj),
   };

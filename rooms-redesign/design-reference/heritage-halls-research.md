@@ -1,0 +1,5 @@
+# Heritage Community residence halls
+
+UMD [Resident Life](https://reslife.umd.edu/explore-halls/residence-halls/heritage-community) identifies Pyon-Chen and Johnson-Whittle as the two Heritage Community halls. The [Pyon-Chen](https://drf.umd.edu/facilities/residence-halls-communities/pyon-chen-hall) and [Johnson-Whittle](https://drf.umd.edu/facilities/residence-halls-communities/johnson-whittle-hall) Residential Facilities pages document six floors in each building and show their pale contemporary facades, tall narrow dark windows, glazed ground levels and deep dark entrance canopies.
+
+The native Three.js models retain each bent mapped footprint. Both now have pale upper wings, a darker first level, a six-floor window rhythm and a projecting canopy. The imported campus footprint gave Pyon-Chen a 21.37 m height and Johnson-Whittle no useful height (it defaulted to 11 m). Johnson-Whittle now uses the neighboring six-floor hall's 21.37 m height as an **estimate**, not a measured building height. Entrance direction, window spacing, roof edge and materials are interpreted from the official photos and campus arrangement; the photographs are not rendered in the site.

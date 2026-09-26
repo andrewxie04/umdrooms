@@ -8,15 +8,13 @@
 //   1. Concrete base band  — the real OSM footprint extruded to 7m.
 //   2. Main bowl           — clean octagon derived from the footprint bbox
 //      (3m inset, diagonal corner cuts = the chamfered mass) up to 18m.
-//   3. Domed roof          — three setback tiers at scaleAbout 0.85/0.65/0.45
-//      with decreasing rises (18→21→23.5→26) in dark gray-blue 0x8b9096;
-//      the top tier's flat top is the crown.
+//   3. Low-arched roof     — sloped bands rise from the octagonal eave to a
+//      broad flat crown; a small rooftop mechanical drum is visible above it.
 //   4. Corner pavilions    — 4 boxes anchored to the footprint vertices
 //      nearest each bbox corner, pulled 12m toward the centroid so they sit
 //      ON the real footprint; 9m tall with thin dark caps.
 import * as THREE from 'three';
 import type { LandmarkModule } from '../types';
-import { registerLandmark } from '../index';
 
 export const landmark: LandmarkModule = {
   id: 'way/23544340',
@@ -28,7 +26,7 @@ export const landmark: LandmarkModule = {
     accent: 0x8b9096, // dark gray-blue metal roof
     nightGlow: 0.25, // arena glow on game nights
   },
-  maxHeight: 26, // flat crown of the top roof tier
+  maxHeight: 29, // roof crown plus rooftop mechanical drum
   build(ctx) {
     const { pts, cx, cy, baseHeight, spec, helpers } = ctx;
     const glow = spec.nightGlow;
@@ -36,6 +34,8 @@ export const landmark: LandmarkModule = {
     const band = helpers.darkerShade(helpers.withGlow(spec.color, glow), 0.08);
     const roof = helpers.withGlow(spec.accent ?? 0x8b9096, glow);
     const capC = helpers.darkerShade(roof, 0.06);
+    const brick = helpers.withGlow(0x9d6253, glow);
+    const glazing = helpers.withGlow(0x43555c, glow);
 
     const BAND_H = 7; // concrete base band
     const BOWL_H = baseHeight; // 18 — bowl wall top
@@ -63,13 +63,64 @@ export const landmark: LandmarkModule = {
     const ocx = (ix0 + ix1) / 2;
     const ocy = (iy0 + iy1) / 2;
 
-    // --- Domed roof: three setback tiers, decreasing rises, flat crown ----
+    // --- Faceted low arch: continuous sloped metal skin and flat crown ---
     const tier1 = helpers.scaleAbout(bowl, ocx, ocy, 0.85);
     const tier2 = helpers.scaleAbout(bowl, ocx, ocy, 0.65);
     const tier3 = helpers.scaleAbout(bowl, ocx, ocy, 0.45);
     const T1 = BOWL_H + 3; // 21
     const T2 = T1 + 2.5; // 23.5
     const T3 = T2 + 2.5; // 26 — flat crown
+    const roofPos: number[] = [];
+    const roofRings = [bowl, tier1, tier2, tier3];
+    const roofLevels = [BOWL_H, T1, T2, T3];
+    const push = (p: THREE.Vector2, h: number) => roofPos.push(p.x, h, -p.y);
+    for (let k = 0; k < roofRings.length - 1; k++) {
+      const outer = roofRings[k];
+      const inner = roofRings[k + 1];
+      for (let i = 0; i < outer.length; i++) {
+        const j = (i + 1) % outer.length;
+        push(outer[i], roofLevels[k]); push(outer[j], roofLevels[k]); push(inner[j], roofLevels[k + 1]);
+        push(outer[i], roofLevels[k]); push(inner[j], roofLevels[k + 1]); push(inner[i], roofLevels[k + 1]);
+      }
+    }
+    const roofSkin = new THREE.BufferGeometry();
+    roofSkin.setAttribute('position', new THREE.Float32BufferAttribute(roofPos, 3));
+    roofSkin.computeVertexNormals();
+    const crown = helpers.extrudeFootprint(tier3, 0.18);
+    crown.translate(0, T3 - 0.18, 0);
+    const drum = new THREE.CylinderGeometry(9, 9, 2.6, 12);
+    drum.translate(ocx, T3 + 1.3, -ocy);
+
+    // The arena is a broad brick-and-masonry volume, with a recessed
+    // concourse glazing band below the metal roof. The band follows the
+    // actual chamfered wall rather than reading as a plain gray cylinder.
+    const brickBelt = helpers.extrudeWithHoles(
+      helpers.outsetRing(bowl, 0.22), [bowl], 1.65,
+    );
+    brickBelt.translate(0, 7.1, 0);
+    const concourse = helpers.extrudeWithHoles(
+      helpers.outsetRing(bowl, 0.26), [bowl], 1.4,
+    );
+    concourse.translate(0, 13.0, 0);
+    const cornice = helpers.extrudeWithHoles(
+      helpers.outsetRing(bowl, 0.45), [bowl], 0.46,
+    );
+    cornice.translate(0, BOWL_H - 0.32, 0);
+
+    // Metal roof seams converge toward the low flat crown, which makes the
+    // octagonal roof legible from the normal oblique map camera.
+    const seams: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < bowl.length; i++) {
+      for (let k = 0; k < roofRings.length - 1; k++) {
+        const a = new THREE.Vector3(roofRings[k][i].x, roofLevels[k] + 0.1, -roofRings[k][i].y);
+        const b = new THREE.Vector3(roofRings[k + 1][i].x, roofLevels[k + 1] + 0.1, -roofRings[k + 1][i].y);
+        const direction = new THREE.Vector3().subVectors(b, a);
+        const seam = new THREE.CylinderGeometry(0.11, 0.11, direction.length(), 5);
+        seam.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize()));
+        seam.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+        seams.push(helpers.withColor(seam, capC));
+      }
+    }
 
     // --- Corner entrance pavilions ---------------------------------------
     // For each bbox corner, anchor to the nearest real footprint vertex and
@@ -114,23 +165,14 @@ export const landmark: LandmarkModule = {
     return [
       helpers.withColor(helpers.extrudeFootprint(pts, BAND_H), band),
       helpers.withColor(helpers.extrudeFootprint(bowl, BOWL_H), body),
-      helpers.withColor(helpers.extrudeFootprint(tier1, T1), roof),
-      helpers.withColor(helpers.extrudeFootprint(tier2, T2), roof),
-      helpers.withColor(helpers.extrudeFootprint(tier3, T3), roof),
+      helpers.withColor(brickBelt, brick),
+      helpers.withColor(concourse, glazing),
+      helpers.withColor(cornice, brick),
+      helpers.withColor(roofSkin, roof),
+      helpers.withColor(crown, roof),
+      helpers.withColor(drum, capC),
+      ...seams,
       ...pavilions,
     ];
   },
 };
-
-// Self-register: the registry's auto-collect guard in landmarks/index.ts
-// (`typeof import.meta.glob === 'function'`) is FALSE at runtime — glob is a
-// vite compile-time feature — so the live registry stays empty unless each
-// module registers itself. Deferred to a microtask (same pattern as the
-// other building modules): safe under the node/esbuild check script too.
-queueMicrotask(() => {
-  try {
-    registerLandmark(landmark);
-  } catch {
-    /* node/esbuild script path registers manually — ignore */
-  }
-});

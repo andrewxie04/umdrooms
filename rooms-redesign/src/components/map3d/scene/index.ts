@@ -4,7 +4,8 @@
 // CampusSceneHandle interface. The overlay layer (CampusMap3D) codes against
 // this module only.
 
-export { createCampusScene, HOME_VIEW, HOME_VIEW_2D } from './scene';
+export { createCampusScene } from './scene';
+export { HOME_VIEW, HOME_VIEW_2D } from './home-view';
 export type { CampusSceneHandleV2, SceneTimeMode } from './scene';
 export type { CampusSceneHandle, FlyToTarget, ProjectedPoint } from './types';
 export type {

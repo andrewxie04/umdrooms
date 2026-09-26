@@ -12,16 +12,17 @@
 //
 //   1. Brick mass    — full footprint extruded to 20m (5 floors), warm
 //      campus brick 0xb5856c; the flared wedges read as the brick lab blocks.
-//   2. Curved glass  — the signature atrium: a faceted arc (8 segments,
-//      quadratic-curve samples) hugging the east edge and bulging ~6m out
-//      over the plaza, 0.6..14.8m in light glass blue, with a slightly proud
-//      darker spandrel band 14.8..16.5m and a curved glass cap fan on top.
+//   2. Curved glass  — the signature atrium: a faceted screen (8 segments)
+//      attached to the mapped east wall, 0.6..18m in blue-gray glass, with a slightly proud
+//      darker spandrel band 18..19m and a curved glass cap fan on top.
 //   3. Penthouses    — two setback mechanical boxes on the brick roofs of the
 //      south and north wedges (darker brick), tops at 23.2m.
 //
 // Custom-geometry note: the arc walls/cap are hand-built non-indexed
 // triangles in world space (x, y, -shapeY), both windings emitted (the merge
 // material is FrontSide Lambert), computeVertexNormals, then withColor.
+// References: https://www.ballinger.com/design/a-james-clark-hall/
+// https://sustainability.umd.edu/buildings
 import * as THREE from 'three';
 import type { LandmarkModule } from '../types';
 
@@ -29,10 +30,10 @@ export const landmark: LandmarkModule = {
   id: 'way/363185813',
   spec: {
     name: 'A. James Clark Hall',
-    color: 0xb5856c, // warm red-brown campus brick
+    color: 0x9f624e, // deeper red brick visible on UMD's end-wall photos
     height: 20, // 5 lab floors; tagged 29.72 is LiDAR max, not wall height
     roof: 'parapet', // flat roof (roof:shape=flat), penthouses above
-    accent: 0xbcd9e2, // light glass blue — the curved atrium curtain wall
+    accent: 0x789cac, // blue-gray glazed curtain wall behind the shades
     nightGlow: 0.55, // the glass atrium glows warm after dark
   },
   maxHeight: 24, // penthouse tops (23.2) + highlight-shell margin
@@ -40,22 +41,24 @@ export const landmark: LandmarkModule = {
     const { pts, baseHeight, spec, helpers } = ctx;
     const glow = spec.nightGlow;
     const brick = helpers.withGlow(spec.color, glow);
-    const glass = helpers.withGlow(spec.accent ?? 0xbcd9e2, glow);
+    const glass = helpers.withGlow(spec.accent ?? 0x789cac, glow);
     const spandrel = helpers.darkerShade(glass, 0.1);
     const pent = helpers.darkerShade(brick, 0.09);
 
     const bb = helpers.bboxOf(pts);
 
     // --- Curved glass atrium ---------------------------------------------
-    // Chord along the east edge (Paint Branch Drive side), arc bulging east
-    // over the plaza. Endpoints bury ~0.4m into the brick so the ends read
-    // as wrapping past the masonry corners.
-    const chordX = bb.maxX - 0.4;
-    const y1 = bb.minY + 27; // south end of the glass run
-    const y2 = bb.maxY - 1.6; // just short of the north corner
-    const chordLen = y2 - y1;
-    const bulge = Math.min(6, Math.max(3, chordLen * 0.1));
-    const apexX = bb.maxX + bulge;
+    // Find the long east-facing edge of the projected footprint. The earlier
+    // bbox chord extended beyond its north end and left the curved glass
+    // several meters out over the plaza with no wall behind it.
+    const eastEdge = pts.map((a, i) => [a, pts[(i + 1) % pts.length]] as const)
+      .filter(([a, b]) => (a.x + b.x) / 2 > bb.minX + (bb.maxX - bb.minX) * 0.8)
+      .sort(([a, b], [c, d]) => d.distanceTo(c) - b.distanceTo(a))[0];
+    const [south, north] = eastEdge[0].y < eastEdge[1].y ? eastEdge : [eastEdge[1], eastEdge[0]];
+    const y1 = south.y + 0.6;
+    const y2 = north.y - 0.6;
+    const edgeX = (t: number) => south.x + (north.x - south.x) * t;
+    const curvedX = (t: number, offset = 0) => edgeX(t) + 0.08 + 0.32 * 4 * t * (1 - t) + offset;
     const apexY = (y1 + y2) / 2;
 
     /** Faceted arc wall: quadratic-curve ribbon from yBot..yTop, plus an
@@ -66,17 +69,9 @@ export const landmark: LandmarkModule = {
       extraBulge: number,
       cap: boolean,
     ): THREE.BufferGeometry {
-      const ax = apexX + extraBulge;
-      // Quadratic Bezier control point so the curve passes through the apex.
-      const cqX = 2 * ax - chordX;
-      const cqY = 2 * apexY - (y1 + y2) / 2;
       const SEGS = 8;
       const sample = (t: number): [number, number] => {
-        const u = 1 - t;
-        return [
-          u * u * chordX + 2 * u * t * cqX + t * t * chordX,
-          u * u * y1 + 2 * u * t * cqY + t * t * y2,
-        ];
+        return [curvedX(t, extraBulge), y1 + t * (y2 - y1)];
       };
       const pos: number[] = [];
       const tri = (a: number[], b: number[], c: number[]) => {
@@ -97,10 +92,10 @@ export const landmark: LandmarkModule = {
       }
       if (cap) {
         // Curved glass roof: fan from an interior center to each arc segment.
-        const capC = [(chordX + ax) / 2, yTop, -apexY];
+        const capC = [curvedX(0.5, extraBulge) - 0.16, yTop, -apexY];
         for (let i = 0; i < SEGS; i++) {
           const [pax, pay] = arcTop[i];
-          const nxt = arcTop[i + 1] ?? [chordX, y2];
+          const nxt = arcTop[i + 1] ?? sample(1);
           const A = [pax, yTop, -pay];
           const B = [nxt[0], yTop, -nxt[1]];
           tri(capC, A, B);
@@ -113,13 +108,33 @@ export const landmark: LandmarkModule = {
       return geom;
     }
 
-    const GLASS_TOP = 16.5; // atrium roof, below the brick parapet
-    const BAND_BOT = 14.8; // spandrel band under the atrium roofline
+    const GLASS_TOP = 19; // curtain wall reaches almost to the brick parapet
+    const BAND_BOT = 18; // narrow spandrel band under its roofline
     const glassWall = helpers.withColor(curvedRibbon(0.6, BAND_BOT, 0, true), glass);
     const glassBand = helpers.withColor(
       curvedRibbon(BAND_BOT, GLASS_TOP, 0.14, false),
       spandrel,
     );
+
+    // The ground-floor glazing is separated from the shaded upper stories by
+    // a continuous brick band. The real facade has a dense louver screen.
+    const brickBand = helpers.withColor(curvedRibbon(4.9, 6.4, 0.18, false), brick);
+    const louver = helpers.withGlow(0x713a30, glow);
+    const louvers: THREE.BufferGeometry[] = [];
+    for (let h = 6.8; h < BAND_BOT; h += 0.58) {
+      louvers.push(helpers.withColor(curvedRibbon(h, h + 0.12, 0.36, false), louver));
+    }
+    // Thin vertical mullions subdivide the very long glass face. The existing
+    // red horizontal shades remain the dominant feature in campus photos.
+    const mullions: THREE.BufferGeometry[] = [];
+    for (let i = 1; i < 15; i++) {
+      const t = i / 15;
+      const cx = curvedX(t);
+      const cy = y1 + t * (y2 - y1);
+      const mullion = new THREE.BoxGeometry(0.12, BAND_BOT - 0.6, 0.12);
+      mullion.translate(cx + 0.09, (BAND_BOT + 0.6) / 2, -cy);
+      mullions.push(helpers.withColor(mullion, spandrel));
+    }
 
     // --- Rooftop mechanical penthouses ------------------------------------
     // Setback boxes sitting inside the wide wedge ends of the footprint.
@@ -147,6 +162,9 @@ export const landmark: LandmarkModule = {
       helpers.withColor(helpers.extrudeFootprint(pts, baseHeight), brick),
       glassWall,
       glassBand,
+      brickBand,
+      ...louvers,
+      ...mullions,
       helpers.withColor(helpers.extrudeFootprint(southPent, PENT_TOP), pent),
       helpers.withColor(helpers.extrudeFootprint(northPent, PENT_TOP), pent),
     ];

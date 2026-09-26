@@ -1,0 +1,7 @@
+Tree coordinates, heights, and canopy radii: University of Maryland Arboretum and Botanical Garden, Campus Plant Inventory.
+Source: https://maps.umd.edu/map/ (Campus Plant Inventory layer)
+Data service: https://services9.arcgis.com/1rOwFRpAwrxe0rBl/arcgis/rest/services/CampusPlantInventory/FeatureServer/0
+Service listed trees last updated 2026-08-05 when this snapshot was generated.
+Only non-removed trees at least 28 ft tall with a canopy radius of at least 6 ft within the 3D campus area are rendered. Trunks inside the baked building solids are omitted; courtyard trees remain.
+To keep the 3D view readable, nearby surveyed trees are thinned to 22 m spacing, with 14 m spacing along McKeldin Mall's oak allees. Larger canopies take priority; no locations are invented.
+Refresh the snapshot with: node scripts/fetch-campus-trees.mjs

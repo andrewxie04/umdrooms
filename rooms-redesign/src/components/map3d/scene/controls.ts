@@ -56,6 +56,9 @@ const EPS_ANGLE = 1e-4;
 const ROTATE_SPEED = 0.0038; // rad per px
 const PITCH_SPEED = 0.0026; // rad per px — full pitch range ≈ 440 px of drag, not ~220
 const WHEEL_SPEED = 0.0012; // zoom factor per wheel px
+// Browser and trackpad wheel events vary widely in size. Bound each event so
+// one fast swipe cannot jump from the overview into a building facade.
+const MAX_WHEEL_DELTA = 240;
 const MIN_EFFECTIVE_PHI = 0.02; // avoids a degenerate straight-down lookAt
 
 function easeInOutCubic(t: number): number {
@@ -115,6 +118,11 @@ export class MapControls {
     return { ...this.cur };
   }
 
+  /** Pending pose, including any active zoom animation. */
+  getGoalPose(): CameraPose {
+    return { ...this.goal };
+  }
+
   /** Starts a ~durationMs easeInOutCubic tween toward the target pose. */
   flyTo(partial: Partial<CameraPose>, durationMs = 1200): void {
     const to: CameraPose = { ...this.goal };
@@ -143,6 +151,22 @@ export class MapControls {
     if (!this.tween) return;
     this.tween = null;
     this.goal = { ...this.cur };
+  }
+
+  /** Step zoom around the current map center. Repeated button presses use the
+   * pending goal, so taps during the animation accumulate predictably. */
+  zoomBy(factor: number): void {
+    if (!Number.isFinite(factor) || factor <= 0) return;
+    this.flyTo({ distance: this.zoomDistance(factor) }, 400);
+  }
+
+  /** Keep a button zoom moving in the direction the user tapped even if a
+   * longer building-focus flight currently has an opposing distance target. */
+  zoomDistance(factor: number): number {
+    const baseline = factor < 1
+      ? Math.min(this.cur.distance, this.goal.distance)
+      : Math.max(this.cur.distance, this.goal.distance);
+    return this.clampDistance(baseline * factor);
   }
 
   /**
@@ -180,6 +204,14 @@ export class MapControls {
     const { x, z, distance, theta } = this.cur;
     const phi = Math.max(this.cur.phi, MIN_EFFECTIVE_PHI);
     const sinPhi = Math.sin(phi);
+    // A fixed 30m near plane wastes depth precision at the campus overview
+    // and clips close facades at the minimum zoom. Scale it with the camera's
+    // target distance so roof and trim layers stay stable while zooming.
+    const near = Math.max(4, distance * 0.12);
+    if (Math.abs(this.camera.near - near) > 0.01) {
+      this.camera.near = near;
+      this.camera.updateProjectionMatrix();
+    }
     // view direction (horizontal) = (sin theta, -cos theta); camera sits opposite.
     this.camera.position.set(
       x - Math.sin(theta) * distance * sinPhi,
@@ -360,6 +392,7 @@ export class MapControls {
     let dy = e.deltaY;
     if (e.deltaMode === 1) dy *= 16; // lines -> px
     else if (e.deltaMode === 2) dy *= 120; // pages -> px
+    dy = THREE.MathUtils.clamp(dy, -MAX_WHEEL_DELTA, MAX_WHEEL_DELTA);
     this.zoomTo(this.goal.distance * Math.exp(dy * WHEEL_SPEED), e.clientX, e.clientY);
   };
 

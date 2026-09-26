@@ -458,12 +458,14 @@ export function initEasterEggs(deps: EasterEggsDeps): EasterEggsHandle {
       nosePulseT = NOSE_PULSE_SECONDS;
       window.dispatchEvent(new CustomEvent('umd-easteregg', { detail: { kind: 'testudo' } }));
       mark();
+      e.stopImmediatePropagation(); // don't also select the library behind it
       return;
     }
     // Fountain proxy is a flat, fully transparent plane over the Mall pool.
     // Tested second so the statue always wins if they ever overlap on screen.
     if (fountainProxy && raycaster.intersectObject(fountainProxy, false).length > 0) {
       triggerSplash();
+      e.stopImmediatePropagation();
     }
   };
   canvas.addEventListener('pointerdown', onPointerDown);

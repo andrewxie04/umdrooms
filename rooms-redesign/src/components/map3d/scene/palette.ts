@@ -7,8 +7,8 @@
 //   day    (fully reached at DAY_ELEV and above — airy warm-gray/sage look)
 // The controller blends continuously between stops as the elevation changes,
 // so a real solar day/night cycle (or an eased forced mode) never jumps.
-// Warm low-saturation look throughout; material/vertex colors live in
-// geometry.ts and are intentionally NOT touched here.
+// Surface colors remain in geometry.ts; this controller owns atmosphere,
+// light color, and exposure so the same campus stays legible at every hour.
 
 import * as THREE from 'three';
 
@@ -17,7 +17,9 @@ export interface PaletteRefs {
   fog: THREE.Fog;
   hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
-  buildingMaterial: THREE.MeshLambertMaterial;
+  renderer: THREE.WebGLRenderer;
+  buildingMaterial: THREE.MeshStandardMaterial;
+  surfaceMaterial: THREE.MeshStandardMaterial;
 }
 
 interface PaletteStop {
@@ -31,8 +33,10 @@ interface PaletteStop {
   sunColor: THREE.Color;
   sunIntensity: number;
   sunShadowIntensity: number;
+  exposure: number;
   buildingEmissive: THREE.Color;
   buildingEmissiveIntensity: number;
+  surfaceTint: THREE.Color;
 }
 
 /** Elevation (degrees) at which each stop is fully reached. Between pivots
@@ -42,48 +46,54 @@ export const GOLDEN_ELEV = -2.5;
 export const DAY_ELEV = 8;
 
 const DAY: PaletteStop = {
-  background: new THREE.Color(0xe9e9df), // pale warm-gray sky with a hint of green air
-  fog: new THREE.Color(0xe9e9df),
-  fogNear: 3400,
-  fogFar: 10000,
-  hemiSky: new THREE.Color(0xfdf3e4), // neutral warm white — de-oranged
-  hemiGround: new THREE.Color(0xb9bda4), // sage lawn bounce (base ground is green now)
-  hemiIntensity: 0.62,
-  sunColor: new THREE.Color(0xfff0dc), // neutral warm white — kills the orange/beige cast
-  sunIntensity: 2.7,
-  sunShadowIntensity: 1,
+  background: new THREE.Color(0xd8e1e3), // hazy blue-gray Mid-Atlantic sky
+  fog: new THREE.Color(0xd8e1e3),
+  fogNear: 2600,
+  fogFar: 8300,
+  hemiSky: new THREE.Color(0xe3eef3), // cool skylight against warm direct sun
+  hemiGround: new THREE.Color(0xa2a99b), // reflected light from lawns and paths
+  hemiIntensity: 0.78,
+  sunColor: new THREE.Color(0xfff6e9),
+  sunIntensity: 1.85,
+  sunShadowIntensity: 0.74,
+  exposure: 0.94,
   buildingEmissive: new THREE.Color(0x000000),
   buildingEmissiveIntensity: 0,
+  surfaceTint: new THREE.Color(0xffffff),
 };
 
 const GOLDEN: PaletteStop = {
-  background: new THREE.Color(0xeec9a4), // warm orange-pink horizon glow
-  fog: new THREE.Color(0xeec19c),
-  fogNear: 3000,
-  fogFar: 9000,
-  hemiSky: new THREE.Color(0xffd3a0), // slightly warmer dusk sky bounce
-  hemiGround: new THREE.Color(0x93776a), // dusky warm ground bounce
-  hemiIntensity: 0.55,
-  sunColor: new THREE.Color(0xff9d5c), // low warm orange sun
-  sunIntensity: 1.9,
-  sunShadowIntensity: 0.9,
-  buildingEmissive: new THREE.Color(0xff9d4e), // windows starting to glow
-  buildingEmissiveIntensity: 0.18,
+  background: new THREE.Color(0xcdb8ae), // warm haze rather than saturated orange
+  fog: new THREE.Color(0xcdb8ae),
+  fogNear: 2050,
+  fogFar: 7100,
+  hemiSky: new THREE.Color(0xdaccc3),
+  hemiGround: new THREE.Color(0x80776e),
+  hemiIntensity: 0.7,
+  sunColor: new THREE.Color(0xffbf85),
+  sunIntensity: 1.72,
+  sunShadowIntensity: 0.7,
+  exposure: 1.08,
+  buildingEmissive: new THREE.Color(0xffad69),
+  buildingEmissiveIntensity: 0.07,
+  surfaceTint: new THREE.Color(0xf6ebe1),
 };
 
 const NIGHT: PaletteStop = {
-  background: new THREE.Color(0x171b25), // dark warm navy
-  fog: new THREE.Color(0x171b25),
-  fogNear: 2600,
-  fogFar: 8000,
-  hemiSky: new THREE.Color(0x566080), // moonlit blue, lifted & de-saturated so vertex-color tints survive on roofs
-  hemiGround: new THREE.Color(0x241e15), // warm dark earth bounce, slightly lifted (was green-navy)
-  hemiIntensity: 0.9, // stronger sky/ground bounce: multiplies vertex colors, preserving per-building hue
-  sunColor: new THREE.Color(0xa4b8e0), // cool moonlight, paler so it tints without over-blueing warm materials
-  sunIntensity: 1.15, // real directional moonlight does the visibility work now (was 0.32)
-  sunShadowIntensity: 0.55,
-  buildingEmissive: new THREE.Color(0xa8b8d9), // cool moonlit windows (was orange 0xffab54)
-  buildingEmissiveIntensity: 0.13, // thin 'windows glow' carrier only — was 0.42, a flat wash that flattened every building to the same pale blue-gray
+  background: new THREE.Color(0x101a29), // deep blue night haze
+  fog: new THREE.Color(0x101a29),
+  fogNear: 1750,
+  fogFar: 6200,
+  hemiSky: new THREE.Color(0x71839e), // enough cool fill to identify buildings
+  hemiGround: new THREE.Color(0x343e3a),
+  hemiIntensity: 0.77,
+  sunColor: new THREE.Color(0xb5c9e9),
+  sunIntensity: 0.7,
+  sunShadowIntensity: 0.46,
+  exposure: 1.62,
+  buildingEmissive: new THREE.Color(0x8fa7ca),
+  buildingEmissiveIntensity: 0.06,
+  surfaceTint: new THREE.Color(0xd5deea),
 };
 
 /** Applied-state epsilon in degrees of elevation. Solar drift is ~0.004°/s
@@ -130,7 +140,7 @@ export class PaletteController {
       t = 0;
     }
 
-    const { scene, fog, hemi, sun, buildingMaterial } = this.refs;
+    const { scene, fog, hemi, sun, renderer, buildingMaterial, surfaceMaterial } = this.refs;
     (scene.background as THREE.Color).lerpColors(a.background, b.background, t);
     fog.color.lerpColors(a.fog, b.fog, t);
     fog.near = THREE.MathUtils.lerp(a.fogNear, b.fogNear, t);
@@ -141,11 +151,13 @@ export class PaletteController {
     sun.color.lerpColors(a.sunColor, b.sunColor, t);
     sun.intensity = THREE.MathUtils.lerp(a.sunIntensity, b.sunIntensity, t);
     sun.shadow.intensity = THREE.MathUtils.lerp(a.sunShadowIntensity, b.sunShadowIntensity, t);
+    renderer.toneMappingExposure = THREE.MathUtils.lerp(a.exposure, b.exposure, t);
     buildingMaterial.emissive.lerpColors(a.buildingEmissive, b.buildingEmissive, t);
     buildingMaterial.emissiveIntensity = THREE.MathUtils.lerp(
       a.buildingEmissiveIntensity,
       b.buildingEmissiveIntensity,
       t,
     );
+    surfaceMaterial.color.lerpColors(a.surfaceTint, b.surfaceTint, t);
   }
 }

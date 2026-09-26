@@ -12,20 +12,21 @@ package, no access token, no `.env`, no external tile/font/api hosts.
 
 - Campus geometry is baked from OpenStreetMap into
   `public/campus-data.json` by `scripts/fetch-campus-data.mjs` (Overpass API):
-  extruded building footprints, road/path ribbons, grass/water/parking areas,
-  and low-poly trees.
+  building footprints, road/path ribbons, and grass/water/parking areas.
+  Tree positions and canopy sizes come from UMD's plant inventory snapshot
+  in `public/campus-trees.json`.
 - The scene (`src/components/map3d/scene/`) draws this with day/night warm
   palettes, soft shadows, a map-style camera (pan/zoom/pitch/rotate), HTML
   status markers projected per frame, and a selection pulse ring.
 - Campus geometry is © OpenStreetMap contributors, licensed ODbL — credited
-  in an on-map chip and in `public/campus-data.LICENSE.txt`.
+  in the map info panel and in `public/campus-data.LICENSE.txt`.
 
 No environment variables or tokens are required to run the app.
 
 ## Data layer
 
-`src/lib/*.js` is the legacy app's data layer, ported verbatim (kept as
-JavaScript; `allowJs: true`, `checkJs: false` in `tsconfig.app.json`):
+`src/lib/*.js` contains the adapted legacy data layer (kept as JavaScript;
+`allowJs: true`, `checkJs: false` in `tsconfig.app.json`):
 
 - `availabilityData.js` — bundled dataset fetch w/ progress, per-day
   availability via `/.netlify/functions/availability-building`
@@ -35,9 +36,13 @@ JavaScript; `allowJs: true`, `checkJs: false` in `tsconfig.app.json`):
 - `parkingData.js` — static parking rules + time-aware status
 - `geo.js`, `cache.js`, `storage.js`, `haptics.js` — utilities
 
-Runtime data in `public/`: `buildings_data.json` (~7.8MB bundled dataset),
-`buildings_metadata.json` (map skeleton), `campus-data.json` (baked OSM campus
-geometry), `map-icons/`.
+At startup the room browser loads `buildings_inventory.json` (~110 KB) for
+building and room metadata. It loads `buildings_data.json` (~3.7 MB) only when
+the selected date falls inside that archive's coverage; other dates use live
+per-building availability. The inventory is generated from the archive by
+`scripts/build-room-inventory.mjs` before `dev` and `build`. Other runtime
+data in `public/` includes `buildings_metadata.json` (map skeleton),
+`campus-data.json` (baked OSM geometry), and `map-icons/`.
 
 State: `src/lib/store.ts` (zustand `useCampusStore`) implements the plan.md
 architecture contract. Types: `src/types/campus.ts`. Theme tokens:
@@ -46,8 +51,8 @@ architecture contract. Types: `src/types/campus.ts`. Theme tokens:
 ## Scripts
 
 ```bash
-npm run dev    # vite dev server
-npm run build  # tsc -b && vite build
+npm run dev    # generate room inventory, then start vite
+npm run build  # generate room inventory, then tsc -b and vite build
 npm run preview
 ```
 

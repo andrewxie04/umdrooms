@@ -4,6 +4,8 @@
 export { BootLoader } from './BootLoader';
 export { DiningPanel } from './DiningPanel';
 export { ParkingPanel } from './ParkingPanel';
+export { ResidencePanel } from './ResidencePanel';
+export { MapBuildingPanel } from './MapBuildingPanel';
 export { LibraryBookingSheet } from './LibraryBookingSheet';
 export { FavoritesView } from './FavoritesView';
 export { LegendSheet } from './LegendSheet';

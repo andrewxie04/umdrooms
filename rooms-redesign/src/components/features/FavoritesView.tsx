@@ -10,6 +10,7 @@ import { BookOpen, Building2, DoorOpen, Star, X } from 'lucide-react';
 import { useCampusStore } from '@/lib/store';
 import { playSelectionHaptic } from '@/lib/haptics.js';
 import type { Status } from '@/types/campus';
+import { buildingDataIssueLabel } from '@/components/browse/utils';
 import { CloseButton, EmptyState, StatusDot } from './ui-bits';
 
 interface ResolvedFavorite {
@@ -39,7 +40,9 @@ function resolveFavorites(
         kind: 'building',
         selectId: code,
         title: building?.name ?? code,
-        subtitle: building ? `${building.availableRooms}/${building.totalRooms} rooms available` : 'Building',
+        subtitle: building
+          ? buildingDataIssueLabel(building) ?? `${building.availableRooms}/${building.totalRooms} rooms available`
+          : 'Building',
         status: building?.status ?? 'unknown',
         lat: building?.lat ?? null,
         lng: building?.lng ?? null,
@@ -88,7 +91,7 @@ export function FavoritesView() {
     select({ kind: item.kind, id: item.selectId });
     setFavoritesOpen(false); // hand the panel over to the selection's view
     if (item.lat != null && item.lng != null) {
-      requestFlyTo({ lat: item.lat, lng: item.lng, zoom: 17.5, pitch: 60 });
+      requestFlyTo({ lat: item.lat, lng: item.lng, zoom: item.kind === 'room' ? 18.2 : 18, pitch: 37 });
     }
   };
 
@@ -153,7 +156,7 @@ export function FavoritesView() {
                     playSelectionHaptic();
                     toggleFavorite(item.key);
                   }}
-                  className="shrink-0 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>

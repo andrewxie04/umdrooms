@@ -26,18 +26,20 @@ export function BootLoader() {
 
   const [stalled, setStalled] = useState(false);
   const lastProgressRef = useRef(loading.progress);
-  const lastChangeAtRef = useRef(Date.now());
+  const lastChangeAtRef = useRef(0);
 
   // Watch for progress stalls -> indeterminate shimmer.
   useEffect(() => {
-    if (loading.status !== 'loading') return;
-    if (loading.progress !== lastProgressRef.current) {
+    if (loading.status !== 'loading') {
+      lastChangeAtRef.current = 0;
+      return;
+    }
+    if (lastChangeAtRef.current === 0 || loading.progress !== lastProgressRef.current) {
       lastProgressRef.current = loading.progress;
       lastChangeAtRef.current = Date.now();
-      setStalled(false);
     }
     const timer = window.setInterval(() => {
-      if (Date.now() - lastChangeAtRef.current > STALL_MS) setStalled(true);
+      setStalled(Date.now() - lastChangeAtRef.current > STALL_MS);
     }, TICK_MS);
     return () => window.clearInterval(timer);
   }, [loading.status, loading.progress]);

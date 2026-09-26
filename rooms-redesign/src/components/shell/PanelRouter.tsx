@@ -18,7 +18,9 @@ import {
   FavoritesView,
   LegendSheet,
   LibraryBookingSheet,
+  MapBuildingPanel,
   ParkingPanel,
+  ResidencePanel,
 } from '../features';
 
 export function PanelRouter() {
@@ -31,6 +33,8 @@ export function PanelRouter() {
   if (favoritesOpen) return <FavoritesView />;
   if (selected?.kind === 'dining') return <DiningPanel />;
   if (selected?.kind === 'parking') return <ParkingPanel />;
+  if (selected?.kind === 'residence') return <ResidencePanel />;
+  if (selected?.kind === 'map-building') return <MapBuildingPanel />;
   if (selected?.kind === 'room') {
     const resolved = resolveBuildingSelection(buildings, selected);
     if (resolved?.room?.raw?.source === 'libcal') return <LibraryBookingSheet />;

@@ -1,0 +1,306 @@
+[
+  {
+    "id": "way/23543989",
+    "name": "Bel Air Hall",
+    "lat": 38.9927864,
+    "lng": -76.9426274,
+    "community": "Cambridge",
+    "communitySlug": "cambridge-community"
+  },
+  {
+    "id": "way/23543940",
+    "name": "Cambridge Hall",
+    "lat": 38.9917301,
+    "lng": -76.9430353,
+    "community": "Cambridge",
+    "communitySlug": "cambridge-community"
+  },
+  {
+    "id": "way/23543957",
+    "name": "Centreville Hall",
+    "lat": 38.992279,
+    "lng": -76.9421167,
+    "community": "Cambridge",
+    "communitySlug": "cambridge-community"
+  },
+  {
+    "id": "way/23543980",
+    "name": "Chestertown Hall",
+    "lat": 38.9927813,
+    "lng": -76.9434714,
+    "community": "Cambridge",
+    "communitySlug": "cambridge-community"
+  },
+  {
+    "id": "way/23543927",
+    "name": "Cumberland Hall",
+    "lat": 38.992261,
+    "lng": -76.9439951,
+    "community": "Cambridge",
+    "communitySlug": "cambridge-community"
+  },
+  {
+    "id": "way/23545038",
+    "name": "Denton Hall",
+    "lat": 38.9922424,
+    "lng": -76.9499759,
+    "community": "Denton",
+    "communitySlug": "denton-community"
+  },
+  {
+    "id": "way/23545068",
+    "name": "Easton Hall",
+    "lat": 38.99304,
+    "lng": -76.9502473,
+    "community": "Denton",
+    "communitySlug": "denton-community"
+  },
+  {
+    "id": "way/23502736",
+    "name": "Elkton Hall",
+    "lat": 38.9925033,
+    "lng": -76.9490118,
+    "community": "Denton",
+    "communitySlug": "denton-community"
+  },
+  {
+    "id": "way/23502767",
+    "name": "Ellicott Hall",
+    "lat": 38.9918188,
+    "lng": -76.9466708,
+    "community": "Ellicott",
+    "communitySlug": "ellicott-community"
+  },
+  {
+    "id": "way/23502732",
+    "name": "Hagerstown Hall",
+    "lat": 38.9924232,
+    "lng": -76.9474297,
+    "community": "Ellicott",
+    "communitySlug": "ellicott-community"
+  },
+  {
+    "id": "way/23543912",
+    "name": "La Plata Hall",
+    "lat": 38.9924558,
+    "lng": -76.9459182,
+    "community": "Ellicott",
+    "communitySlug": "ellicott-community"
+  },
+  {
+    "id": "way/964453320",
+    "name": "Johnson-Whittle Hall",
+    "lat": 38.9910609,
+    "lng": -76.9455555,
+    "community": "Heritage",
+    "communitySlug": "heritage-community"
+  },
+  {
+    "id": "way/964453319",
+    "name": "Pyon-Chen Hall",
+    "lat": 38.9918296,
+    "lng": -76.9449452,
+    "community": "Heritage",
+    "communitySlug": "heritage-community"
+  },
+  {
+    "id": "way/120379719",
+    "name": "Oakland Hall",
+    "lat": 38.993825,
+    "lng": -76.9495509,
+    "community": "Oakland",
+    "communitySlug": "oakland-community"
+  },
+  {
+    "id": "way/23543512",
+    "name": "Anne Arundel Hall",
+    "lat": 38.9859489,
+    "lng": -76.9467269,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/23579434",
+    "name": "Caroline Hall",
+    "lat": 38.9834951,
+    "lng": -76.9458494,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/23579432",
+    "name": "Carroll Hall",
+    "lat": 38.9839878,
+    "lng": -76.945628,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/23585307",
+    "name": "Dorchester Hall",
+    "lat": 38.9867446,
+    "lng": -76.946167,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/238683607",
+    "name": "Prince Frederick Hall",
+    "lat": 38.9830694,
+    "lng": -76.9458312,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/23891414",
+    "name": "Queen Anne's Hall",
+    "lat": 38.9852912,
+    "lng": -76.9461855,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/23585323",
+    "name": "St. Mary's Hall",
+    "lat": 38.9869921,
+    "lng": -76.9456101,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/23891435",
+    "name": "Somerset Hall",
+    "lat": 38.98504,
+    "lng": -76.9455802,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/1499355454",
+    "name": "Wicomico Hall",
+    "lat": 38.9837309,
+    "lng": -76.9458701,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/23546215",
+    "name": "Worcester Hall",
+    "lat": 38.9846127,
+    "lng": -76.9449771,
+    "community": "North Hill",
+    "communitySlug": "north-hill-community"
+  },
+  {
+    "id": "way/23987828",
+    "name": "Allegany Hall",
+    "lat": 38.9815402,
+    "lng": -76.9414419,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987777",
+    "name": "Baltimore Hall",
+    "lat": 38.9822469,
+    "lng": -76.9422176,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987826",
+    "name": "Calvert Hall",
+    "lat": 38.9829481,
+    "lng": -76.9423126,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987798",
+    "name": "Cecil Hall",
+    "lat": 38.9829579,
+    "lng": -76.9416717,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987837",
+    "name": "Charles Hall",
+    "lat": 38.9816068,
+    "lng": -76.9405548,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987783",
+    "name": "Frederick Hall",
+    "lat": 38.9820457,
+    "lng": -76.9407257,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987891",
+    "name": "Garrett Hall",
+    "lat": 38.9832901,
+    "lng": -76.9426983,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987795",
+    "name": "Harford Hall",
+    "lat": 38.98253,
+    "lng": -76.9409381,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987773",
+    "name": "Howard Hall",
+    "lat": 38.9819534,
+    "lng": -76.9419856,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987802",
+    "name": "Kent Hall",
+    "lat": 38.9832662,
+    "lng": -76.9418347,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23579390",
+    "name": "Montgomery Hall",
+    "lat": 38.9819261,
+    "lng": -76.9393032,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987796",
+    "name": "Prince George's Hall",
+    "lat": 38.982586,
+    "lng": -76.9418515,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987896",
+    "name": "Talbot Hall",
+    "lat": 38.983394,
+    "lng": -76.9422804,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  },
+  {
+    "id": "way/23987770",
+    "name": "Washington Hall",
+    "lat": 38.9818349,
+    "lng": -76.9414185,
+    "community": "South Hill",
+    "communitySlug": "south-hill-community"
+  }
+]

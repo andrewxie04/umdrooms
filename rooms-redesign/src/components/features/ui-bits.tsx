@@ -7,124 +7,19 @@
 
 import * as React from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
-import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { getDateKey } from '@/lib/availabilityData.js';
 import type { Status } from '@/types/campus';
+import {
+  todayKey,
+  shiftDateKey,
+  formatDateKeyLabel,
+  STATUS_TONE,
+  STATUS_DOT,
+} from './ui-bits.helpers';
 
-// ---------------------------------------------------------------------------
-// Date helpers (ported from legacy Sidebar.js)
-// ---------------------------------------------------------------------------
-
-export function todayKey(): string {
-  return getDateKey(new Date());
-}
-
-export function parseDateKey(dateKey: string): Date {
-  const parsed = new Date(`${dateKey}T12:00:00`);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-}
-
-export function shiftDateKey(dateKey: string, offsetDays: number): string {
-  const next = parseDateKey(dateKey);
-  next.setDate(next.getDate() + offsetDays);
-  return getDateKey(next);
-}
-
-export function formatDateKeyLabel(dateKey: string): string {
-  if (!dateKey) return '';
-  return format(parseDateKey(dateKey), 'EEE, MMM d');
-}
-
-/** LibCal datetimes arrive as "YYYY-MM-DD HH:mm:ss"; display them warmly. */
-export function formatLibCalDateTime(dateTimeString: string): string {
-  if (!dateTimeString) return '';
-  const parsed = new Date(String(dateTimeString).replace(' ', 'T'));
-  if (Number.isNaN(parsed.getTime())) return String(dateTimeString);
-  return format(parsed, 'EEE, MMM d h:mm a');
-}
-
-/** availability blocks use decimal hours (9.5 => 9:30 AM). */
-export function decimalToTimeString(dec: unknown): string {
-  const d = parseFloat(String(dec));
-  if (!Number.isFinite(d)) return '';
-  const h = Math.floor(d) % 24;
-  const m = Math.round((d - Math.floor(d)) * 60);
-  const date = new Date();
-  date.setHours(h, m, 0, 0);
-  return format(date, 'h:mm a');
-}
-
-// ---------------------------------------------------------------------------
-// External links (ported behavior)
-// ---------------------------------------------------------------------------
-
-/** Opens walking directions in Apple Maps on iOS, Google Maps otherwise. */
-export function openWalkingDirections(lat: number, lng: number): void {
-  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
-
-  const ua = navigator.userAgent || '';
-  const platform = (navigator as any).userAgentData?.platform || ua;
-  const isIOS =
-    /iPad|iPhone|iPod/.test(ua) ||
-    ((/Mac/.test(platform) || /Macintosh/.test(ua)) && navigator.maxTouchPoints > 1);
-
-  const url = isIOS
-    ? `https://maps.apple.com/?daddr=${lat},${lng}&dirflg=w`
-    : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
-
-  window.open(url, '_blank', 'noopener,noreferrer');
-}
-
-/**
- * Minimal HTML sanitizer for LibCal terms / success markup (the legacy app
- * used DOMPurify, which is not in the new dependency set). Strips active
- * content and event handlers; forces links to open externally.
- */
-export function sanitizeHtml(html: string): string {
-  if (!html) return '';
-  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') return '';
-  const doc = new DOMParser().parseFromString(String(html), 'text/html');
-  doc
-    .querySelectorAll('script,style,iframe,object,embed,form,link,meta,noscript')
-    .forEach((el) => el.remove());
-  doc.querySelectorAll('*').forEach((el) => {
-    for (const attr of Array.from(el.attributes)) {
-      const name = attr.name.toLowerCase();
-      const value = String(attr.value || '').replace(/\s+/g, '').toLowerCase();
-      if (
-        name.startsWith('on') ||
-        ((name === 'href' || name === 'src') && value.startsWith('javascript:'))
-      ) {
-        el.removeAttribute(attr.name);
-      }
-    }
-    if (el.tagName === 'A') {
-      el.setAttribute('target', '_blank');
-      el.setAttribute('rel', 'noopener noreferrer');
-    }
-  });
-  return doc.body.innerHTML;
-}
-
-// ---------------------------------------------------------------------------
-// Status badge
-// ---------------------------------------------------------------------------
-
-export const STATUS_TONE: Record<Status, string> = {
-  available: 'bg-status-available/10 text-status-available',
-  'opening-soon': 'bg-status-opening-soon/10 text-status-opening-soon',
-  unavailable: 'bg-status-unavailable/10 text-status-unavailable',
-  unknown: 'bg-status-unknown/10 text-status-unknown',
-};
-
-export const STATUS_DOT: Record<Status, string> = {
-  available: 'bg-status-available',
-  'opening-soon': 'bg-status-opening-soon',
-  unavailable: 'bg-status-unavailable',
-  unknown: 'bg-status-unknown',
-};
+// Keep the original feature API for existing consumers; utilities live in a non-component module.
+// eslint-disable-next-line react-refresh/only-export-components -- Compatibility re-export for the panel helpers.
+export { todayKey, parseDateKey, shiftDateKey, formatDateKeyLabel, formatLibCalDateTime, decimalToTimeString, openWalkingDirections, sanitizeHtml, STATUS_TONE, STATUS_DOT } from './ui-bits.helpers';
 
 export function StatusDot({ status, className }: { status: Status; className?: string }) {
   return (
@@ -185,7 +80,7 @@ export function PanelFrame({
             type="button"
             onClick={onBack}
             aria-label={backLabel}
-            className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -194,7 +89,7 @@ export function PanelFrame({
           <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             {eyebrow}
           </div>
-          <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
+          <h2 className="break-words text-base font-semibold leading-snug text-foreground">{title}</h2>
         </div>
         {headerActions}
       </div>
@@ -350,7 +245,7 @@ export function DaySwitcher({
 }) {
   const isToday = dateKey === todayKey();
   const btnClass =
-    'rounded-full border border-border bg-card p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
+    'inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
 
   return (
     <div>
@@ -365,7 +260,7 @@ export function DaySwitcher({
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <label className="relative flex-1 cursor-pointer rounded-xl border border-border bg-card px-3 py-1.5 text-center text-sm font-medium text-foreground transition-colors hover:bg-secondary">
+        <label className="relative flex min-h-10 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-xl border border-border bg-card px-2 text-center text-sm font-medium text-foreground transition-colors hover:bg-secondary">
           <input
             type="date"
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
@@ -390,7 +285,7 @@ export function DaySwitcher({
         {!isToday ? (
           <button
             type="button"
-            className="rounded-xl px-2.5 py-1.5 text-xs font-semibold text-umd-red transition-colors hover:bg-umd-red/10 disabled:pointer-events-none disabled:opacity-40"
+            className="min-h-10 rounded-xl px-2 text-xs font-semibold text-umd-red transition-colors hover:bg-umd-red/10 disabled:pointer-events-none disabled:opacity-40"
             disabled={disabled}
             onClick={() => onChange(todayKey())}
           >
@@ -412,7 +307,7 @@ export function CloseButton({ onClose, label = 'Close' }: { onClose: () => void;
       type="button"
       onClick={onClose}
       aria-label={label}
-      className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
     >
       <X className="h-4 w-4" />
     </button>

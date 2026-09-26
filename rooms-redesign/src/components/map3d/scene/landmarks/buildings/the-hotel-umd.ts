@@ -33,7 +33,7 @@ export const landmark: LandmarkModule = {
     const glass = helpers.withGlow(spec.accent ?? 0x37434c, glow);
     const podiumColor = helpers.withGlow(0x4f4038, glow);
     const penthouseColor = helpers.withGlow(0x9a9284, glow);
-    const canopyColor = helpers.withGlow(0x2e2a26, glow);
+    const canopyColor = helpers.withGlow(0x9db8bf, glow); // documented glass entrance canopy
     const roofColor = helpers.darkerShade(panel, 0.18);
 
     // Tower slab sits ON the real footprint: uniform shrink about the
@@ -65,6 +65,41 @@ export const landmark: LandmarkModule = {
       }
     }
 
+    // Continuous dark ribbons made the tower read like an office block.
+    // Slim precast mullions break each ribbon into the repeated guest-room
+    // window bays visible in the hotel's exterior photographs.
+    for (let edge = 0; edge < towerRing.length; edge++) {
+      const a = towerRing[edge];
+      const b = towerRing[(edge + 1) % towerRing.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 7) continue;
+      const divisions = Math.max(2, Math.round(len / 3.6));
+      for (let i = 1; i < divisions; i++) {
+        const t = i / divisions;
+        const mullion = new THREE.BoxGeometry(0.27, ROOF_Y - PODIUM_H - 0.25, 0.34);
+        mullion.rotateY(Math.atan2(dy, dx));
+        mullion.translate(a.x + dx * t, (ROOF_Y + PODIUM_H) / 2, -(a.y + dy * t));
+        parts.push(helpers.withColor(mullion, panel));
+      }
+    }
+
+    // Two-story transparent lobby/restaurant glazing within the darker
+    // street podium; keep a solid brick corner at each change of direction.
+    for (let edge = 0; edge < pts.length; edge++) {
+      const a = pts[edge];
+      const b = pts[(edge + 1) % pts.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 12) continue;
+      const storefront = new THREE.BoxGeometry(len - 3.5, 3.15, 0.18);
+      storefront.rotateY(Math.atan2(dy, dx));
+      storefront.translate((a.x + b.x) / 2, 3.15, -(a.y + b.y) / 2);
+      parts.push(helpers.withColor(storefront, glass));
+    }
+
     // Flat roof: darker cap slab, thin parapet, setback mechanical penthouse.
     const cap = helpers.extrudeFootprint(towerRing, 0.25);
     cap.translate(0, ROOF_Y, 0);
@@ -91,6 +126,9 @@ export const landmark: LandmarkModule = {
     const canopy = new THREE.BoxGeometry(11, 0.6, 5);
     canopy.translate(tip.x, 4.8, -(tip.y - 1.0));
     parts.push(helpers.withColor(canopy, canopyColor));
+    const canopyFrame = new THREE.BoxGeometry(11.5, 0.18, 5.4);
+    canopyFrame.translate(tip.x, 5.18, -(tip.y - 1.0));
+    parts.push(helpers.withColor(canopyFrame, penthouseColor));
 
     return parts;
   },

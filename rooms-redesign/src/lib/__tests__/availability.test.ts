@@ -125,6 +125,25 @@ describe('availability.js pure functions', () => {
       const res = getClassroomAvailability(room, testDate, testDate);
       expect(res).toBe('Unavailable');
     });
+
+    it('treats adjacent scheduled windows as free but overlapping windows as unavailable', () => {
+      const room = {
+        availability_times: [{
+          date: '2026-10-14', time_start: 10, time_end: 11, status: 1,
+        }],
+      };
+      // UTC instants represent 9:00, 10:00, and 11:00 AM in College Park.
+      const at = (hour: number, minute = 0) => new Date(Date.UTC(2026, 9, 14, hour + 4, minute));
+      expect(getClassroomAvailability(room, at(9), at(10))).toBe('Available');
+      expect(getClassroomAvailability(room, at(9, 30), at(10, 30))).toBe('Unavailable');
+      expect(getClassroomAvailability(room, at(11), at(12))).toBe('Available');
+    });
+
+    it('marks a scheduled window outside campus operating hours as closed', () => {
+      const room = { availability_times: [] };
+      const at = (hour: number) => new Date(Date.UTC(2026, 9, 14, hour + 4));
+      expect(getClassroomAvailability(room, at(21), at(23))).toBe('Closed');
+    });
   });
 
   describe('getBuildingAvailability & getBuildingRenderState', () => {

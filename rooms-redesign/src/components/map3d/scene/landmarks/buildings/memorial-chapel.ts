@@ -1,15 +1,15 @@
 // Memorial Chapel (way/23579314) — UMD's iconic 1952 Colonial chapel at the
-// west end of McKeldin Mall. Custom build, structurally true to life:
+// south of McKeldin Mall beside Regents Drive. Custom build:
 //
 //   1. BODY — full OSM footprint (cruciform-ish: long E-W nave, N/S transept
-//      arms, chamfered west entrance block) extruded as the white wall mass.
+//      arms, chamfered west garden end) extruded as red brick.
 //   2. ROOFS — real GABLES via custom triangles: main nave gable with its
 //      ridge along the E-W axis, plus two smaller cross-gables over the
-//      transept arms. Slate gray, darker than the white walls.
-//   3. STEEPLE at the west end (facing the Mall): square tower box ->
+//      transept arms. Slate gray, darker than the brick walls.
+//   3. STEEPLE at the east, Regents Drive entrance end: square tower box ->
 //      octagonal belfry (8-seg cylinder) -> tall white cone spire. Apex ~27m.
-//   4. PORTICO on the west face: 4 white column cylinders + entablature slab
-//      + a small pediment gable (ridge E-W, triangle facing the Mall).
+//   4. PORTICO on the east face: six white columns + entablature slab
+//      + a small pediment gable (ridge E-W, triangle facing Regents Drive).
 //
 // All sub-masses are anchored to the real footprint via bboxOf fractions, so
 // they track the OSM geometry. Shape-space custom triangles follow the
@@ -80,7 +80,7 @@ export const landmark: LandmarkModule = {
   id: 'way/23579314',
   spec: {
     name: 'Memorial Chapel',
-    color: 0xf5f2ea, // signature white (per item notes)
+    color: 0x9e5e4b, // UMD describes the chapel exterior as brick
     roof: 'spire', // silhouette hint: tall spire — matches the custom build
     accent: 0x767c84, // slate-gray gable roofs
     nightGlow: 0.3, // the chapel is softly floodlit at night
@@ -99,12 +99,12 @@ export const landmark: LandmarkModule = {
     const wallH = baseHeight * 0.745; // ~8.2m wall top, gables above
 
     const parts: THREE.BufferGeometry[] = [
-      // 1. white wall mass over the full cruciform footprint
+      // 1. brick wall mass over the full cruciform footprint
       helpers.withColor(helpers.extrudeFootprint(pts, wallH), wall),
       // 2a. main nave gable — ridge E-W over the long sanctuary body,
-      // running west right up to the tower's east face
+      // ending at the tower on the east (Regents Drive) side
       helpers.withColor(
-        buildGableRoof(minX + 0.17 * W, maxX, minY + 0.18 * H, minY + 0.81 * H, wallH, 5.5, 'x'),
+        buildGableRoof(minX + 0.17 * W, maxX - 0.06 * W, minY + 0.18 * H, minY + 0.81 * H, wallH, 5.5, 'x'),
         roofC,
       ),
       // 2b/2c. cross-gables over the north & south transept arms
@@ -118,16 +118,21 @@ export const landmark: LandmarkModule = {
       ),
     ];
 
-    // 3. steeple stack at the west end, centered on the entrance block
-    const tx = minX + 0.088 * W; // ~6m east of the west face
-    const ty = minY + 0.48 * H; // N-S center of the chamfered west block
+    // 3. steeple stack at the east end, centered on the Regents Drive entrance
+    const tx = maxX - 0.088 * W; // ~6m west of the east face
+    const ty = minY + 0.53 * H; // N-S center of the east entrance block
     const towerH = 15;
     const belfryH = 3.8;
     const spireH = 8.4; // slender — the spire is the chapel's signature
 
     const tower = new THREE.BoxGeometry(9.6, towerH, 9.6);
     tower.translate(tx, towerH / 2, -ty); // world z = -north
-    parts.push(helpers.withColor(tower, trim));
+    parts.push(helpers.withColor(tower, wall));
+
+    // Pale belt course separates the brick tower from its white belfry.
+    const belt = new THREE.BoxGeometry(10.2, 0.45, 10.2);
+    belt.translate(tx, towerH - 0.25, -ty);
+    parts.push(helpers.withColor(belt, trim));
 
     const belfry = new THREE.CylinderGeometry(3.7, 3.9, belfryH, 8); // octagonal belfry
     belfry.translate(tx, towerH + belfryH / 2, -ty);
@@ -137,20 +142,67 @@ export const landmark: LandmarkModule = {
     spire.translate(tx, towerH + belfryH + spireH / 2, -ty);
     parts.push(helpers.withColor(spire, trim));
 
-    // 4. west portico: 4 columns + entablature slab + pediment facing the Mall
+    // Face the clock and belfry recesses toward Regents Drive.
+    const clock = new THREE.CylinderGeometry(1.05, 1.05, 0.13, 24);
+    clock.rotateZ(Math.PI / 2);
+    clock.translate(tx + 4.89, 12.8, -ty);
+    parts.push(helpers.withColor(clock, trim));
+    const clockCenter = new THREE.CylinderGeometry(0.12, 0.12, 0.16, 12);
+    clockCenter.rotateZ(Math.PI / 2);
+    clockCenter.translate(tx + 5.0, 12.8, -ty);
+    parts.push(helpers.withColor(clockCenter, roofC));
+    for (const offset of [-2.55, 2.55]) {
+      const recess = new THREE.BoxGeometry(0.12, 1.65, 1.05);
+      recess.translate(tx + 3.73, 16.9, -(ty + offset));
+      parts.push(helpers.withColor(recess, roofC));
+    }
+
+    // Georgian nave windows follow the two actual long wall segments. Their
+    // slight offset exposes the white trim without leaving a gap to the brick.
+    const naveEdges = pts.map((a, i) => [a, pts[(i + 1) % pts.length]] as const)
+      .filter(([a, end]) => {
+        const dx = end.x - a.x;
+        const dn = end.y - a.y;
+        return Math.abs(dx) > 20 && Math.abs(dn) < 0.03 * Math.abs(dx)
+          && (a.x + end.x) / 2 > (minX + maxX) / 2;
+      });
+    for (const [a, end] of naveEdges) {
+      const dx = end.x - a.x;
+      const dn = end.y - a.y;
+      const length = Math.hypot(dx, dn);
+      const angle = Math.atan2(dn, dx);
+      const outwardX = dn / length;
+      const outwardN = -dx / length;
+      for (const fraction of [0.14, 0.38, 0.62, 0.86]) {
+        const bx = a.x + fraction * dx;
+        const north = a.y + fraction * dn;
+        const windowBox = (width: number, height: number, depth: number,
+          centerY: number, offset: number, color: THREE.Color) => {
+          const box = new THREE.BoxGeometry(width, height, depth);
+          box.rotateY(angle);
+          box.translate(bx + outwardX * offset, centerY, -(north + outwardN * offset));
+          parts.push(helpers.withColor(box, color));
+        };
+        windowBox(2.1, 4.35, 0.16, 4.45, 0.07, trim);
+        windowBox(1.48, 3.55, 0.18, 4.35, 0.16, roofC);
+        windowBox(1.55, 0.12, 0.21, 4.45, 0.27, trim);
+      }
+    }
+
+    // 4. east portico: six columns + entablature slab + pediment at the front
     const colH = 5.4;
-    const colX = minX - 0.9; // projecting proud of the chamfered west face
-    for (const off of [-3.6, -1.2, 1.2, 3.6]) {
-      const col = new THREE.CylinderGeometry(0.36, 0.4, colH, 8);
+    const colX = maxX + 0.9; // projecting toward Regents Drive
+    for (const off of [-3.75, -2.25, -0.75, 0.75, 2.25, 3.75]) {
+      const col = new THREE.CylinderGeometry(0.27, 0.32, colH, 10);
       col.translate(colX, colH / 2, -(ty + off));
       parts.push(helpers.withColor(col, trim));
     }
     const slab = new THREE.BoxGeometry(3.6, 0.7, 9.4);
-    slab.translate(minX - 0.1, colH + 0.35, -ty);
+    slab.translate(maxX + 0.1, colH + 0.35, -ty);
     parts.push(helpers.withColor(slab, trim));
     parts.push(
       helpers.withColor(
-        buildGableRoof(minX - 1.4, minX + 1.3, ty - 4.7, ty + 4.7, colH + 0.7, 2.0, 'x'),
+        buildGableRoof(maxX - 1.3, maxX + 1.4, ty - 4.7, ty + 4.7, colH + 0.7, 2.0, 'x'),
         trim,
       ),
     );

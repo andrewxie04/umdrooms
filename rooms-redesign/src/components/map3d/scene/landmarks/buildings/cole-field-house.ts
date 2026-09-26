@@ -25,7 +25,7 @@
 //      Arch profile = half-cosine, 12 segments, non-indexed quads.
 //   3. North end = glass arch-infill wall (the Jones-Hill glass facade),
 //      south end = brick arch-infill wall (historic brick end wall).
-//   4. maxHeight 20 covers the vault apex for the highlight shell.
+//   4. The highlight shell clears the vault and its raised arch ribs.
 import * as THREE from 'three';
 import type { LandmarkModule } from '../types';
 
@@ -42,7 +42,7 @@ export const landmark: LandmarkModule = {
     accent: 0xd8d4c8, // barrel-vault roof, light gray
     nightGlow: 0.3,
   },
-  maxHeight: APEX,
+  maxHeight: APEX + 0.2,
   build(ctx) {
     const { pts, cy, baseHeight, spec, helpers } = ctx;
     const glow = spec.nightGlow;
@@ -169,6 +169,27 @@ export const landmark: LandmarkModule = {
         roofG.computeVertexNormals();
         parts.push(helpers.withColor(roofG, roofC));
 
+        // The repeated steel arch bays are the visual identity of Cole's
+        // lamella vault. Slightly proud pale ribs reveal the curve from above.
+        const ribPos: number[] = [];
+        for (let i = 2; i < stations.length - 2; i += 3) {
+          const z = -stations[i].ys;
+          for (let j = 0; j < ARC_SEGMENTS; j++) {
+            const a = profiles[i][j];
+            const b = profiles[i][j + 1];
+            const a0 = [a[0], a[1] + 0.14, z + 0.16];
+            const b0 = [b[0], b[1] + 0.14, z + 0.16];
+            const a1 = [a[0], a[1] + 0.14, z - 0.16];
+            const b1 = [b[0], b[1] + 0.14, z - 0.16];
+            push(ribPos, a0, b0, b1);
+            push(ribPos, a0, b1, a1);
+          }
+        }
+        const ribs = new THREE.BufferGeometry();
+        ribs.setAttribute('position', new THREE.Float32BufferAttribute(ribPos, 3));
+        ribs.computeVertexNormals();
+        parts.push(helpers.withColor(ribs, helpers.withGlow(0xe8e4da, glow)));
+
         // 3. Arch-infill end walls from the brick deck (h=base) up to the
         //    arch curve. North end (largest ys) = glass facade, wound to
         //    face north (world -z); south end = brick, wound to face south.
@@ -196,6 +217,25 @@ export const landmark: LandmarkModule = {
         };
         parts.push(helpers.withColor(endWall(0, false), brickC));
         parts.push(helpers.withColor(endWall(stations.length - 1, true), glassC));
+
+        // Slender mullions make the stadium-facing glazed arch legible.
+        const north = stations.length - 1;
+        const northZ = -stations[north].ys - 0.08;
+        for (let j = 1; j < ARC_SEGMENTS; j += 2) {
+          const [x, top] = profiles[north][j];
+          const rib = new THREE.BoxGeometry(0.22, Math.max(0.2, top - base), 0.2);
+          rib.translate(x, (base + top) / 2, northZ);
+          parts.push(helpers.withColor(rib, roofC));
+        }
+        // A horizontal glazed transom separates the renovated north wall
+        // into the broad panes visible beneath the old arch.
+        const northProfile = profiles[north];
+        const northWidth = northProfile[ARC_SEGMENTS - 2][0] - northProfile[2][0];
+        for (const h of [base + 2.7, base + 5.4]) {
+          const transom = new THREE.BoxGeometry(northWidth, 0.19, 0.22);
+          transom.translate((northProfile[2][0] + northProfile[ARC_SEGMENTS - 2][0]) / 2, h, northZ);
+          parts.push(helpers.withColor(transom, roofC));
+        }
       }
     }
 

@@ -23,15 +23,12 @@
       here — script-src 'self' would break Vite dev (react-refresh preamble +
       HMR websocket). Re-apply CSP as Netlify response headers in Stage 3.
     -->
-    <!--
-      Preload the two big runtime datasets so their downloads start with the
-      HTML parse instead of after the JS bundle boots (~7.5MB + ~2MB raw;
-      much smaller over the wire with Netlify's brotli). `crossorigin` must
-      stay OFF to match the same-origin fetch() calls, or the preload is
-      wasted and fetched twice.
-    -->
-    <link rel="preload" href="/buildings_data.json" as="fetch" />
-    <link rel="preload" href="/campus-data.json" as="fetch" />
+    <!-- Fetch preloads need CORS mode even for same-origin fetch() reuse.
+         The full historical schedule is loaded only when a covered day is
+         selected, so keep it out of the critical startup path. -->
+    <link rel="preload" href="./campus-data.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
+    <link rel="preload" href="./campus-trees.json" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="./buildings_inventory.json" as="fetch" crossorigin="anonymous" />
     <title>Rooms — UMD Campus Map</title>
   </head>
   <body>

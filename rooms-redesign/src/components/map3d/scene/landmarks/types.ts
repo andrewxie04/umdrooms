@@ -34,6 +34,10 @@ export interface LandmarkSpec {
    * possible without touching it). Presets apply it via withGlow; custom
    * builders apply it themselves (helpers.withGlow). */
   nightGlow?: number;
+  /** Use the shared facade grid on a custom model only when its walls follow
+   * the entire mapped footprint at every floor. Detailed landmarks provide
+   * their own glazing, and an extra grid can hang in front of stepped walls. */
+  genericWindows?: boolean;
 }
 
 /** Helper functions handed to every custom builder through the ctx — the
@@ -83,6 +87,8 @@ export interface LandmarkBuildContext {
   /** Shape-space footprint ring: Vector2(x = east, y = north), meters,
    * deduped, closure point removed, normalized CCW. >= 3 points. */
   pts: THREE.Vector2[];
+  /** Mapped inner courtyard rings, in the same shape-space orientation. */
+  holes: THREE.Vector2[][];
   /** Shape-space centroid of `pts` (same as helpers.centroidOf(pts)). */
   cx: number;
   cy: number;

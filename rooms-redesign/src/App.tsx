@@ -64,7 +64,7 @@ export default function App() {
       } else {
         s.select({ kind: 'building', id: target.code });
       }
-      s.requestFlyTo({ lat: target.lat, lng: target.lng, zoom: 17, pitch: 60 });
+      s.requestFlyTo({ lat: target.lat, lng: target.lng, zoom: roomEntry ? 18.2 : 18, pitch: 37 });
     }
 
     // Consume the link even when unresolved so it never fires twice.

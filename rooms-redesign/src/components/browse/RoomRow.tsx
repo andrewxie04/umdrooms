@@ -56,6 +56,7 @@ export function RoomRow({
   const scheduleDate = useCampusStore((s) => s.scheduleDate);
 
   const isLibCal = room.raw?.source === 'libcal';
+  const bookingAction = room.status === 'available' ? 'Book' : 'See times';
   const capacity = Number(room.raw?.capacity);
   // The availability engine's display status is richer than the 4-value
   // contract Status: surface 'Closed' (after hours/weekend/holiday) and
@@ -131,48 +132,48 @@ export function RoomRow({
   return (
     <div
       className={cn(
-        'rounded-xl border transition-colors',
+        'rounded-lg border bg-card/70 shadow-sm transition-[border-color,background-color,box-shadow]',
         selected
-          ? 'border-primary/40 bg-primary/5'
-          : 'border-transparent hover:bg-accent/60',
-        expanded && !selected && 'bg-accent/40'
+          ? 'border-primary/35 bg-primary/5'
+          : 'border-border/70 hover:border-border hover:bg-card',
+        expanded && !selected && 'border-border bg-card'
       )}
     >
       <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={onToggleExpand}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onToggleExpand();
-          }
-        }}
-        className="flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 rounded-xl"
+        className={cn(
+          'relative flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left sm:gap-3',
+          isLibCal && 'max-[359px]:grid max-[359px]:grid-cols-[10px_minmax(0,1fr)_44px_16px] max-[359px]:gap-x-2 max-[359px]:gap-y-1.5',
+        )}
       >
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? 'Hide' : 'Show'} details for ${room.name}. ${metaParts.join(' · ')}`}
+          className="absolute inset-0 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        />
         <span
-          className={cn('size-2.5 shrink-0 rounded-full', statusDotClass)}
+          className={cn('pointer-events-none size-2.5 shrink-0 rounded-full', statusDotClass)}
           aria-hidden
         />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-foreground">{room.name}</span>
-          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-            {metaParts.join(' · ')}
+        <span className={cn('pointer-events-none min-w-0 flex-1', isLibCal && 'max-[359px]:col-[2/5] max-[359px]:row-1')}>
+          <span className="line-clamp-2 text-[13px] font-semibold text-foreground">{room.name}</span>
+          <span className="mt-1 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[11px] leading-tight text-muted-foreground">
+            {metaParts.map((part) => (
+              <span key={part} className="whitespace-nowrap">{part}</span>
+            ))}
           </span>
         </span>
 
         {isLibCal && (
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onBook();
-            }}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+            onClick={onBook}
+            aria-label={`${bookingAction} ${room.name}`}
+            className="relative z-10 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2.5 text-[11px] font-semibold text-accent-foreground transition-colors hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary max-[359px]:col-start-2 max-[359px]:row-start-2 max-[359px]:justify-self-start"
           >
             <BookOpen className="size-3" />
-            Book
+            {bookingAction}
           </button>
         )}
 
@@ -180,12 +181,10 @@ export function RoomRow({
           type="button"
           aria-label={isFavorite ? `Remove ${room.name} from favorites` : `Add ${room.name} to favorites`}
           aria-pressed={isFavorite}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleFavorite();
-          }}
+          onClick={onToggleFavorite}
           className={cn(
-            'shrink-0 rounded-md p-1.5 transition-colors hover:bg-muted',
+            'relative z-10 inline-flex size-11 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
+            isLibCal && 'max-[359px]:col-start-3 max-[359px]:row-start-2',
             isFavorite ? 'text-status-opening-soon' : 'text-muted-foreground/50 hover:text-muted-foreground'
           )}
         >
@@ -194,14 +193,15 @@ export function RoomRow({
 
         <ChevronDown
           className={cn(
-            'size-4 shrink-0 text-muted-foreground transition-transform',
+            'pointer-events-none size-4 shrink-0 text-muted-foreground transition-transform',
+            isLibCal && 'max-[359px]:col-start-4 max-[359px]:row-start-2',
             expanded && 'rotate-180'
           )}
         />
       </div>
 
       {expanded && (
-        <div className="px-3 pb-3 pt-0.5">
+        <div className="border-t border-border/60 px-3 pb-3 pt-3">
           <RoomTimeline room={room} />
           <RoomDetailGrid room={room} isLibCal={isLibCal} capacity={capacity} />
           <RoomEventList room={room} isLibCal={isLibCal} />
@@ -209,7 +209,7 @@ export function RoomRow({
             <button
               type="button"
               onClick={handleShare}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent"
             >
               <Share2 className="size-3.5" />
               {viewMode === 'schedule' ? 'Share Room & Time' : 'Share Room'}
@@ -221,7 +221,7 @@ export function RoomRow({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent"
               >
                 <ExternalLink className="size-3.5" />
                 {room.raw?.source_label || 'Official Source'}
@@ -235,7 +235,7 @@ export function RoomRow({
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent"
                 >
                   <ExternalLink className="size-3.5" />
                   {room.raw?.source_secondary_label || 'More Info'}
@@ -292,7 +292,7 @@ function RoomDetailGrid({
   const noteLines = getRoomNoteLines(room);
 
   return (
-    <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 rounded-lg border border-border/50 bg-muted/30 p-3">
+    <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 rounded-md border border-border/60 bg-muted/35 p-3">
       <DetailItem label="Type">
         <span className="text-xs font-medium text-foreground">{type}</span>
       </DetailItem>
@@ -370,7 +370,7 @@ function RoomEventList({ room, isLibCal }: { room: RoomEntry; isLibCal: boolean 
       const blocks = Array.isArray(room.raw?.libcal?.available_blocks)
         ? room.raw.libcal.available_blocks
         : [];
-      blocks.forEach((block: any, idx: number) => {
+      blocks.forEach((block: { date?: unknown; time_start?: unknown; time_end?: unknown }, idx: number) => {
         const datePart = String(block?.date || '').split('T')[0];
         if (datePart !== activeDateKey) return;
         const start = Number(block?.time_start);
@@ -387,11 +387,11 @@ function RoomEventList({ room, isLibCal }: { room: RoomEntry; isLibCal: boolean 
       });
     } else {
       const events = Array.isArray(room.events) ? room.events : [];
-      events.forEach((ev: any, idx: number) => {
+      events.forEach((ev, idx: number) => {
         const datePart = String(ev?.date || '').split('T')[0];
         if (datePart !== activeDateKey || ev?.status !== 1) return;
-        const start = parseFloat(ev?.time_start);
-        const end = parseFloat(ev?.time_end);
+        const start = parseFloat(ev?.time_start ?? '');
+        const end = parseFloat(ev?.time_end ?? '');
         if (!Number.isFinite(start) || !Number.isFinite(end)) return;
         out.push({
           key: `ev-${idx}`,

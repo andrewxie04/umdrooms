@@ -96,6 +96,76 @@ interface BookingContext {
   booking: Record<string, unknown>;
 }
 
+interface LibCalBlock {
+  start?: string;
+  end?: string;
+  time_start?: string;
+  time_end?: string;
+  slots?: { start?: string; end?: string }[];
+}
+
+interface LibCalRoomRecord {
+  id?: string | number;
+  name?: string;
+  source?: string;
+  type?: string;
+  capacity?: number;
+  libcal?: {
+    eid?: string | number;
+    gid?: string | number;
+    lid?: string | number;
+    title?: string;
+    booking_url?: string;
+    available_blocks?: LibCalBlock[];
+  };
+}
+
+interface LibCalBuildingResponse {
+  classrooms?: LibCalRoomRecord[];
+}
+
+interface BookingOptionsResponse {
+  startDateTime?: string;
+  defaultEndDateTime?: string;
+  durationOptions?: DurationOption[];
+}
+
+interface BookingFormResponse {
+  authRequired?: boolean;
+  message?: string;
+  holdMessage?: string;
+  summaryRows?: SummaryRow[];
+  termsHtml?: string;
+  bookingContext?: BookingContext;
+  fields?: BookingField[];
+  submitLabel?: string;
+}
+
+interface BookingSubmitResponse {
+  authRequired?: boolean;
+  message?: string;
+  successHtml?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isLibCalRoom(value: unknown): value is LibCalRoomRecord {
+  return isRecord(value);
+}
+
+function isLibCalBuilding(value: unknown): value is LibCalBuildingResponse {
+  return isRecord(value) && Array.isArray(value.classrooms);
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (isRecord(error) && typeof error.message === 'string' && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
+
 type BookingStatus =
   | 'idle'
   | 'loading-options'
@@ -149,7 +219,7 @@ const EMPTY_BOOKING: BookingState = {
 
 interface BrowseState {
   status: 'idle' | 'loading' | 'ready' | 'error';
-  room: any | null;
+  room: LibCalRoomRecord | null;
   error: string | null;
 }
 
@@ -171,7 +241,7 @@ const IN_APP_BOOKING_ENABLED = false;
 
 /** Deep link to the room's LibCal page for the browsed date (where the patron
  * signs in and reserves). Falls back to the plain space page. */
-function libcalBookingUrl(rawRoom: any, dateKey: string): string | null {
+function libcalBookingUrl(rawRoom: LibCalRoomRecord | null, dateKey: string): string | null {
   const base = rawRoom?.libcal?.booking_url;
   if (!base) return null;
   if (!dateKey) return base;
@@ -183,7 +253,7 @@ function libcalBookingUrl(rawRoom: any, dateKey: string): string | null {
 // Helpers (ported)
 // ---------------------------------------------------------------------------
 
-function getRoomPayload(rawRoom: any) {
+function getRoomPayload(rawRoom: LibCalRoomRecord) {
   return {
     eid: rawRoom?.libcal?.eid,
     gid: rawRoom?.libcal?.gid,
@@ -193,7 +263,7 @@ function getRoomPayload(rawRoom: any) {
   };
 }
 
-function buildStartOptions(block: any): StartOption[] {
+function buildStartOptions(block: LibCalBlock): StartOption[] {
   const rawSlots =
     Array.isArray(block?.slots) && block.slots.length > 0
       ? block.slots
@@ -202,7 +272,7 @@ function buildStartOptions(block: any): StartOption[] {
         : [];
 
   const unique = new Map<string, { start: string; end: string }>();
-  rawSlots.forEach((slot: any) => {
+  rawSlots.forEach((slot) => {
     if (!slot?.start) return;
     if (!unique.has(slot.start)) unique.set(slot.start, { start: slot.start, end: slot.end || '' });
   });
@@ -250,8 +320,8 @@ function findSelectedRoom(
 }
 
 /** Find this room inside a libcal-availability response for another date. */
-function findRoomInLibCalResponse(buildings: any[], eid: unknown, roomId: string): any | null {
-  for (const building of Array.isArray(buildings) ? buildings : []) {
+function findRoomInLibCalResponse(buildings: LibCalBuildingResponse[], eid: unknown, roomId: string): LibCalRoomRecord | null {
+  for (const building of buildings) {
     for (const room of building?.classrooms || []) {
       if (eid != null && Number(room?.libcal?.eid) === Number(eid)) return room;
       if (String(room?.id) === roomId) return room;
@@ -271,11 +341,14 @@ export function LibraryBookingSheet() {
   const selected = useCampusStore((s) => s.selected);
   const buildings = useCampusStore((s) => s.buildings);
   const activeDateKey = useCampusStore((s) => s.activeDateKey);
+  const libraryBrowseDate = useCampusStore((s) => s.libraryBrowseDate);
+  const setLibraryBrowseDate = useCampusStore((s) => s.setLibraryBrowseDate);
   const clearSelection = useCampusStore((s) => s.clearSelection);
 
   const isRoom = selected?.kind === 'room';
   const resolved = isRoom ? findSelectedRoom(buildings, String(selected!.id)) : null;
-  const storeRoomRaw: any | null = resolved?.room?.raw ?? null;
+  const storeRoomValue: unknown = resolved?.room?.raw;
+  const storeRoomRaw: LibCalRoomRecord | null = isLibCalRoom(storeRoomValue) ? storeRoomValue : null;
   const isLibCal = storeRoomRaw?.source === 'libcal' && Boolean(storeRoomRaw?.libcal);
 
   // Back returns to the parent building's detail view (falls back to the
@@ -289,10 +362,12 @@ export function LibraryBookingSheet() {
     }
   };
 
-  const [browseKey, setBrowseKey] = useState<string>('');
+  // Keep the chosen date when the responsive shell remounts this panel.
+  const browseKey = libraryBrowseDate && libraryBrowseDate.selectionId === selected?.id
+    ? libraryBrowseDate.dateKey : activeDateKey;
   const [browse, setBrowse] = useState<BrowseState>(EMPTY_BROWSE);
   const [booking, setBooking] = useState<BookingState>(EMPTY_BOOKING);
-  const cacheRef = useRef(new Map<string, any[]>());
+  const cacheRef = useRef(new Map<string, LibCalBuildingResponse[]>());
   const requestRef = useRef(0);
 
   const selectedRoomId = isRoom ? String(selected!.id) : null;
@@ -300,10 +375,8 @@ export function LibraryBookingSheet() {
 
   // Reset everything when the selected room changes.
   useEffect(() => {
-    setBrowseKey(activeDateKey);
     setBrowse(EMPTY_BROWSE);
     setBooking(EMPTY_BOOKING);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRoomId]);
 
   // Browsing a different date cancels any in-progress booking (ported).
@@ -332,9 +405,9 @@ export function LibraryBookingSheet() {
     const requestId = ++requestRef.current;
     setBrowse({ status: 'loading', room: null, error: null });
     fetchLibCalAvailabilityForDate(dateKey)
-      .then((list: any[]) => {
+      .then((list: unknown) => {
         if (requestRef.current !== requestId) return;
-        const buildingsForDate = Array.isArray(list) ? list : [];
+        const buildingsForDate = Array.isArray(list) ? list.filter(isLibCalBuilding) : [];
         cacheRef.current.set(dateKey, buildingsForDate);
         const room = findRoomInLibCalResponse(buildingsForDate, roomEid, selectedRoomId || '');
         setBrowse({
@@ -343,12 +416,12 @@ export function LibraryBookingSheet() {
           error: room ? null : 'This room has no LibCal data for that date.',
         });
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         if (requestRef.current !== requestId) return;
         setBrowse({
           status: 'error',
           room: null,
-          error: err?.message || 'Could not load study-room times for that day.',
+          error: errorMessage(err, 'Could not load study-room times for that day.'),
         });
       });
   };
@@ -359,9 +432,9 @@ export function LibraryBookingSheet() {
   }, [browseKey, isLibCal, activeDateKey, roomEid, selectedRoomId]);
 
   const browsingActiveDay = !browseKey || browseKey === activeDateKey;
-  const rawRoom: any | null = browsingActiveDay ? storeRoomRaw : browse.room;
+  const rawRoom: LibCalRoomRecord | null = browsingActiveDay ? storeRoomRaw : browse.room;
 
-  const blocks: any[] = useMemo(
+  const blocks: LibCalBlock[] = useMemo(
     () => (Array.isArray(rawRoom?.libcal?.available_blocks) ? rawRoom.libcal.available_blocks : []),
     [rawRoom]
   );
@@ -386,7 +459,7 @@ export function LibraryBookingSheet() {
       startOptions,
     });
     try {
-      const response: any = await fetchLibCalBookingOptions(payload, startDateTime);
+      const response: BookingOptionsResponse = await fetchLibCalBookingOptions(payload, startDateTime);
       setBooking({
         ...EMPTY_BOOKING,
         roomId: selectedRoomId,
@@ -396,7 +469,7 @@ export function LibraryBookingSheet() {
         startOptions,
         durationOptions: response?.durationOptions || [],
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       playErrorHaptic();
       setBooking({
         ...EMPTY_BOOKING,
@@ -404,12 +477,12 @@ export function LibraryBookingSheet() {
         status: 'error',
         startDateTime,
         startOptions,
-        error: err?.message || 'Could not start the booking flow.',
+        error: errorMessage(err, 'Could not start the booking flow.'),
       });
     }
   };
 
-  const startBooking = (block: any) => {
+  const startBooking = (block: LibCalBlock) => {
     if (!rawRoom?.libcal || !block?.start) return;
     playSelectionHaptic();
     const startOptions = buildStartOptions(block);
@@ -422,7 +495,7 @@ export function LibraryBookingSheet() {
     const payload = getRoomPayload(rawRoom);
     setBooking((prev) => ({ ...prev, status: 'loading-form', error: null }));
     try {
-      const response: any = await fetchLibCalBookingForm(
+      const response: BookingFormResponse = await fetchLibCalBookingForm(
         payload,
         booking.startDateTime,
         booking.endDateTime
@@ -453,12 +526,12 @@ export function LibraryBookingSheet() {
         showForm: !(response?.termsHtml || '').trim(),
         error: null,
       }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       playErrorHaptic();
       setBooking((prev) => ({
         ...prev,
         status: 'options-ready',
-        error: err?.message || 'Could not load the booking form.',
+        error: errorMessage(err, 'Could not load the booking form.'),
       }));
     }
   };
@@ -478,7 +551,7 @@ export function LibraryBookingSheet() {
 
     setBooking((prev) => ({ ...prev, status: 'submitting', error: null }));
     try {
-      const response: any = await submitLibCalBooking(booking.bookingContext, booking.fieldValues);
+      const response: BookingSubmitResponse = await submitLibCalBooking(booking.bookingContext, booking.fieldValues);
       if (response?.authRequired) {
         playErrorHaptic();
         setBooking((prev) => ({
@@ -498,12 +571,12 @@ export function LibraryBookingSheet() {
         successHtml: response?.successHtml || '',
         error: null,
       }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       playErrorHaptic();
       setBooking((prev) => ({
         ...prev,
         status: 'form-ready',
-        error: err?.message || 'Could not submit the booking.',
+        error: errorMessage(err, 'Could not submit the booking.'),
       }));
     }
   };
@@ -550,7 +623,7 @@ export function LibraryBookingSheet() {
               openWalkingDirections(resolved.building.lat, resolved.building.lng);
             }}
           >
-            Navigate
+            Walking directions
           </GhostButton>
         ) : null}
         {bookingUrl ? (
@@ -575,7 +648,7 @@ export function LibraryBookingSheet() {
           dateKey={browseKey}
           onChange={(key) => {
             playSelectionHaptic();
-            setBrowseKey(key);
+            if (selectedRoomId) setLibraryBrowseDate(selectedRoomId, key);
           }}
         />
         <div className="mt-2 space-y-2">
@@ -592,9 +665,9 @@ export function LibraryBookingSheet() {
       <SectionHeader>{IN_APP_BOOKING_ENABLED ? 'Bookable Times' : 'Available Times'}</SectionHeader>
       {blocks.length ? (
         <div className="space-y-2">
-          {blocks.map((block: any, idx: number) => {
-            const startDec = parseFloat(block?.time_start);
-            const endDec = parseFloat(block?.time_end);
+          {blocks.map((block, idx: number) => {
+            const startDec = parseFloat(block.time_start ?? '');
+            const endDec = parseFloat(block.time_end ?? '');
             const activeNow =
               isToday &&
               Number.isFinite(startDec) &&

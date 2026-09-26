@@ -156,6 +156,7 @@ function FormMessage({ className, ...props }: React.ComponentProps<"p">) {
 }
 
 export {
+  // eslint-disable-next-line react-refresh/only-export-components -- This shadcn hook shares the form contexts used by these wrappers.
   useFormField,
   Form,
   FormItem,

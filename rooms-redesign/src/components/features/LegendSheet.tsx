@@ -14,17 +14,17 @@ const STATUS_ROWS: { status: Status; label: string; description: string }[] = [
   {
     status: 'available',
     label: 'Available',
-    description: 'Open right now for the selected time window.',
+    description: 'Free during the selected time window.',
   },
   {
     status: 'opening-soon',
     label: 'Opening Soon',
-    description: 'Opens shortly — or a paid/visitor caution for parking garages.',
+    description: 'Opening shortly; for parking, check visitor or payment restrictions.',
   },
   {
     status: 'unavailable',
     label: 'Unavailable',
-    description: 'Closed, fully booked, or permit-required right now.',
+    description: 'Closed, booked, or restricted during the selected time window.',
   },
   {
     status: 'unknown',
@@ -42,7 +42,7 @@ const OVERLAY_ROWS: { kind: OverlayKind; label: string; description: string }[] 
   {
     kind: 'library',
     label: 'Study Rooms',
-    description: 'Bookable library study rooms; many can be reserved in-app.',
+    description: 'Browse study-room times here, then reserve through UMD LibCal.',
   },
   {
     kind: 'dining',
@@ -57,6 +57,7 @@ const OVERLAY_ROWS: { kind: OverlayKind; label: string; description: string }[] 
 ];
 
 const CREDITS: { source: string; detail: string }[] = [
+  { source: 'OpenStreetMap', detail: 'Campus map geometry and place data' },
   { source: 'UMD 25Live', detail: 'Classroom schedules and availability' },
   { source: 'LibCal (UMD Libraries)', detail: 'Study-room inventory and booking' },
   { source: 'UMD Dining Services', detail: 'Dining halls, menus, and shop hours' },
@@ -135,7 +136,18 @@ export function LegendSheet() {
         <div className="space-y-1.5">
           {CREDITS.map((credit) => (
             <div key={credit.source} className="text-xs leading-relaxed">
-              <span className="font-medium text-foreground">{credit.source}</span>
+              {credit.source === 'OpenStreetMap' ? (
+                <a
+                  href="https://www.openstreetmap.org/copyright"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-foreground underline underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
+                >
+                  © OpenStreetMap contributors
+                </a>
+              ) : (
+                <span className="font-medium text-foreground">{credit.source}</span>
+              )}
               <span className="text-muted-foreground"> — {credit.detail}</span>
             </div>
           ))}
