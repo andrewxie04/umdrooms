@@ -10,3 +10,9 @@ export function campusPixelRatio(width: number, height: number, deviceRatio: num
 export function campusFrameInterval(moving: boolean): number {
   return 1000 / (moving ? 60 : 30);
 }
+
+// Keep room-list gestures ahead of decorative map work. Camera gestures and
+// explicit changes (selection, resize, theme) must still paint immediately.
+export function deferAmbientFrame(now: number, browseUntil: number, moving: boolean, dirty: boolean): boolean {
+  return now < browseUntil && !moving && !dirty;
+}

@@ -15,11 +15,11 @@
 @layer base {
   :root {
     /* warm neutral surfaces (light) */
-    --background: 38 24% 97%;
-    --foreground: 22 15% 13%;
-    --card: 42 30% 99%;
+    --background: 42 33% 96%;
+    --foreground: 30 10% 15%;
+    --card: 42 38% 98%;
     --card-foreground: 22 15% 13%;
-    --popover: 42 30% 99%;
+    --popover: 42 38% 98%;
     --popover-foreground: 22 15% 13%;
 
     /* UMD red accent */
@@ -35,8 +35,8 @@
     --accent-foreground: 352 81% 40%;
     --destructive: 352 70% 45%;
     --destructive-foreground: 36 40% 98%;
-    --border: 32 14% 86%;
-    --input: 32 14% 84%;
+    --border: 35 17% 83%;
+    --input: 35 17% 78%;
     --ring: 352 81% 45%;
     --radius: 0.75rem;
 
@@ -122,6 +122,15 @@
      already define its own (component utilities always win over this). */
   :where(a, button, input, select, textarea, [role='button'], [role='option'], [tabindex]):focus-visible {
     @apply outline-none ring-2 ring-ring/50;
+  }
+}
+
+@layer components {
+  /* Local serif stack keeps the browse masthead crisp without a font download. */
+  .rooms-editorial-title {
+    font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    font-weight: 400;
+    letter-spacing: -0.035em;
   }
 }
 

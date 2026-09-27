@@ -271,7 +271,7 @@ export function SearchBar() {
           aria-activedescendant={
             showDropdown && flatResults[activeIndex] ? `search-result-${activeIndex}` : undefined
           }
-          className="h-11 w-full rounded-lg border border-input bg-background pl-10 pr-11 text-base text-foreground shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-11 w-full rounded-sm border border-input bg-card pl-10 pr-11 text-base text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60"
         />
         {searchQuery && (
           <button
@@ -294,7 +294,7 @@ export function SearchBar() {
           role="listbox"
           ref={listRef}
           className={cn(
-            'absolute inset-x-5 top-full z-30 mt-2 max-h-80 overflow-y-auto rounded-xl border border-border bg-popover p-2 shadow-2xl shadow-black/15 sm:inset-x-6',
+            'absolute inset-x-5 top-full z-30 mt-2 max-h-80 overflow-y-auto rounded-sm border border-border bg-popover p-2 shadow-lg shadow-black/10 sm:inset-x-6',
             isLandscapeSidePanel && '!inset-x-3 !max-h-[calc(100dvh-9.5rem)]',
           )}
         >
@@ -306,7 +306,7 @@ export function SearchBar() {
 
           {buildingResults.length > 0 && (
             <div className="mb-1">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 Buildings
               </p>
               {buildingResults.map((result) => {
@@ -321,7 +321,7 @@ export function SearchBar() {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => activate(result)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2.5 text-left text-[13px] transition-colors',
                       index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground'
                     )}
                   >
@@ -336,7 +336,7 @@ export function SearchBar() {
 
           {residenceResults.length > 0 && (
             <div className="mb-1">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 Residence halls
               </p>
               {residenceResults.map((result) => {
@@ -351,7 +351,7 @@ export function SearchBar() {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => activate(result)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2.5 text-left text-[13px] transition-colors',
                       index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground',
                     )}
                   >
@@ -366,7 +366,7 @@ export function SearchBar() {
 
           {placeResults.length > 0 && (
             <div className="mb-1">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 Dining & parking
               </p>
               {placeResults.map((result) => {
@@ -382,7 +382,7 @@ export function SearchBar() {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => activate(result)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2.5 text-left text-[13px] transition-colors',
                       index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground',
                     )}
                   >
@@ -399,7 +399,7 @@ export function SearchBar() {
 
           {mapResults.length > 0 && (
             <div className="mb-1">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 On the map
               </p>
               {mapResults.map((result) => {
@@ -414,7 +414,7 @@ export function SearchBar() {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => activate(result)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2.5 text-left text-[13px] transition-colors',
                       index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground',
                     )}
                   >
@@ -429,7 +429,7 @@ export function SearchBar() {
 
           {roomResults.length > 0 && (
             <div>
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 Rooms
               </p>
               {roomResults.map((result) => {
@@ -444,7 +444,7 @@ export function SearchBar() {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => activate(result)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[13px] transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2.5 text-left text-[13px] transition-colors',
                       index === activeIndex ? 'bg-accent text-accent-foreground' : 'text-foreground'
                     )}
                   >

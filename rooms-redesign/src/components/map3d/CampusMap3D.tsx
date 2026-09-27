@@ -1179,7 +1179,7 @@ export default function CampusMap3D() {
       {sceneState === 'loading' ? (
         <div className={`m3d-shimmer${darkMode ? ' m3d-shimmer-dark' : ''}`}>
           <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            <div className="flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur">
+            <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 shadow-sm">
               <span className="h-2 w-2 animate-pulse rounded-full bg-status-opening-soon" />
               <span className="text-[11px] font-medium text-muted-foreground">
                 Building 3D campus…
@@ -1210,7 +1210,7 @@ export default function CampusMap3D() {
       ) : null}
 
       {sceneState === 'ready' ? (
-        <div className="absolute right-2.5 top-2.5 z-20 flex flex-col gap-0.5 rounded-xl border border-border bg-card/90 p-1 shadow-md backdrop-blur max-[479px]:grid max-[479px]:w-[236px] max-[479px]:grid-cols-5">
+        <div className="absolute right-2.5 top-2.5 z-20 flex flex-col gap-0.5 rounded-xl border border-border bg-card p-1 shadow-md max-[479px]:grid max-[479px]:w-[236px] max-[479px]:grid-cols-5">
           <button
             type="button"
             onClick={toggleTilt}
@@ -1268,7 +1268,7 @@ export default function CampusMap3D() {
 
       {loadingStatus === 'idle' || loadingStatus === 'loading' ? (
         <div className="pointer-events-none absolute left-3 top-3 z-10">
-          <div className="flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur">
+          <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 shadow-sm">
             <span className="h-2 w-2 animate-pulse rounded-full bg-status-opening-soon" />
             <span className="text-[11px] font-medium text-muted-foreground">
               Loading campus data…
@@ -1279,7 +1279,7 @@ export default function CampusMap3D() {
 
       {loadingStatus === 'error' ? (
         <div className="pointer-events-none absolute left-3 top-3 z-10">
-          <div className="flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur">
+          <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 shadow-sm">
             <span className="h-2 w-2 rounded-full bg-status-unavailable" />
             <span className="text-[11px] font-medium text-muted-foreground">
               Live data unavailable

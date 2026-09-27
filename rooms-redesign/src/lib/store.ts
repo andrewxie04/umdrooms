@@ -16,6 +16,7 @@
 // changes (viewMode / scheduleDate / minDurationMin / now-minute tick).
 
 import { create } from 'zustand';
+import { campusDateTime, campusFormat, scheduleEnd, validSchedule } from './schedule';
 import {
   fetchAvailabilityForDate,
   fetchJsonWithProgress,
@@ -71,6 +72,8 @@ export interface CampusStore {
   // ui state
   viewMode: ViewMode;
   scheduleDate: Date; // selected date/time window (schedule mode)
+  scheduleDurationMin: number;
+  setScheduleWindow(start: Date, minutes: number): void;
   minDurationMin: number; // 0 | 60 | 120 | 180
   minCapacity: number; // 0 (All) | 20 | 50 | 100 | 150 — minimum-seat filter
   searchQuery: string;
@@ -343,18 +346,23 @@ function readDeepLink(): CampusStore['pendingDeepLink'] {
   return building || room ? { building, room } : null;
 }
 
-function readInitialSchedule(): { viewMode: ViewMode; scheduleDate: Date } {
+function readInitialSchedule(): { viewMode: ViewMode; scheduleDate: Date; scheduleDurationMin: number } {
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
     const start = params.get('start');
     if (start) {
       const startDate = new Date(start);
-      if (!isNaN(startDate.getTime())) {
-        return { viewMode: 'schedule', scheduleDate: startDate };
+      if (!isNaN(startDate.getTime()) && validSchedule(startDate, 15)) {
+        const endDate = new Date(params.get('end') || '');
+        const duration = (endDate.getTime() - startDate.getTime()) / 60_000;
+        return { viewMode: 'schedule', scheduleDate: startDate, scheduleDurationMin: validSchedule(startDate, duration) ? duration : validSchedule(startDate, 60) ? 60 : 15 };
       }
     }
   }
-  return { viewMode: 'now', scheduleDate: new Date() };
+  const now = new Date();
+  const hour = Math.min(22, Number(campusFormat(now, 'HH')));
+  const start = campusDateTime(campusFormat(now, 'yyyy-MM-dd'), `${String(hour).padStart(2, '0')}:00`)!;
+  return { viewMode: 'now', scheduleDate: start, scheduleDurationMin: 60 };
 }
 
 // ---------------------------------------------------------------------------
@@ -465,7 +473,7 @@ function currentContext(): DeriveContext {
   const startTime = isNow ? new Date() : s.scheduleDate;
   return {
     startTime,
-    endTime: null,
+    endTime: s.viewMode === 'schedule' ? scheduleEnd(startTime, s.scheduleDurationMin) : null,
     isNow,
     durationHours: Math.max(0, s.minDurationMin) / 60,
     minCapacity: Math.max(0, s.minCapacity),
@@ -1176,6 +1184,7 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
   // ui state
   viewMode: initialSchedule.viewMode,
   scheduleDate: initialSchedule.scheduleDate,
+  scheduleDurationMin: initialSchedule.scheduleDurationMin,
   minDurationMin: 0,
   minCapacity: 0,
   searchQuery: '',
@@ -1224,6 +1233,15 @@ export const useCampusStore = create<CampusStore>()((set, get) => ({
     set({ viewMode: m, activeDateKey: dateKey });
     refreshForActiveDate();
     syncNowTicker();
+  },
+
+  setScheduleWindow: (start, minutes) => {
+    if (!validSchedule(start, minutes)) return;
+    const dateKey = getDateKey(start);
+    const changedDay = dateKey !== get().activeDateKey;
+    set({ scheduleDate: start, scheduleDurationMin: minutes, activeDateKey: dateKey });
+    if (changedDay) refreshForActiveDate();
+    else recomputeDerived();
   },
 
   setScheduleDate: (d) => {

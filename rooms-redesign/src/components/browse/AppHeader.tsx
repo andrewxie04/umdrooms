@@ -49,7 +49,7 @@ export function AppHeader() {
 
   return (
     <header className={cn(
-      'shrink-0 border-b border-border/50 bg-gradient-to-br from-primary/[0.035] via-transparent to-transparent px-3 pb-3 pt-4 min-[360px]:px-5 min-[360px]:pb-4 min-[360px]:pt-5 sm:px-6',
+      'shrink-0 border-b border-border/70 bg-background px-3 pb-3 pt-4 min-[360px]:px-5 min-[360px]:pb-4 min-[360px]:pt-5 sm:px-6',
       !hasSidePanel && '!pb-2 !pt-2',
       isLandscapeSidePanel && '!px-3 !pb-1 !pt-1',
     )}>
@@ -59,21 +59,21 @@ export function AppHeader() {
             <span className="mt-auto h-1/4 w-full bg-[#f3c948]" />
           </span>
           <div className="min-w-0">
-            <p className={cn('hidden text-[10px] font-bold uppercase tracking-[0.17em] text-accent-foreground min-[360px]:block', isLandscapeSidePanel && '!hidden')}>University of Maryland</p>
-            <h1 className={cn('mt-1 whitespace-nowrap text-[20px] font-semibold leading-none tracking-[-0.045em] text-foreground min-[360px]:mt-0.5 min-[360px]:text-[25px]', isLandscapeSidePanel && '!mt-1 !text-[20px]')}>
+            <p className={cn('hidden text-[10px] font-medium uppercase tracking-[0.17em] text-muted-foreground min-[360px]:block', isLandscapeSidePanel && '!hidden')}>University of Maryland</p>
+            <h1 className={cn('rooms-editorial-title mt-1 whitespace-nowrap text-[21px] leading-none text-foreground min-[360px]:mt-1 min-[360px]:text-[28px]', isLandscapeSidePanel && '!mt-1 !text-[20px]')}>
               Campus Rooms
             </h1>
             <p className={cn('mt-1.5 hidden text-xs leading-snug text-muted-foreground min-[360px]:block', !hasSidePanel && '!hidden', isLandscapeSidePanel && '!hidden')}>Find your place on campus</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border/50 bg-background/50 p-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={() => setFavoritesOpen(true)}
             aria-label="Open favorites"
             title="Favorites"
-            className={cn('rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground', compactPointerControls ? 'size-8' : 'size-11')}
+            className={cn('rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground', compactPointerControls ? 'size-8' : 'size-11')}
           >
             <Star className="size-4" />
           </Button>
@@ -83,7 +83,7 @@ export function AppHeader() {
             onClick={() => setLegendOpen(true)}
             aria-label="Open map legend"
             title="Map legend"
-            className={cn('rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground', compactPointerControls ? 'size-8' : 'size-11')}
+            className={cn('rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground', compactPointerControls ? 'size-8' : 'size-11')}
           >
             <Info className="size-4" />
           </Button>
@@ -94,7 +94,7 @@ export function AppHeader() {
             aria-label={timeLabel}
             title={timeLabel}
             data-time-state={timeState}
-            className={cn('relative rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground', compactPointerControls ? 'size-8' : 'size-11')}
+            className={cn('relative rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground', compactPointerControls ? 'size-8' : 'size-11')}
           >
             <TimeIcon className="size-4" />
             {timeState === 'auto' && (
@@ -118,12 +118,12 @@ export function AppHeader() {
               onClick={() => toggleOverlay(key)}
               aria-pressed={active}
               className={cn(
-                'inline-flex items-center gap-0.5 rounded-lg border px-1.5 py-1 text-[10px] font-semibold transition-colors min-[360px]:gap-1 min-[360px]:px-2 min-[360px]:text-[11px] sm:gap-1.5 sm:px-2.5 min-[900px]:max-[1023px]:gap-0.5 min-[900px]:max-[1023px]:px-1.5 min-[900px]:max-[1023px]:text-[10px]',
+                'inline-flex items-center gap-0.5 rounded-none border-b-2 px-1.5 py-1 text-[10px] font-semibold transition-colors min-[360px]:gap-1 min-[360px]:px-2 min-[360px]:text-[11px] sm:gap-1.5 sm:px-2.5 min-[900px]:max-[1023px]:gap-0.5 min-[900px]:max-[1023px]:px-1.5 min-[900px]:max-[1023px]:text-[10px]',
                 compactPointerControls ? 'min-h-10' : 'min-h-11',
                 isLandscapeSidePanel && '!gap-0.5 !px-1.5 !text-[10px]',
                 active
-                  ? 'border-primary/20 bg-primary/[0.08] text-accent-foreground'
-                  : 'border-transparent bg-muted/50 text-muted-foreground hover:border-foreground/25 hover:bg-muted hover:text-foreground'
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:border-foreground/25 hover:bg-muted/50 hover:text-foreground'
               )}
             >
               <Icon className="size-3.5" />

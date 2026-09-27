@@ -44,19 +44,19 @@ function BuildingRow({
 }) {
   return (
     <div
-      className="group relative flex w-full items-center gap-3 rounded-xl border border-border/35 bg-background/35 px-3 py-3 text-left transition-[background-color,border-color] hover:border-primary/20 hover:bg-card"
+      className="group relative flex w-full items-center gap-3 border-b border-border/60 px-3 py-3.5 text-left transition-colors hover:bg-muted/60"
     >
       <button
         type="button"
         onClick={() => onOpen(building)}
         aria-label={`Open ${building.name}. ${building.dataIssue ? 'Limited data' : STATUS_LABEL[building.status]}. ${roomCountLabel}`}
-        className="absolute inset-0 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="absolute inset-0 cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       />
-      <span className="pointer-events-none flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/40 bg-muted/65 text-[10px] font-bold tracking-tight text-foreground/75" aria-hidden>
+      <span className="pointer-events-none flex size-9 shrink-0 items-center justify-center text-[10px] font-medium tracking-[0.08em] text-muted-foreground" aria-hidden>
         {building.code.slice(0, 3)}
       </span>
       <span className="pointer-events-none min-w-0 flex-1">
-        <span className="line-clamp-2 text-[13px] font-semibold leading-snug text-foreground">{building.name}</span>
+        <span className="line-clamp-2 text-[13px] font-medium leading-snug text-foreground">{building.name}</span>
         <span className="mt-1 flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
           <span className={cn('size-1.5 shrink-0 rounded-full', STATUS_DOT_CLASS[building.status])} aria-hidden />
           <span className="truncate">
@@ -241,7 +241,7 @@ export function BuildingList() {
                 ? 'for the weekend'
                 : 'for the night'}
           </p>
-          <div className="mt-3 inline-flex flex-col items-center rounded-xl border border-border/60 bg-muted/40 px-4 py-2.5">
+          <div className="mt-3 inline-flex flex-col items-center border-y border-border/60 px-4 py-2.5">
             <span className="text-lg font-semibold tabular-nums text-foreground">
               {closedSnapshot.countdown}
             </span>
@@ -270,10 +270,10 @@ export function BuildingList() {
         <>
           {visiblePlaces.length > 0 && (
             <section className="mb-3">
-              <h2 className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
+              <h2 className="px-3 pb-2 pt-1 text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground">
                 Dining & parking
               </h2>
-              <div className="space-y-1.5">
+              <div className="space-y-0">
                 {visiblePlaces.map((place) => {
                   const Icon = place.kind === 'dining' ? UtensilsCrossed : CarFront;
                   return (
@@ -285,13 +285,13 @@ export function BuildingList() {
                         select({ kind: place.kind, id: place.id });
                       }}
                       aria-label={`Open ${place.name}. ${place.kind === 'dining' ? 'Dining' : 'Parking'}. ${place.statusText}`}
-                      className="group flex w-full min-h-14 items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-[background-color,border-color] hover:border-border/70 hover:bg-card focus-visible:outline-2 focus-visible:outline-primary"
+                      className="group flex w-full min-h-14 items-center gap-3 border-b border-border/60 px-3 py-3 text-left transition-colors hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-primary"
                     >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/55 text-muted-foreground">
+                      <span className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
                         <Icon className="size-4" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-semibold text-foreground">{place.name}</span>
+                        <span className="block truncate text-[13px] font-medium text-foreground">{place.name}</span>
                         <span className="mt-1 block truncate text-[11px] text-muted-foreground">
                           {place.kind === 'dining' ? 'Dining' : 'Parking'} · {place.statusText}
                         </span>
@@ -305,10 +305,10 @@ export function BuildingList() {
           )}
           {visibleResidences.length > 0 && (
             <section className="mb-3">
-              <h2 className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
+              <h2 className="px-3 pb-2 pt-1 text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground">
                 Residence halls
               </h2>
-              <div className="space-y-1.5">
+              <div className="space-y-0">
                 {visibleResidences.map((hall) => (
                   <button
                     key={hall.id}
@@ -318,13 +318,13 @@ export function BuildingList() {
                       select({ kind: 'residence', id: hall.id });
                     }}
                     aria-label={`Open ${hall.name}. ${hall.community} Community residence hall`}
-                    className="group flex w-full min-h-14 items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-[background-color,border-color] hover:border-border/70 hover:bg-card focus-visible:outline-2 focus-visible:outline-primary"
+                    className="group flex w-full min-h-14 items-center gap-3 border-b border-border/60 px-3 py-3 text-left transition-colors hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-primary"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/55 text-muted-foreground">
+                    <span className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
                       <House className="size-4" aria-hidden />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-semibold text-foreground">{hall.name}</span>
+                      <span className="block truncate text-[13px] font-medium text-foreground">{hall.name}</span>
                       <span className="mt-1 block truncate text-[11px] text-muted-foreground">{hall.community} Community · Residence hall</span>
                     </span>
                     <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" aria-hidden />
@@ -335,10 +335,10 @@ export function BuildingList() {
           )}
           {visibleMapBuildings.length > 0 && (
             <section className="mb-3">
-              <h2 className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
+              <h2 className="px-3 pb-2 pt-1 text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground">
                 On the map
               </h2>
-              <div className="space-y-1.5">
+              <div className="space-y-0">
                 {visibleMapBuildings.map((place) => (
                   <button
                     key={place.id}
@@ -348,13 +348,13 @@ export function BuildingList() {
                       select({ kind: 'map-building', id: place.id });
                     }}
                     aria-label={`Open ${place.name} on the 3D map`}
-                    className="group flex w-full min-h-14 items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-[background-color,border-color] hover:border-border/70 hover:bg-card focus-visible:outline-2 focus-visible:outline-primary"
+                    className="group flex w-full min-h-14 items-center gap-3 border-b border-border/60 px-3 py-3 text-left transition-colors hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-primary"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/55 text-muted-foreground">
+                    <span className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
                       <Building2 className="size-4" aria-hidden />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-semibold text-foreground">{place.name}</span>
+                      <span className="block truncate text-[13px] font-medium text-foreground">{place.name}</span>
                       <span className="mt-1 block truncate text-[11px] text-muted-foreground">
                         {place.id === 'way/980371045' ? 'Athletics venue' : '3D campus building'}
                         {place.code ? ` · ${place.code}` : ''}
@@ -368,18 +368,18 @@ export function BuildingList() {
           )}
           {favoriteBuildings.length + otherBuildings.length > 0 && (
             <div className="flex items-center justify-between px-3 pb-2 pt-1">
-              <h2 className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">Buildings</h2>
+              <h2 className="text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground">Buildings</h2>
               <span className="text-[11px] tabular-nums text-muted-foreground">
                 {favoriteBuildings.length + otherBuildings.length} shown
               </span>
             </div>
           )}
           {favoriteBuildings.length > 0 && (
-            <section className="mb-3 rounded-xl border border-border/70 bg-muted/25 p-1">
-              <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+            <section className="mb-4">
+              <p className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 Favorites
               </p>
-              <div className="space-y-1.5">
+              <div className="space-y-0">
                 {favoriteBuildings.map((building) => (
                   <BuildingRow
                     key={`fav-${building.code}`}
@@ -393,7 +393,7 @@ export function BuildingList() {
               </div>
             </section>
           )}
-          <div className="space-y-1.5">
+          <div className="space-y-0">
             {otherBuildings.map((building) => (
               <BuildingRow
                 key={building.code}

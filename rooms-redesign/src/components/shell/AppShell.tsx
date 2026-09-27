@@ -126,7 +126,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           aria-label={browsePanelHidden ? 'Show room browser' : 'Hide room browser'}
           aria-controls="campus-browse-panel"
           aria-expanded={!browsePanelHidden}
-          className="pointer-events-auto absolute z-10 inline-flex min-h-10 items-center gap-2 rounded-xl border border-border/70 bg-card/95 px-3 text-xs font-semibold text-foreground shadow-lg shadow-black/10 backdrop-blur-md hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className="pointer-events-auto absolute z-10 inline-flex min-h-10 items-center gap-2 rounded-xl border border-border/70 bg-card px-3 text-xs font-semibold text-foreground shadow-lg shadow-black/10 hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           style={{
             top: isLandscapeSidePanel ? '0.5rem' : '1rem',
             left: browsePanelHidden
@@ -143,12 +143,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
           id="campus-browse-panel"
           aria-label="Campus availability browser"
           className={`${isLandscapeSidePanel
-            ? `pointer-events-auto absolute left-2 top-2 flex w-[min(360px,53vw)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-2xl shadow-black/10 backdrop-blur-md ${landscapeBriefKind === 'map'
+            ? `pointer-events-auto absolute left-2 top-2 flex w-[min(360px,53vw)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xl shadow-black/10 ${landscapeBriefKind === 'map'
               ? 'h-[min(275px,calc(100dvh-1rem))]'
               : landscapeBriefKind === 'residence'
                 ? 'h-[min(340px,calc(100dvh-1rem))]'
                 : 'h-[calc(100dvh-1rem)]'}`
-            : 'pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] w-[min(420px,42vw)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-2xl shadow-black/10 backdrop-blur-md'}${browsePanelHidden ? ' !hidden' : ''}`}
+            : 'pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] w-[min(420px,42vw)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xl shadow-black/10'}${browsePanelHidden ? ' !hidden' : ''}`}
         >
           {children}
         </aside>
@@ -172,7 +172,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       >
         <DrawerContent
           aria-describedby={undefined}
-          className="mt-0 h-[100dvh] rounded-t-2xl border-border/70 bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md data-[vaul-drawer-direction=bottom]:max-h-[100dvh]"
+          className="mt-0 h-[100dvh] rounded-t-2xl border-border/70 bg-card pb-[env(safe-area-inset-bottom)] data-[vaul-drawer-direction=bottom]:max-h-[100dvh]"
           handle={
             <div className="relative flex h-11 shrink-0 items-center justify-center px-3">
               <span aria-hidden className="h-1.5 w-14 rounded-full bg-muted-foreground/35" />

@@ -14,7 +14,7 @@ import { createWaterNormalMap, setWaterUVs } from './water-surface';
 
 import * as THREE from 'three';
 import { MapControls } from './controls';
-import { campusFrameInterval, campusPixelRatio } from './render-budget';
+import { campusFrameInterval, campusPixelRatio, deferAmbientFrame } from './render-budget';
 import { uniqueBuildingFootprints } from './building-footprints';
 import type { CameraPose } from './controls';
 import { buildSceneGeometries, buildingSolidGeometry } from './geometry';
@@ -1280,9 +1280,23 @@ export async function createCampusScene(
   const scratchNdc = new THREE.Vector3();
   const scratchView = new THREE.Vector3();
 
+  let browseUntil = 0;
+  const onBrowseScroll = (event: Event): void => {
+    // Capture catches native scroll (including touch/keyboard momentum), which
+    // does not bubble. Map wheel gestures remain entirely with camera controls.
+    if (!(event.target instanceof Element) || container.contains(event.target)) return;
+    browseUntil = performance.now() + 180;
+  };
+  document.addEventListener('scroll', onBrowseScroll, { capture: true, passive: true });
+  document.addEventListener('wheel', onBrowseScroll, { capture: true, passive: true });
+
   const renderFrame = (nowMs: number): void => {
     if (disposed || document.hidden) return;
     rafId = requestAnimationFrame(renderFrame);
+    if (deferAmbientFrame(nowMs, browseUntil, controls.isMoving(), needsRender)) {
+      lastTime = nowMs; // resume animations smoothly, without catching up elapsed motion
+      return;
+    }
     // Leave CPU/GPU time for scrolling and the room browser. Allow a small
     // clock tolerance so 60 Hz screens do not accidentally fall to 30 Hz.
     if (!needsRender && nowMs - lastTime < campusFrameInterval(controls.isMoving()) - 0.75) return;
@@ -1542,6 +1556,8 @@ export async function createCampusScene(
       disposed = true;
       cancelAnimationFrame(rafId);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      document.removeEventListener('scroll', onBrowseScroll, true);
+      document.removeEventListener('wheel', onBrowseScroll, true);
       resizeObserver.disconnect();
       controls.dispose();
       frameCallbacks.clear();

@@ -107,6 +107,7 @@ function useCampusNowHour(live: boolean): number {
 export function RoomTimeline({ room }: { room: RoomEntry }) {
   const activeDateKey = useCampusStore((s) => s.activeDateKey);
   const viewMode = useCampusStore((s) => s.viewMode);
+  const scheduleDurationMin = useCampusStore((s) => s.scheduleDurationMin);
   const scheduleDate = useCampusStore((s) => s.scheduleDate);
 
   const isLibCal = room.raw?.source === 'libcal';
@@ -153,9 +154,9 @@ export function RoomTimeline({ room }: { room: RoomEntry }) {
 
         {showScheduleLine && (
           <div
-            className="absolute inset-y-0 w-px border-l border-dashed border-foreground/50"
-            style={{ left: `${toPct(scheduleHour)}%` }}
-            title={`Selected time ${formatDecimalHourLabel(scheduleHour)}`}
+            className="absolute inset-y-0 border-x border-dashed border-foreground/70 bg-foreground/10"
+            style={{ left: `${toPct(scheduleHour)}%`, width: `${toPct(Math.min(DAY_END, scheduleHour + scheduleDurationMin / 60)) - toPct(scheduleHour)}%` }}
+            title={`Your visit ${formatDecimalHourLabel(scheduleHour)} – ${formatDecimalHourLabel(scheduleHour + scheduleDurationMin / 60)}`}
           />
         )}
         {showNowLine && (

@@ -2,8 +2,8 @@
 // compact date+time picker in Schedule mode (with inline per-day fetch
 // progress) and the minimum-duration filter chips in Now mode.
 
-import { useState } from 'react';
-import { CalendarDays, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { lazy, Suspense, useState } from 'react';
+import { Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Progress } from '@/components/ui/progress';
 import { useCampusStore } from '@/lib/store';
@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils';
 import type { ViewMode } from '@/types/campus';
 import { useMediaQuery } from '@/components/shell/useMediaQuery';
 import { LANDSCAPE_SIDE_QUERY, SIDE_PANEL_QUERY } from '@/components/shell/layout';
+
+const SchedulePicker = lazy(() => import('./SchedulePicker').then(m => ({default: m.SchedulePicker})));
 
 const MODE_OPTIONS: { value: ViewMode; label: string }[] = [
   { value: 'now', label: 'Now' },
@@ -34,18 +36,6 @@ const CAPACITY_OPTIONS: { value: number; label: string }[] = [
   { value: 150, label: '150+' },
 ];
 
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-function toDateInputValue(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function toTimeInputValue(d: Date): string {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-
 export function ModeTabs() {
   const isLandscapeSidePanel = useMediaQuery(LANDSCAPE_SIDE_QUERY);
   const hasSidePanel = useMediaQuery(SIDE_PANEL_QUERY);
@@ -54,8 +44,6 @@ export function ModeTabs() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const viewMode = useCampusStore((s) => s.viewMode);
   const setViewMode = useCampusStore((s) => s.setViewMode);
-  const scheduleDate = useCampusStore((s) => s.scheduleDate);
-  const setScheduleDate = useCampusStore((s) => s.setScheduleDate);
   const minDurationMin = useCampusStore((s) => s.minDurationMin);
   const setMinDuration = useCampusStore((s) => s.setMinDuration);
   const minCapacity = useCampusStore((s) => s.minCapacity);
@@ -64,22 +52,6 @@ export function ModeTabs() {
   const buildings = useCampusStore((s) => s.buildings);
   const retryDayData = useCampusStore((s) => s.retryDayData);
   const refreshDayData = useCampusStore((s) => s.refreshDayData);
-
-  function onDateChange(value: string) {
-    const [y, m, d] = value.split('-').map(Number);
-    if (!y || !m || !d) return;
-    const next = new Date(scheduleDate);
-    next.setFullYear(y, m - 1, d);
-    if (!isNaN(next.getTime())) setScheduleDate(next);
-  }
-
-  function onTimeChange(value: string) {
-    const [h, min] = value.split(':').map(Number);
-    if (isNaN(h) || isNaN(min)) return;
-    const next = new Date(scheduleDate);
-    next.setHours(h, min, 0, 0);
-    if (!isNaN(next.getTime())) setScheduleDate(next);
-  }
 
   const showDayFetch = dayFetch.status === 'loading' || dayFetch.status === 'error';
   const failedClassroomNames = dayFetch.status === 'error'
@@ -130,25 +102,7 @@ export function ModeTabs() {
         ))}
       </ToggleGroup>
 
-      {viewMode === 'schedule' && (
-        <div className="flex items-center gap-2">
-          <CalendarDays className="size-4 shrink-0 text-primary" />
-          <input
-            type="date"
-            value={toDateInputValue(scheduleDate)}
-            onChange={(e) => onDateChange(e.target.value)}
-            aria-label="Schedule date"
-            className={cn('min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/20', compactPointerControls ? 'h-10' : 'h-11')}
-          />
-          <input
-            type="time"
-            value={toTimeInputValue(scheduleDate)}
-            onChange={(e) => onTimeChange(e.target.value)}
-            aria-label="Schedule start time"
-            className={cn('w-[7.5rem] shrink-0 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/20', compactPointerControls ? 'h-10' : 'h-11')}
-          />
-        </div>
-      )}
+      {viewMode === 'schedule' && <Suspense fallback={<p className="text-xs text-muted-foreground">Loading planner…</p>}><SchedulePicker /></Suspense>}
 
       {showDayFetch && (
         <div

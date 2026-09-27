@@ -1,3 +1,4 @@
+import { scheduleEnd, campusFormat } from '@/lib/schedule';
 // browse/RoomRow.tsx — one expandable room row inside BuildingDetail. Shows
 // status (with a 'Free until' badge and time remaining in Now mode),
 // capacity, a favorite star, a 'Book' badge for LibCal-sourced rooms (emits
@@ -53,6 +54,7 @@ export function RoomRow({
   onBook: () => void;
 }) {
   const viewMode = useCampusStore((s) => s.viewMode);
+  const scheduleDurationMin = useCampusStore((s) => s.scheduleDurationMin);
   const scheduleDate = useCampusStore((s) => s.scheduleDate);
 
   const isLibCal = room.raw?.source === 'libcal';
@@ -100,6 +102,7 @@ export function RoomRow({
     params.set('room', room.name);
     if (viewMode === 'schedule') {
       params.set('start', scheduleDate.toISOString());
+      params.set('end', scheduleEnd(scheduleDate, scheduleDurationMin).toISOString());
     }
     const url = `${base}?${params.toString()}`;
 
@@ -113,7 +116,7 @@ export function RoomRow({
         })}`
       );
       lines.push(
-        `🕐 ${scheduleDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+        `🕐 ${campusFormat(scheduleDate, 'h:mm a')}–${campusFormat(scheduleEnd(scheduleDate, scheduleDurationMin), 'h:mm a')} ET`
       );
     }
     lines.push('');
