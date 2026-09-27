@@ -50,7 +50,7 @@ export function ModeTabs() {
   const isLandscapeSidePanel = useMediaQuery(LANDSCAPE_SIDE_QUERY);
   const hasSidePanel = useMediaQuery(SIDE_PANEL_QUERY);
   const compactPointerControls = hasSidePanel && !isLandscapeSidePanel;
-  const useCompactFilters = !hasSidePanel || isLandscapeSidePanel;
+  const useCompactFilters = true;
   const [filtersOpen, setFiltersOpen] = useState(false);
   const viewMode = useCampusStore((s) => s.viewMode);
   const setViewMode = useCampusStore((s) => s.setViewMode);
@@ -112,7 +112,7 @@ export function ModeTabs() {
         }}
         aria-label="Availability view mode"
         spacing={1}
-        className="w-full rounded-lg border border-border/60 bg-muted/60 p-1"
+        className="w-full rounded-xl border border-border/50 bg-muted/45 p-1"
       >
         {MODE_OPTIONS.map((option) => (
           <ToggleGroupItem
@@ -121,7 +121,7 @@ export function ModeTabs() {
             className={cn(
               'flex-1 rounded-md text-xs font-semibold text-muted-foreground transition-colors',
               compactPointerControls ? 'h-9' : 'h-11',
-              'data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm',
+              'data-[state=on]:bg-card data-[state=on]:text-accent-foreground data-[state=on]:shadow-sm data-[state=on]:ring-1 data-[state=on]:ring-border/60',
               'hover:text-foreground'
             )}
           >
@@ -205,7 +205,7 @@ export function ModeTabs() {
               )}
             >
               <SlidersHorizontal className="size-3.5" aria-hidden />
-              Filters{minDurationMin > 0 || minCapacity > 0 ? ' · active' : ''}
+              Filters{minDurationMin > 0 || minCapacity > 0 ? ` · ${[minDurationMin > 0 ? `${minDurationMin / 60}h+ free` : '', minCapacity > 0 ? `${minCapacity}+ seats` : ''].filter(Boolean).join(' · ')}` : ''}
             </button>
           )}
           {showFreshness && (

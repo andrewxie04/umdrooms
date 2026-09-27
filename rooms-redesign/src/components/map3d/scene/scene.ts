@@ -1,3 +1,5 @@
+import { initSports } from './sports';
+import { createWaterNormalMap, setWaterUVs } from './water-surface';
 // src/components/map3d/scene/scene.ts
 //
 // createCampusScene — self-contained three.js campus renderer implementing
@@ -290,20 +292,22 @@ export async function createCampusScene(
   roads.receiveShadow = true;
   const areas = new THREE.Mesh(geoms.areas, flatMat);
   areas.receiveShadow = true;
-  // Water: dedicated merged mesh (water/fountain/pool polygons + waterway
-  // ribbons, vertex-colored shore->deep gradient + shore ring baked in
-  // geometry.ts). Clearcoat provides a broad glint from the sun/moon while
-  // preserving the shoreline-to-deep-water vertex colors.
+  // One surface per mapped polygon, with subtle world-scale wind ripples.
+  const waterNormalMap = createWaterNormalMap();
+  setWaterUVs(geoms.water);
   const waterMat = new THREE.MeshPhysicalMaterial({
     vertexColors: true,
-    roughness: 0.29,
-    metalness: 0.04,
-    clearcoat: 0.55,
-    clearcoatRoughness: 0.23,
+    roughness: 0.38,
+    metalness: 0,
+    normalMap: waterNormalMap,
+    normalScale: new THREE.Vector2(0.18, 0.18),
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.32,
   });
   const water = new THREE.Mesh(geoms.water, waterMat);
   water.receiveShadow = true;
   const fountainGeometry = buildMallFountain(data, proj);
+  if (fountainGeometry) setWaterUVs(fountainGeometry.water);
   const fountainWater = fountainGeometry
     ? new THREE.Mesh(fountainGeometry.water, waterMat.clone()) : null;
   const fountainStone = fountainGeometry
@@ -1234,6 +1238,7 @@ export async function createCampusScene(
   // raycast, Lake Artemesia duck, Shuttle-UM bus, turtle mode, 2AM stillness.
   // Initialized after every dependency above exists; updated in the render
   // loop AFTER updateTimeOfDay; disposed with the scene.
+  const sports = initSports(scene, camera, data, proj);
   const easterEggs = initEasterEggs({
     scene,
     camera,
@@ -1294,6 +1299,7 @@ export async function createCampusScene(
     // Easter eggs: runs after updateTimeOfDay so 2AM dimming post-multiplies
     // the freshly-written lamp/window values.
     if (easterEggs.update(dt)) needsRender = true;
+    if (sports.update(dt)) needsRender = true;
     // Flicker last: it reads the FINAL shared-lamp values as its baseline, so
     // the bad ballasts dim with everything else at 2AM instead of blazing on.
     if (updateLampFlicker(nowMs / 1000, easterEggs.getStillness())) needsRender = true;
@@ -1539,6 +1545,7 @@ export async function createCampusScene(
       resizeObserver.disconnect();
       controls.dispose();
       frameCallbacks.clear();
+      sports.dispose();
       easterEggs.dispose(); // restores car geometry/count before disposal below
       seasons.dispose(); // hands the baked foliage/lawn colours back
       delete (window as unknown as Record<string, unknown>).__campusScene;
@@ -1559,6 +1566,7 @@ export async function createCampusScene(
       pickMaterial.dispose();
       lampPoolTexture.dispose(); // canvas texture — not covered by material.dispose()
       groundTexture.dispose();
+      waterNormalMap.dispose();
       surfaceTexture.dispose();
       buildingTexture.dispose();
       renderer.dispose();

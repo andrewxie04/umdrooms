@@ -1,5 +1,5 @@
 // browse/RoomRow.tsx — one expandable room row inside BuildingDetail. Shows
-// status (with an 'until h:mm a' pill for available rooms in Now mode),
+// status (with a 'Free until' badge and time remaining in Now mode),
 // capacity, a favorite star, a 'Book' badge for LibCal-sourced rooms (emits
 // the room selection for the features agent's booking flow), and expands to
 // reveal the RoomTimeline plus the live-site parity detail card: share action,
@@ -7,7 +7,7 @@
 // per-event expand/collapse.
 
 import { useMemo, useState } from 'react';
-import { BookOpen, ChevronDown, ExternalLink, Share2, Star } from 'lucide-react';
+import { BookOpen, ChevronDown, Clock3, ExternalLink, Share2, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCampusStore } from '@/lib/store';
 import {
@@ -66,10 +66,18 @@ export function RoomRow({
     room.displayStatus === 'Closed' || room.displayStatus === 'Bookable Later'
       ? room.displayStatus
       : null;
+  const openAllDay = room.raw?.source === 'supplemental' &&
+    room.raw?.supplemental?.hours?.type === 'always' && room.availableUntil === '12:00 AM';
+  const showFreeUntil = !openAllDay && viewMode === 'now' && room.status === 'available' && Boolean(room.availableUntil);
+  const remainingMinutes = Math.max(0, Math.floor((room.availableHours ?? 0) * 60 + 1e-6));
+  const remainingLabel = remainingMinutes >= 60
+    ? `${Math.floor(remainingMinutes / 60)}h${remainingMinutes % 60 ? ` ${remainingMinutes % 60}m` : ''} left`
+    : remainingMinutes > 0 ? `${remainingMinutes}m left` : 'Less than 1m left';
   const metaParts = [
-    room.status === 'available' && room.availableUntil
-      ? `Available until ${room.availableUntil}`
-      : (engineStatus ?? STATUS_LABEL[room.status]),
+    showFreeUntil
+      ? `Free until ${room.availableUntil}`
+      : (viewMode === 'now' && room.status === 'available' && openAllDay
+        ? 'Open 24 hours' : engineStatus ?? STATUS_LABEL[room.status]),
   ];
   if (Number.isFinite(capacity) && capacity > 0) {
     metaParts.push(`${capacity} seat${capacity === 1 ? '' : 's'}`);
@@ -132,7 +140,7 @@ export function RoomRow({
   return (
     <div
       className={cn(
-        'rounded-lg border bg-card/70 shadow-sm transition-[border-color,background-color,box-shadow]',
+        'rounded-xl border bg-card/80 shadow-sm transition-[border-color,background-color,box-shadow]',
         selected
           ? 'border-primary/35 bg-primary/5'
           : 'border-border/70 hover:border-border hover:bg-card',
@@ -141,7 +149,7 @@ export function RoomRow({
     >
       <div
         className={cn(
-          'relative flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left sm:gap-3',
+          'relative flex w-full flex-wrap items-center gap-2 rounded-xl px-3 py-3 text-left sm:gap-3',
           isLibCal && 'max-[359px]:grid max-[359px]:grid-cols-[10px_minmax(0,1fr)_44px_16px] max-[359px]:gap-x-2 max-[359px]:gap-y-1.5',
         )}
       >
@@ -159,10 +167,11 @@ export function RoomRow({
         <span className={cn('pointer-events-none min-w-0 flex-1', isLibCal && 'max-[359px]:col-[2/5] max-[359px]:row-1')}>
           <span className="line-clamp-2 text-[13px] font-semibold text-foreground">{room.name}</span>
           <span className="mt-1 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[11px] leading-tight text-muted-foreground">
-            {metaParts.map((part) => (
+            {(showFreeUntil ? metaParts.slice(1) : metaParts).map((part) => (
               <span key={part} className="whitespace-nowrap">{part}</span>
             ))}
           </span>
+
         </span>
 
         {isLibCal && (
@@ -198,6 +207,20 @@ export function RoomRow({
             expanded && 'rotate-180'
           )}
         />
+          {showFreeUntil && (
+            <span
+              className="pointer-events-none flex basis-full flex-wrap items-center gap-x-2 gap-y-1 pl-5 text-[11px] leading-tight max-[359px]:col-span-full max-[359px]:row-start-3"
+              title={isLibCal ? 'Based on bookable times; reservation required.' : 'Based on the posted schedule and operating hours.'}
+            >
+              <span className="inline-flex whitespace-nowrap items-center gap-1 rounded-md bg-status-available/10 px-1.5 py-1 font-medium text-status-available">
+                <Clock3 className="size-3 shrink-0" aria-hidden />
+                Free until {room.availableUntil}
+              </span>
+              {room.availableHours != null && room.availableHours > 0 && (
+                <span className="text-muted-foreground">{remainingLabel}</span>
+              )}
+            </span>
+          )}
       </div>
 
       {expanded && (

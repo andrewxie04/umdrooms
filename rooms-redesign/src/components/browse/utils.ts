@@ -341,12 +341,12 @@ export function getRoomNoteLines(room: RoomEntry): string[] {
  *  from legacy Sidebar.js getSupplementalHoursRows. */
 export function getSupplementalHoursLines(room: RoomEntry): string[] {
   const raw = room.raw ?? {};
-  if (raw.source !== 'supplemental' || raw.supplemental?.mode !== 'hours') return [];
+  if (raw.source !== 'supplemental') return [];
   const hours = raw.supplemental?.hours;
   if (!hours) return [];
 
   if (hours.type === 'always') {
-    return ['Open 24/7'];
+    return [hours.holidayClosed ? 'Open 24/7 except holidays' : 'Open 24/7'];
   }
 
   if (hours.type === 'weekday-window') {

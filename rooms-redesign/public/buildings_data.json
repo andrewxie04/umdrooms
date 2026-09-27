@@ -167417,7 +167417,19 @@
         "building_code": "EGR",
         "building_latitude": 38.9888688,
         "building_longitude": -76.9379744096244,
-        "availability_times": []
+        "availability_times": [],
+        "access_note": "Faculty, staff, and students",
+        "details_note": "24/7 except holidays",
+        "source_url": "https://clarknet.eng.umd.edu/computer-labs/egr-0310",
+        "source_label": "Official Lab Page",
+        "supplemental": {
+          "mode": "hours",
+          "hours": {
+            "type": "always",
+            "holidayClosed": true
+          }
+        },
+        "source": "supplemental"
       },
       {
         "id": "supp-egr-0312",
@@ -167432,7 +167444,20 @@
         "building_code": "EGR",
         "building_latitude": 38.9888688,
         "building_longitude": -76.9379744096244,
-        "availability_times": []
+        "availability_times": [],
+        "access_note": "Faculty, staff, and students",
+        "details_note": "24/7 except holidays; reservations shown on the official lab page",
+        "source_url": "https://clarknet.eng.umd.edu/computer-labs/egr-0312",
+        "source_label": "Official Lab Page",
+        "supplemental": {
+          "mode": "calendar",
+          "calendar_id": "c_18839oa5og6noh83krtidm3lkgngg@resource.calendar.google.com",
+          "hours": {
+            "type": "always",
+            "holidayClosed": true
+          }
+        },
+        "source": "supplemental"
       },
       {
         "id": "supp-egr-1156",

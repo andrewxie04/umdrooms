@@ -826,7 +826,7 @@ export function getAvailableUntil(room, currentDateTime = null) {
   for (const ev of todayEvents) {
     const startDecimal = parseFloat(ev.time_start);
     if (startDecimal > currentHour) {
-      return formatDecimalHour(startDecimal);
+      return formatDecimalHour(Math.min(startDecimal, OPERATING_END_HOUR));
     }
   }
 
@@ -880,7 +880,7 @@ export function getAvailableForHours(room, currentDateTime = null) {
   for (const ev of todayEvents) {
     const startDecimal = parseFloat(ev.time_start);
     if (startDecimal > currentHour) {
-      return startDecimal - currentHour;
+      return Math.min(startDecimal, OPERATING_END_HOUR) - currentHour;
     }
   }
 

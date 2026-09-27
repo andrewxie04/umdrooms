@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import inventory from '../../../public/buildings_inventory.json';
 import {
   getRoomStatusRank,
   isSupplementalRoom,
@@ -8,11 +9,21 @@ import {
   getBookedBlocks,
   getClassroomAvailability,
   getBuildingAvailability,
+  getRoomRenderState,
   getAvailableUntil,
   getAvailableForHours,
 } from '../availability.js';
 
 describe('availability.js pure functions', () => {
+  it('keeps the published Martin Hall labs open on weekends and closed on holidays', () => {
+    const labs = inventory.buildings.find((building) => building.code === 'EGR')!.classrooms;
+    for (const name of ['EGR 0310', 'EGR 0312']) {
+      const lab = labs.find((room) => room.name === name)!;
+      expect(getClassroomAvailability(lab, new Date('2026-09-27T02:00:00-04:00'))).toBe('Available');
+      expect(getClassroomAvailability(lab, new Date('2026-12-25T02:00:00-05:00'))).toBe('Closed');
+    }
+  });
+
   describe('getRoomStatusRank', () => {
     it('ranks statuses correctly from most to least available', () => {
       expect(getRoomStatusRank('Available', 'Available')).toBe(0);
@@ -168,6 +179,38 @@ describe('availability.js pure functions', () => {
   });
 
   describe('getAvailableUntil & getAvailableForHours', () => {
+    it('caps availability at closing even when a later booking exists', () => {
+      const room = { availability_times: [
+        { date: '2026-10-14', time_start: 23, time_end: 24, status: 1 },
+      ] };
+      const current = new Date('2026-10-14T21:30:00-04:00');
+      expect(getAvailableUntil(room, current)).toBe('10:00 PM');
+      expect(getAvailableForHours(room, current)).toBe(0.5);
+    });
+
+    it('removes the free-until time when a booking starts', () => {
+      const room = { availability_times: [
+        { date: '2026-10-14', time_start: 14, time_end: 16, status: 1 },
+      ] };
+      const current = new Date('2026-10-14T14:00:00-04:00');
+      expect(getAvailableUntil(room, current)).toBeNull();
+      expect(getAvailableForHours(room, current)).toBe(0);
+    });
+
+    it('uses the end of the current library booking window', () => {
+      const room = { source: 'libcal', libcal: { available_blocks: [
+        { date: '2026-10-14', time_start: 10, time_end: 11.5 },
+        { date: '2026-10-14', time_start: 13, time_end: 15 },
+      ] } };
+      const current = new Date('2026-10-14T10:15:00-04:00');
+      expect(getAvailableUntil(room, current)).toBe('11:30 AM');
+      expect(getAvailableForHours(room, current)).toBe(1.25);
+    });
+
+    it('does not show a current end time in schedule mode', () => {
+      expect(getRoomRenderState({ availability_times: [] }, { isNow: false }).availableUntil).toBeNull();
+    });
+
     it('computes open duration remaining for available room', () => {
       const room = {
         availability_times: [

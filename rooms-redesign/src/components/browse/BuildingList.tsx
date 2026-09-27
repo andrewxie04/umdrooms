@@ -44,7 +44,7 @@ function BuildingRow({
 }) {
   return (
     <div
-      className="group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-3 text-left transition-[background-color,border-color] hover:border-border/70 hover:bg-card"
+      className="group relative flex w-full items-center gap-3 rounded-xl border border-border/35 bg-background/35 px-3 py-3 text-left transition-[background-color,border-color] hover:border-primary/20 hover:bg-card"
     >
       <button
         type="button"
@@ -52,7 +52,7 @@ function BuildingRow({
         aria-label={`Open ${building.name}. ${building.dataIssue ? 'Limited data' : STATUS_LABEL[building.status]}. ${roomCountLabel}`}
         className="absolute inset-0 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       />
-      <span className="pointer-events-none flex size-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/55 text-[10px] font-bold tracking-tight text-foreground/75" aria-hidden>
+      <span className="pointer-events-none flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/40 bg-muted/65 text-[10px] font-bold tracking-tight text-foreground/75" aria-hidden>
         {building.code.slice(0, 3)}
       </span>
       <span className="pointer-events-none min-w-0 flex-1">
@@ -234,7 +234,7 @@ export function BuildingList() {
           </div>
           <p className="mt-2 text-sm font-medium text-foreground">{closedSnapshot.message}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Campus is closed{' '}
+            Regular classroom hours have ended{' '}
             {closedSnapshot.isHoliday
               ? 'for the holiday'
               : closedSnapshot.isWeekend
@@ -246,7 +246,7 @@ export function BuildingList() {
               {closedSnapshot.countdown}
             </span>
             <span className="mt-0.5 text-[11px] text-muted-foreground">
-              until doors open {closedSnapshot.opensLabel}
+              until regular classroom hours {closedSnapshot.opensLabel}
             </span>
           </div>
           <p className="mt-3 text-xs italic text-muted-foreground">
@@ -273,7 +273,7 @@ export function BuildingList() {
               <h2 className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
                 Dining & parking
               </h2>
-              <div className="space-y-0.5">
+              <div className="space-y-1.5">
                 {visiblePlaces.map((place) => {
                   const Icon = place.kind === 'dining' ? UtensilsCrossed : CarFront;
                   return (
@@ -308,7 +308,7 @@ export function BuildingList() {
               <h2 className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
                 Residence halls
               </h2>
-              <div className="space-y-0.5">
+              <div className="space-y-1.5">
                 {visibleResidences.map((hall) => (
                   <button
                     key={hall.id}
@@ -338,7 +338,7 @@ export function BuildingList() {
               <h2 className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
                 On the map
               </h2>
-              <div className="space-y-0.5">
+              <div className="space-y-1.5">
                 {visibleMapBuildings.map((place) => (
                   <button
                     key={place.id}
@@ -379,7 +379,7 @@ export function BuildingList() {
               <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 Favorites
               </p>
-              <div className="space-y-0.5">
+              <div className="space-y-1.5">
                 {favoriteBuildings.map((building) => (
                   <BuildingRow
                     key={`fav-${building.code}`}
@@ -393,7 +393,7 @@ export function BuildingList() {
               </div>
             </section>
           )}
-          <div className="space-y-0.5">
+          <div className="space-y-1.5">
             {otherBuildings.map((building) => (
               <BuildingRow
                 key={building.code}

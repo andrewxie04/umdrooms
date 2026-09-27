@@ -49,7 +49,7 @@ export function AppHeader() {
 
   return (
     <header className={cn(
-      'shrink-0 border-b border-border/70 px-3 pb-3 pt-4 min-[360px]:px-5 min-[360px]:pb-4 min-[360px]:pt-5 sm:px-6',
+      'shrink-0 border-b border-border/50 bg-gradient-to-br from-primary/[0.035] via-transparent to-transparent px-3 pb-3 pt-4 min-[360px]:px-5 min-[360px]:pb-4 min-[360px]:pt-5 sm:px-6',
       !hasSidePanel && '!pb-2 !pt-2',
       isLandscapeSidePanel && '!px-3 !pb-1 !pt-1',
     )}>
@@ -66,7 +66,7 @@ export function AppHeader() {
             <p className={cn('mt-1.5 hidden text-xs leading-snug text-muted-foreground min-[360px]:block', !hasSidePanel && '!hidden', isLandscapeSidePanel && '!hidden')}>Find your place on campus</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border/50 bg-background/50 p-0.5">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -108,7 +108,7 @@ export function AppHeader() {
         </div>
       </div>
 
-      <div className={cn('mt-3 flex flex-wrap gap-1 min-[360px]:mt-5 sm:gap-1.5 min-[900px]:max-[1023px]:grid min-[900px]:max-[1023px]:grid-cols-4 min-[900px]:max-[1023px]:gap-1', !hasSidePanel && '!mt-2', isLandscapeSidePanel && '!mt-1 !gap-1')} role="group" aria-label="Map layers">
+      <div className={cn('mt-3 flex flex-wrap gap-1 min-[360px]:mt-4 sm:gap-1.5 min-[900px]:max-[1023px]:grid min-[900px]:max-[1023px]:grid-cols-4 min-[900px]:max-[1023px]:gap-1', !hasSidePanel && '!mt-2', isLandscapeSidePanel && '!mt-1 !gap-1')} role="group" aria-label="Map layers">
         {OVERLAY_CHIPS.map(({ key, label, icon: Icon }) => {
           const active = activeOverlays.includes(key);
           return (
@@ -118,12 +118,12 @@ export function AppHeader() {
               onClick={() => toggleOverlay(key)}
               aria-pressed={active}
               className={cn(
-                'inline-flex items-center gap-0.5 rounded-md border px-1.5 py-1 text-[10px] font-semibold transition-colors min-[360px]:gap-1 min-[360px]:px-2 min-[360px]:text-[11px] sm:gap-1.5 sm:px-2.5 min-[900px]:max-[1023px]:gap-0.5 min-[900px]:max-[1023px]:px-1.5 min-[900px]:max-[1023px]:text-[10px]',
+                'inline-flex items-center gap-0.5 rounded-lg border px-1.5 py-1 text-[10px] font-semibold transition-colors min-[360px]:gap-1 min-[360px]:px-2 min-[360px]:text-[11px] sm:gap-1.5 sm:px-2.5 min-[900px]:max-[1023px]:gap-0.5 min-[900px]:max-[1023px]:px-1.5 min-[900px]:max-[1023px]:text-[10px]',
                 compactPointerControls ? 'min-h-10' : 'min-h-11',
                 isLandscapeSidePanel && '!gap-0.5 !px-1.5 !text-[10px]',
                 active
-                  ? 'border-primary/25 bg-primary/10 text-accent-foreground shadow-sm'
-                  : 'border-border/80 bg-card text-muted-foreground hover:border-foreground/25 hover:bg-muted hover:text-foreground'
+                  ? 'border-primary/20 bg-primary/[0.08] text-accent-foreground'
+                  : 'border-transparent bg-muted/50 text-muted-foreground hover:border-foreground/25 hover:bg-muted hover:text-foreground'
               )}
             >
               <Icon className="size-3.5" />

@@ -6,8 +6,7 @@
 // campus renders in ~10 draw calls. Local frame:
 // x = east, z = south, y = up, ground at y = 0 (see projection.ts).
 //
-// Vertical stacking uses decimeter steps (grass .10 < sport .12 < water stack
-// .136–.154 < parking .16 < contact shadows .18 < path .2 < service .3 <
+// Vertical stacking uses decimeter steps (grass .10 < sport .12 < water .14–.15 < parking .16 < contact shadows .18 < path .2 < service .3 <
 // road .4): visually identical to the contract's centimeter steps but robust
 // against depth-buffer precision at 4km viewing distances. Water/fountain/
 // pool polygons live in their OWN merged mesh (see buildWater) so scene.ts
@@ -88,7 +87,7 @@ const AREA_Y: Record<AreaKind, number> = {
   pool: 0.14,
   parking: 0.16,
 };
-const WATERWAY_Y = 0.15; // top of the water stack (.134–.149), below parking (.16)
+const WATERWAY_Y = 0.15; // just above polygon water (.14), below parking (.16)
 const CONTACT_SHADOW_Y = 0.18; // above parking (.16), below paths (.20)
 const ROAD_Y: Record<RoadKind, number> = { path: 0.2, service: 0.3, road: 0.4 };
 const MIN_ROAD_WIDTH = 2.4; // meters — keeps paths legible from 2km out
@@ -101,9 +100,9 @@ export const COLORS = {
   service: new THREE.Color(0xb1b0a8),
   path: new THREE.Color(0xbdbcb5), // concrete walks; quieter against the lawns
   grass: new THREE.Color(0x79ad6b), // Maryland lawn green
-  water: new THREE.Color(0x7ea9c8), // clear sky blue
-  fountain: new THREE.Color(0x7ea9c8), // same blue as open water
-  pool: new THREE.Color(0x7ea9c8), // same blue as open water
+  water: new THREE.Color(0x527873), // muted green-blue for inland water
+  fountain: new THREE.Color(0x729c9b), // shallow stone-lined basin
+  pool: new THREE.Color(0x659faf), // brighter managed swimming pools
   parking: new THREE.Color(0x84837b), // neutral dark gray
   sport: new THREE.Color(0x689553), // deeper green than grass
   tree: new THREE.Color(0x567b4f),
@@ -680,35 +679,11 @@ function buildAreas(data: CampusData, proj: Projection): THREE.BufferGeometry {
 }
 
 // ---------------------------------------------------------------------------
-// Water — water/fountain/pool polygons pulled OUT of the flat areas mesh into
-// their own merged geometry so scene.ts can give them a dedicated
-// MeshPhongMaterial (moderate shininess -> soft sun glint by day, cool moon
-// glint at night; day/night comes free from the palette-driven lights).
-//
-// Crafted-but-stylized recipe per polygon:
-//   1. Gradient stack: WATER_LAYERS concentric copies scaled about the
-//      polygon centroid (a cheap chamfer/inset 'depth' approximation), each
-//      inner copy lifted one 3mm step so it draws cleanly over the layer
-//      beneath. Baked vertex colors lerp light teal (shoreline) -> deeper
-//      blue (middle).
-//   2. Shore outline: a thin darker ring hugging the polygon edge (a flat
-//      quad strip between the edge and a ~1.4m-inset copy), selling the
-//      waterline against the grass.
-// Waterway ribbons join this mesh too, so Paint Branch picks up the same
-// glint. All layers sit between sport (.12) and parking (.16), 3mm apart —
-// depth-safe at 4km viewing distances.
+// Water follows the surveyed polygon exactly. Scaling concave outlines toward
+// their centroid produces false islands, bands, and shoreline overspill; one
+// triangulated surface avoids those artifacts and removes overlapping layers.
+// Surface detail comes from a shared normal texture, not extra geometry.
 // ---------------------------------------------------------------------------
-
-const WATER_BASE_Y = 0.134; // above sport (.12), clear of grass (.10)
-const WATER_LAYER_STEP = 0.003; // per-gradient-layer lift (mm-scale, depth-safe)
-const WATER_LAYERS = 5; // concentric inset copies per polygon
-const WATER_INSET_FRACTION = 0.17; // each layer scales in by this much
-const WATER_SHORE_WIDTH = 1.4; // meters — darker outline ring along the edge
-const WATER_COLORS = {
-  shore: new THREE.Color(0x9ec9d8), // light teal at the shoreline
-  deep: new THREE.Color(0x4c83b2), // deeper blue toward the middle
-  ring: new THREE.Color(0x3f6e92), // darker shore outline
-};
 
 function buildWater(data: CampusData, proj: Projection): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
@@ -717,52 +692,11 @@ function buildWater(data: CampusData, proj: Projection): THREE.BufferGeometry {
     if (!area.polygon || area.polygon.length < 3) continue;
     const pts = ringToShapePoints(area.polygon, proj);
     if (pts.length < 3) continue;
-    const { cx, cy } = centroidOf(pts);
-
-    // Gradient stack: outermost copy = full polygon at the base tier, each
-    // inner copy scaled toward the centroid and lifted one step.
-    for (let i = 0; i < WATER_LAYERS; i++) {
-      const f = 1 - i * WATER_INSET_FRACTION; // 1.0, .83, .66, .49, .32
-      const color = WATER_COLORS.shore
-        .clone()
-        .lerp(WATER_COLORS.deep, i / (WATER_LAYERS - 1));
-      const scaled =
-        i === 0
-          ? pts
-          : pts.map((p) => new THREE.Vector2(cx + (p.x - cx) * f, cy + (p.y - cy) * f));
-      const geom = new THREE.ShapeGeometry(new THREE.Shape(scaled), 1);
-      geom.rotateX(-Math.PI / 2);
-      geom.translate(0, WATER_BASE_Y + i * WATER_LAYER_STEP, 0);
-      parts.push(withColor(geom, color));
-    }
-
-    // Shore outline ring: flat quad strip between the polygon edge and an
-    // inset copy (fixed ~1.4m inward, clamped for tiny fountain basins).
-    // ringToShapePoints guarantees CCW, so (outer_a, outer_b, inner_b) /
-    // (outer_a, inner_b, inner_a) gives +y normals after the shape->world
-    // z-flip (same winding the ribbon builder relies on).
-    const positions: number[] = [];
-    const normals: number[] = [];
-    const colors: number[] = [];
-    const y = WATER_BASE_Y + WATER_LAYERS * WATER_LAYER_STEP;
-    const n = pts.length;
-    for (let i = 0; i < n; i++) {
-      const a = pts[i];
-      const b = pts[(i + 1) % n];
-      const da = Math.hypot(a.x - cx, a.y - cy) || 1;
-      const db = Math.hypot(b.x - cx, b.y - cy) || 1;
-      const insetA = Math.min(WATER_SHORE_WIDTH, da * 0.4);
-      const insetB = Math.min(WATER_SHORE_WIDTH, db * 0.4);
-      const iax = a.x + ((cx - a.x) / da) * insetA;
-      const iaz = -(a.y + ((cy - a.y) / da) * insetA); // shape y = north -> world z = -north
-      const ibx = b.x + ((cx - b.x) / db) * insetB;
-      const ibz = -(b.y + ((cy - b.y) / db) * insetB);
-      pushTri(positions, normals, colors, y, WATER_COLORS.ring, a.x, -a.y, b.x, -b.y, ibx, ibz);
-      pushTri(positions, normals, colors, y, WATER_COLORS.ring, a.x, -a.y, ibx, ibz, iax, iaz);
-    }
-    parts.push(buildRibbonGeometry(positions, normals, colors));
+    const geom = new THREE.ShapeGeometry(new THREE.Shape(pts), 1);
+    geom.rotateX(-Math.PI / 2);
+    geom.translate(0, AREA_Y.water, 0);
+    parts.push(withColor(geom, COLORS[area.kind]));
   }
-  // Waterway ribbons ride along so rivers share the same glint material.
   const waterways = buildWaterways(data, proj);
   if ((waterways.getAttribute('position')?.count ?? 0) > 0) parts.push(waterways);
   return mergeAll(parts);

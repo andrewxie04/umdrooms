@@ -87,6 +87,8 @@ export interface RoomEntry {
   /** Formatted 'h:mm a' time the current availability ends (Now mode,
    *  available rooms only), from availability.js getRoomRenderState(). */
   availableUntil?: string | null;
+  /** Remaining continuous availability, refreshed by the shared Now ticker. */
+  availableHours?: number;
   events?: CampusTimeBlock[]; // timeline blocks from availability.js
   raw?: CampusRoomRecord; // raw room record (type, floor, capacity,
                          // has_projector/has_whiteboard, availability_times,

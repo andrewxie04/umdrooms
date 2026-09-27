@@ -1170,9 +1170,11 @@ async function appendSupplementalSpaces(buildings, startDateKey) {
       }
     }
     const room = buildSupplementalRoom(base, building, availabilityTimes);
-    if (!building.classrooms.some((existing) => String(existing.id) === String(room.id))) {
-      building.classrooms.push(room);
-    }
+    // Cached room lists can already contain this supplemental ID without its
+    // hours metadata. Replace it with the authoritative supplemental record.
+    const existingIndex = building.classrooms.findIndex((existing) => String(existing.id) === String(room.id));
+    if (existingIndex >= 0) building.classrooms[existingIndex] = room;
+    else building.classrooms.push(room);
   }
 
   for (const base of DEFAULT_ONE_BUTTON_STUDIOS) {
@@ -1183,9 +1185,11 @@ async function appendSupplementalSpaces(buildings, startDateKey) {
       building,
       createSupplementalBusyEvents(startDateKey, base.supplemental)
     );
-    if (!building.classrooms.some((existing) => String(existing.id) === String(room.id))) {
-      building.classrooms.push(room);
-    }
+    // Cached room lists can already contain this supplemental ID without its
+    // hours metadata. Replace it with the authoritative supplemental record.
+    const existingIndex = building.classrooms.findIndex((existing) => String(existing.id) === String(room.id));
+    if (existingIndex >= 0) building.classrooms[existingIndex] = room;
+    else building.classrooms.push(room);
   }
 }
 

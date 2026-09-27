@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import campusData from '../../../../public/campus-data.json';
 import campusTrees from '../../../../public/campus-trees.json';
 import { buildSceneGeometries, buildingMaxHeight, buildingSolidGeometry } from './geometry';
+import { setWaterUVs } from './water-surface';
 import { LANDMARK_MODULES } from './landmarks';
 import { createProjection } from './projection';
 import type { CampusBuilding, CampusData } from './types';
@@ -43,6 +44,34 @@ function expectFiniteGeometry(geometry: THREE.BufferGeometry, needsColor = true)
 }
 
 describe('campus rendering data contracts', () => {
+  it('preserves a concave shoreline with one water surface and world-scale UVs', () => {
+    const data = fixture();
+    const polygon: [number, number][] = [[0, 0], [3, 0], [3, 1], [1, 1], [1, 3], [0, 3]]
+      .map(([x, y]) => [center[0] + x * east, center[1] + y * north]);
+    data.areas = [{ kind: 'water', polygon }];
+    const projection = createProjection(data);
+    const geometry = buildSceneGeometries(data, projection).water;
+    expectFiniteGeometry(geometry);
+    const points = polygon.map(([lng, lat]) => projection.toLocal(lng, lat));
+    const expectedArea = Math.abs(points.reduce((sum, a, i) => {
+      const b = points[(i + 1) % points.length];
+      return sum + a.x * b.z - b.x * a.z;
+    }, 0)) / 2;
+    const positions = geometry.getAttribute('position');
+    let renderedArea = 0;
+    for (let i = 0; i < positions.count; i += 3) {
+      const ax = positions.getX(i), az = positions.getZ(i);
+      const bx = positions.getX(i + 1), bz = positions.getZ(i + 1);
+      const cx = positions.getX(i + 2), cz = positions.getZ(i + 2);
+      renderedArea += Math.abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) / 2;
+    }
+    expect(renderedArea).toBeCloseTo(expectedArea, 2);
+    for (let i = 0; i < positions.count; i++) expect(positions.getY(i)).toBeCloseTo(0.14);
+    setWaterUVs(geometry);
+    expect(geometry.getAttribute('uv').count).toBe(positions.count);
+    geometry.dispose();
+  });
+
   it('keeps surveyed tree geometry at supplied positions with merge-compatible attributes', () => {
     const data = fixture([], [
       [center[0] - east, center[1], 12, 4, 0],

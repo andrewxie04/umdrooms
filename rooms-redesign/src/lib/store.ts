@@ -514,6 +514,7 @@ function deriveBuildings(ctx: DeriveContext): BuildingEntry[] {
         displayStatus?: string | null;
         rawStatus?: string | null;
         availableUntil?: string | null;
+        availableHours?: number;
       } }[];
     };
     const summary = renderBuilding(classrooms, {
@@ -526,6 +527,7 @@ function deriveBuildings(ctx: DeriveContext): BuildingEntry[] {
       displayStatus?: string | null;
       rawStatus?: string | null;
       availableUntil?: string | null;
+      availableHours?: number;
     }>();
     for (const rs of summary.roomStates || []) stateByRoom.set(rs.room, rs.state);
 
@@ -544,6 +546,7 @@ function deriveBuildings(ctx: DeriveContext): BuildingEntry[] {
         status: classroomPending ? 'unknown' : toContractStatus(st?.displayStatus ?? st?.rawStatus),
         displayStatus: classroomPending ? null : st?.displayStatus ?? st?.rawStatus ?? null,
         availableUntil: classroomPending ? null : st?.availableUntil ?? null,
+        availableHours: classroomPending ? 0 : st?.availableHours ?? 0,
         events: Array.isArray(room.availability_times) ? room.availability_times : [],
         raw: room,
       };

@@ -40,8 +40,8 @@ export function buildMallFountain(
   const waterParts: THREE.BufferGeometry[] = [];
   const limestone = new THREE.Color(0xbdbbb3);
   const stepFace = new THREE.Color(0x929698);
-  const waterBlue = new THREE.Color(0x588ca6);
-  const cascade = new THREE.Color(0xa6d5da);
+  const waterBlue = new THREE.Color(0x729c9b);
+  const cascade = new THREE.Color(0xacc7c3);
 
   const box = (
     dest: THREE.BufferGeometry[], color: THREE.Color,

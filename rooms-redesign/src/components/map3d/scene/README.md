@@ -47,3 +47,11 @@ nightGlow NOTE: the buildings material emissive is global (scene.ts/palette.ts),
 The registry contains footprint-specific models for every selectable building in the room browser and both mapped parts of Rossborough Inn. `landmarks/coverage.test.ts` checks code-to-footprint coverage and finite, merge-compatible geometry for every registered model. Building-by-building source notes are in `design-reference/`.
 
 To add a landmark: find the OSM way id (grep the building name in public/campus-data.json, or locate the footprint by coordinates), drop ONE new file in `landmarks/buildings/<slug>.ts` exporting `const landmark: LandmarkModule` (pick a preset `roof` in the spec, or write a custom `build(ctx)` — copy `secu-stadium.ts` as the template), and rebuild — the glob registry picks it up automatically, no other file changes needed. Re-run `scripts/check-landmarks.ts` (bundle with esbuild, run in node) to confirm the merged geometry is NaN-free and every id resolves.
+
+### Water surface update
+Water now uses one triangulated surface per mapped polygon, replacing the
+centroid-scaled gradient layers and shore strips described above. This keeps
+concave outlines intact and removes overlapping millimeter-spaced surfaces.
+Natural water uses muted green-blue; fountains and pools use separate colors.
+A shared 128px mipmapped normal texture supplies subtle world-scale ripples,
+with no new render pass or per-frame work. It is disposed with the scene.
