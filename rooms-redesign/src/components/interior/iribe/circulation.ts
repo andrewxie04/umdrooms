@@ -1,6 +1,7 @@
+import { amphitheaterHeight } from './amphitheater';
 import { roofTerrainHeight } from './roof-layout';
 import { antonovHeight, gannonHeight } from './auditorium';
-import { footprintForFloor, ATRIUM_VOID, atriumPoint, FLOOR_HEIGHT, pointInPolygon, plan, type FloorId, type Point, type Polygon } from './layout';
+import { footprintForFloor, ATRIUM_VOID, atriumPoint, FLOOR_HEIGHT, FAMILY_TERRACE, pointInPolygon, plan, type FloorId, type Point, type Polygon } from './layout';
 
 export type Position = readonly [number, number, number];
 export interface Flight { from:Position; to:Position; width:number; lower:FloorId; upper:FloorId; }
@@ -54,7 +55,7 @@ export function supportHeight(point:Point,current:number):number|null {
  const candidates:number[]=[];
  for(const f of FLOOR_ORDER){
   const footprint=footprintForFloor(f);
-  if(pointInPolygon(point,footprint) && (f==='G'||!pointInPolygon(point,STAIR_HOLE)) && (f!=='1'||!pointInPolygon(point,ATRIUM_VOID))) candidates.push(FLOOR_HEIGHT[f]+(f==='R'?roofTerrainHeight(point):0));
+  if((pointInPolygon(point,footprint)||(f==='1'&&pointInPolygon(point,FAMILY_TERRACE))) && (f==='G'||!pointInPolygon(point,STAIR_HOLE)) && (f!=='1'||!pointInPolygon(point,ATRIUM_VOID))) candidates.push(FLOOR_HEIGHT[f]+(f==='R'?roofTerrainHeight(point):f==='G'?(amphitheaterHeight(point)??0):0));
  }
  const gannon=gannonHeight(point);if(gannon!==null)candidates.push(gannon);
  const auditorium=antonovHeight(point);if(auditorium!==null)candidates.push(auditorium);

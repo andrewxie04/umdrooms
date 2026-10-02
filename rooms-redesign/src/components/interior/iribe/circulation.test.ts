@@ -1,3 +1,7 @@
+import { FAMILY_BEDS,FAMILY_MAPLES } from './family-garden-layout';
+import { FAMILY_GARDEN,FAMILY_GARDEN_DOOR,FAMILY_TERRACE,familyGardenPlan } from './layout';
+import { amphitheaterHeight, AMPH_NORTH_AISLE } from './amphitheater';
+import { AMPH_DEPTH, AMPH_DROP, AMPH_WIDTH, amphPoint } from './layout';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildInteriorFloor, type InteriorModel } from './model';
 import { plan, fourthPlan, westFourthPlan, footprintForFloor, roofPlan, ROOF_GALLERY, ROOF_PUBLIC_FOOTPRINT, type Point, type FloorId } from './layout';
@@ -43,10 +47,13 @@ describe('continuous stair navigation', () => {
  it('walks down the atrium stair', () => follow([...ATRIUM_FLIGHTS, ATRIUM_LANDING], true));
  it('connects the entrance through the atrium to the mezzanine corridor',()=>{
   const first=ATRIUM_FLIGHTS[0].from,end=ATRIUM_LANDING.to;
-  const approach:Flight={from:[ENTRY[0],0,ENTRY[1]],to:first,width:1.8,lower:'G',upper:'G'};
+  const path:Position[]=[[ENTRY[0],-AMPH_DROP,ENTRY[1]]];
+  for(const [u,v,h] of [[5.3,AMPH_DEPTH+.8,-AMPH_DROP],[-.8,AMPH_DEPTH+.8,0]]){const p=amphPoint(u,v);path.push([p[0],h,p[1]]);}
+  path.push(first);
+  const approach:Flight[]=path.slice(0,-1).map((from,i)=>({from,to:path[i+1],width:1.8,lower:'G',upper:'G'}));
   const exit:Flight={from:end,to:[end[0]-.8,end[1],end[2]],width:1.8,lower:'1',upper:'1'};
-  follow([approach,...ATRIUM_FLIGHTS,ATRIUM_LANDING,exit]);
-  follow([approach,...ATRIUM_FLIGHTS,ATRIUM_LANDING,exit],true);
+  follow([...approach,...ATRIUM_FLIGHTS,ATRIUM_LANDING,exit]);
+  follow([...approach,...ATRIUM_FLIGHTS,ATRIUM_LANDING,exit],true);
  });
 });
 
@@ -303,7 +310,7 @@ it('keeps all curved lounge seating and coffee tables inside the ground-floor en
 function walkInteriorTargets(room:typeof ROOMS[number],targets:Point[][]){
   const step=room.kind==='restroom'?.1:.25,minX=Math.min(...room.polygon.map(p=>p[0])),minZ=Math.min(...room.polygon.map(p=>p[1]));
   const maxX=Math.max(...room.polygon.map(p=>p[0])),maxZ=Math.max(...room.polygon.map(p=>p[1]));
-  const local=models.get('4')!.barriers.filter(b=>(b.minY??0)<1.65&&(b.maxY??Infinity)>0&&Math.max(b.a[0],b.b[0])>=minX-.5&&Math.min(b.a[0],b.b[0])<=maxX+.5&&Math.max(b.a[1],b.b[1])>=minZ-.5&&Math.min(b.a[1],b.b[1])<=maxZ+.5);
+  const local=FLOOR_ORDER.flatMap(f=>models.get(f)!.barriers.map(b=>({...b,minY:(b.minY??0)+FLOOR_HEIGHT[f]-FLOOR_HEIGHT[room.floor],maxY:(b.maxY??(f==='G'?10.5:f==='R'?1.2:4.2))+FLOOR_HEIGHT[f]-FLOOR_HEIGHT[room.floor]}))).filter(b=>(b.minY??0)<1.65&&(b.maxY??Infinity)>0&&Math.max(b.a[0],b.b[0])>=minX-.5&&Math.min(b.a[0],b.b[0])<=maxX+.5&&Math.max(b.a[1],b.b[1])>=minZ-.5&&Math.min(b.a[1],b.b[1])<=maxZ+.5);
   const free=new Map<string,Point>();
   for(let i=0;i*step<=maxX-minX;i++)for(let j=0;j*step<=maxZ-minZ;j++){
    const p:Point=[minX+i*step,minZ+j*step];
@@ -324,8 +331,8 @@ function walkInteriorTargets(room:typeof ROOMS[number],targets:Point[][]){
    expect(end,`${room.id}: target group ${targets.indexOf(approaches)} is unreachable; ${JSON.stringify(approaches)}; reached ${queue.length}/${free.size}`).toBeDefined();
    const path:Point[]=[];let key:string|null=end!;
    while(key!==null){path.push(free.get(key)!);key=parents.get(key)!;}path.reverse();
-   let position:Position=[path[0][0],FLOOR_HEIGHT['4'],path[0][1]];
-   for(const target of path.slice(1)){
+   let position:Position=[path[0][0],FLOOR_HEIGHT[room.floor],path[0][1]];
+   for(const target of (room.kind==='garden'?[...path.slice(1),...path.slice(0,-1).reverse()]:path.slice(1))){
     position=walkStep3(position,[target[0]-position[0],target[1]-position[2]],f=>models.get(f)!.barriers);
     expect(position[0]).toBeCloseTo(target[0],2);expect(position[2]).toBeCloseTo(target[1],2);
    }
@@ -393,5 +400,85 @@ describe('fourth-floor restroom fixtures',()=>{
     }
    }
   });
+ }
+});
+
+
+describe('amphitheater split-level floor',()=>{
+ for(const [name,start,end] of [
+  ['south',amphPoint(-.6,AMPH_DEPTH+.8),amphPoint(AMPH_WIDTH+.6,AMPH_DEPTH+.8)],
+  ['north',amphPoint(AMPH_NORTH_AISLE+1,-.45),amphPoint(AMPH_NORTH_AISLE+1,3.6)],
+ ] as const)for(const reverse of [false,true])it(`walks ${reverse?'up':'down'} the ${name} stair`,()=>{
+  const from:Position=[start[0],0,start[1]],to:Position=[end[0],-AMPH_DROP,end[1]];
+  follow([{from,to,width:1,lower:'G',upper:'G'}],reverse);
+ });
+ it('connects the lower entrance through the north return to the atrium in both directions',()=>{
+  const path:Position[]=[[ENTRY[0],-AMPH_DROP,ENTRY[1]]];
+  for(const [u,v,h] of [[8.5,4,-AMPH_DROP],[8.5,-.45,0],[-1,-.45,0],[-1,AMPH_DEPTH+.8,0]]){const p=amphPoint(u,v);path.push([p[0],h,p[1]]);}
+  path.push(ATRIUM_FLIGHTS[0].from);
+  const route:Flight[]=path.slice(0,-1).map((from,i)=>({from,to:path[i+1],width:1,lower:'G',upper:'G'}));
+  follow(route);follow(route,true);
+ });
+ it('collides with the column below the main lobby elevation',()=>{
+  const start=amphPoint(6.4,2.5),end=amphPoint(6.4,-.1);let p:Position=[start[0],-AMPH_DROP,start[1]];
+  for(let i=0;i<200;i++)p=walkStep3(p,[(end[0]-start[0])/200,(end[1]-start[1])/200],f=>models.get(f)!.barriers);
+  const column=amphPoint(6.4,1);expect(Math.hypot(p[0]-column[0],p[2]-column[1])).toBeGreaterThanOrEqual(.54);
+  expect(Math.hypot(p[0]-start[0],p[2]-start[1])).toBeLessThan(1.1);
+ });
+ it('starts at the lower entrance floor',()=>expect(amphitheaterHeight(ENTRY)).toBe(-AMPH_DROP));
+ it('does not walk through the fronts of the seating tiers',()=>{
+  const start=amphPoint(AMPH_WIDTH+.3,5);
+  let p:Position=[start[0],-AMPH_DROP,start[1]];
+  const target=amphPoint(-1,5);
+  for(let i=0;i<300;i++)p=walkStep3(p,[(target[0]-start[0])/300,(target[1]-start[1])/300],f=>models.get(f)!.barriers);
+  expect(Math.hypot(p[0]-target[0],p[2]-target[1])).toBeGreaterThan(3);
+ });
+});
+
+
+describe('upper floor slab undersides',()=>{
+ for(const floor of FLOOR_ORDER.filter(f=>f!=='G'))it(`blocks the view through the underside of level ${floor}`,()=>{
+  const mesh=models.get(floor)!.group.children.find(c=>c instanceof THREE.Mesh&&(c.material as THREE.Material).name==='Floor slab underside') as THREE.Mesh;
+  expect(mesh).toBeDefined();
+  const p=plan(625,600),ray=new THREE.Raycaster(new THREE.Vector3(p[0],-.5,p[1]),new THREE.Vector3(0,1,0),0,1);
+  const hits=ray.intersectObject(mesh);expect(hits.length).toBeGreaterThan(0);expect(hits[0].point.y).toBeCloseTo(-.19,4);
+ });
+});
+
+describe('first-floor family garden',()=>{
+ it('keeps planting beds on the deck and outside the auditorium',()=>{
+  for(const bed of FAMILY_BEDS)for(const p of bed){
+   expect(pointInPolygon(p,FAMILY_TERRACE),`bed vertex ${p}`).toBe(true);
+   expect(pointInPolygon(p,ANTONOV_FOOTPRINT),`auditorium overlap ${p}`).toBe(false);
+  }
+ });
+ it('places the maples inside their planting beds',()=>{
+  FAMILY_MAPLES.forEach(p=>expect(FAMILY_BEDS.some(bed=>pointInPolygon(p,bed))).toBe(true));
+ });
+ it('connects the corridor and terrace through the open glazed doorway',()=>{
+  const d=FAMILY_GARDEN_DOOR,path:Position[]=[[d[0]+1.5,6.5,d[1]],[d[0]-.01,6.5,d[1]],[d[0]-1.6,6.5,d[1]]];
+  const route:Flight[]=path.slice(0,-1).map((from,i)=>({from,to:path[i+1],width:1,lower:'1',upper:'1'}));follow(route);follow(route,true);
+ });
+ it('walks around the planters from the entrance to the far terrace and back',()=>{
+  const targets:Point[][]=[[545,707],[581,619],[729,627]].map(([x,y])=>[familyGardenPlan(x,y)]);
+  // Public viewpoints are inside the outer guard, not in the planted strip.
+  for(const [edge,t] of [[0,.5],[9,.5],[10,.25],[10,.6],[10,.85]]){
+   const a=FAMILY_TERRACE[edge],b=FAMILY_TERRACE[edge+1],length=Math.hypot(b[0]-a[0],b[1]-a[1]),p:Point=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];let nx=-(b[1]-a[1])/length,nz=(b[0]-a[0])/length;
+   if(!pointInPolygon([p[0]+nx*.1,p[1]+nz*.1],FAMILY_TERRACE)){nx=-nx;nz=-nz;}
+   targets.push([[p[0]+nx*.8,p[1]+nz*.8]]);
+  }
+  walkInteriorTargets(FAMILY_GARDEN,targets);
+ });
+});
+
+
+it('opens the garden glazing through the auditorium wall',()=>{
+ const center:Point=[ANTONOV_FOOTPRINT.reduce((s,p)=>s+p[0],0)/ANTONOV_FOOTPRINT.length,ANTONOV_FOOTPRINT.reduce((s,p)=>s+p[1],0)/ANTONOV_FOOTPRINT.length];
+ for(const i of [5,7,8,9]){
+  const a=ANTONOV_FOOTPRINT[i],b=ANTONOV_FOOTPRINT[i+1],p:Point=[a[0]*.43+b[0]*.57,a[1]*.43+b[1]*.57],length=Math.hypot(b[0]-a[0],b[1]-a[1]);let nx=-(b[1]-a[1])/length,nz=(b[0]-a[0])/length;
+  if(nx*(p[0]-center[0])+nz*(p[1]-center[1])<0){nx=-nx;nz=-nz;}
+  const ray=new THREE.Raycaster(new THREE.Vector3(p[0]+nx*.35,7.7,p[1]+nz*.35),new THREE.Vector3(-nx,0,-nz),0,.7);
+  const hits=ray.intersectObject(models.get('G')!.group,true);
+  expect(hits.length).toBeGreaterThan(0);expect(((hits[0].object as THREE.Mesh).material as THREE.Material).name).toBe('Auditorium garden glazing');
  }
 });

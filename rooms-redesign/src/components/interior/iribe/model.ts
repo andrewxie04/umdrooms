@@ -1,3 +1,5 @@
+import { buildFamilyGarden } from './family-garden';
+import { FAMILY_GARDEN_DOOR } from './layout';
 import * as THREE from 'three';
 import { buildRoof } from './roof';
 import { buildCafe } from './cafe';
@@ -6,6 +8,8 @@ import { buildAtrium } from './atrium';
 import { buildSmallArtifacts, buildDroneLab } from './labs';
 import { buildRoboticsLab } from './robotics';
 import { buildRestroom } from './restrooms';
+import { buildAmphitheater } from './amphitheater';
+import { AMPH_LOWER } from './layout';
 import { GANNON_AISLES, GANNON_PLAN, AUD_AISLES, AUD_DEPTH, AUD_WIDTH, AUD_SCALE, ROW_START, ROW_PITCH, ROW_RISE, auditoriumSeats, auditoriumStrip, auditoriumSidePoint } from './auditorium';
 import { clearInside, meetingTable, roomFrame, teachingTables } from './furniture';
 import { ENCLOSED_FLIGHTS, STAIR_CENTER, STAIR_HOLE } from './circulation';
@@ -31,6 +35,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  const woodMap=new THREE.DataTexture(woodPixels,256,64);woodMap.colorSpace=THREE.SRGBColorSpace;woodMap.needsUpdate=true;woodMap.magFilter=THREE.LinearFilter;textures.push(woodMap);oak.map=woodMap;oak.color.setHex(0xffffff);oak.roughness=.56;
  const glass=new THREE.MeshStandardMaterial({color:0xb9dbe0,transparent:true,opacity:.18,roughness:.2,depthWrite:false,side:THREE.DoubleSide});
+ const gardenGlazing=glass.clone();gardenGlazing.color.setHex(0x66818a);gardenGlazing.opacity=.35;gardenGlazing.name='Auditorium garden glazing';
  const light=new THREE.MeshBasicMaterial({color:0xfff9e5});
  const screen=new THREE.MeshBasicMaterial({color:0xc4cbd0});
  const walnut=mat(0x71533b,.65);walnut.map=woodMap;const warmLight=new THREE.MeshBasicMaterial({color:0xffd8a0});
@@ -44,7 +49,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  const shadowMap=new THREE.DataTexture(shadowPixels,64,64);shadowMap.needsUpdate=true;shadowMap.magFilter=THREE.LinearFilter;textures.push(shadowMap);
  const contactShadow=new THREE.MeshBasicMaterial({map:shadowMap,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
- const materials=[white,concrete,black,oak,metal,blue,yellow,lime,red,glass,light,screen,classroomFloor,ceilingPanel,contactShadow,walnut,warmLight,galleryFabric,galleryCeiling,lobbySoffit];
+ const materials=[white,concrete,black,oak,metal,blue,yellow,lime,red,glass,gardenGlazing,light,screen,classroomFloor,ceilingPanel,contactShadow,walnut,warmLight,galleryFabric,galleryCeiling,lobbySoffit];
  const brick=mat(0xffffff,.87);brick.side=THREE.DoubleSide;materials.push(brick);
  const brickPixels=new Uint8Array(128*64*4);
  for(let y=0;y<64;y++)for(let x=0;x<128;x++){
@@ -73,7 +78,17 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  const floorMap=new THREE.CanvasTexture(floorCanvas);floorMap.wrapS=floorMap.wrapT=THREE.RepeatWrapping;floorMap.repeat.set(.5,.5);floorMap.colorSpace=THREE.SRGBColorSpace;textures.push(floorMap);concrete.map=floorMap;concrete.color.setHex(0xffffff);
  const footprint=footprintForFloor(floor);
  const ceiling=floor==='G'?6.3:floor==='R'?3.45:4.2;
- surface(footprint,0,concrete,floor==='G'?[]:floor==='1'?[STAIR_HOLE,ATRIUM_VOID]:[STAIR_HOLE]);
+ const slabHoles=floor==='G'?[AMPH_LOWER]:floor==='1'?[STAIR_HOLE,ATRIUM_VOID]:[STAIR_HOLE];
+ surface(footprint,0,concrete,slabHoles);
+ // A top-only floor disappears when seen through a lower window. Give upper
+ // slabs an underside and edge thickness so furnishings cannot appear to float
+ // outside the building. Keep 10 mm clear of the lower ceiling to avoid z-fighting.
+ if(floor!=='G'){
+  const underside=mat(0xb7b9b3,.8);underside.side=THREE.BackSide;underside.name='Floor slab underside';materials.push(underside);
+  surface(footprint,-.19,underside,slabHoles);
+  for(const ring of [footprint,...slabHoles])ring.forEach((a,i)=>wall(a,ring[(i+1)%ring.length],.19,concrete,false,-.19,.025));
+ }
+
  if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:black,floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT]:[STAIR_HOLE]);
 
  // Solid stairwell walls enclose the switchback flights; the corridor entry
@@ -106,10 +121,15 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  for(let i=0;floor!=='R'&&i<footprint.length;i++) {
   const a=footprint[i],b=footprint[(i+1)%footprint.length];
   const count=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/1.5);
-  wall(a,b,ceiling,glass);
-  wall(a,b,.1,metal,false,.08);
-  wall(a,b,.12,metal,false,ceiling*.54);
-  for(let j=0;j<=count;j++){const t=j/count;box(a[0]+(b[0]-a[0])*t,(ceiling)/2,a[1]+(b[1]-a[1])*t,.07,ceiling,.07,metal);}
+  const gardenDoor=floor==='1'&&distanceToSegment(FAMILY_GARDEN_DOOR,a,b)<.01;
+  let parts:readonly (readonly [Point,Point])[]=[[a,b]];
+  if(gardenDoor){
+   const length=Math.hypot(b[0]-a[0],b[1]-a[1]),dx=(b[0]-a[0])/length,dz=(b[1]-a[1])/length;
+   const l:Point=[FAMILY_GARDEN_DOOR[0]-dx*.9,FAMILY_GARDEN_DOOR[1]-dz*.9],r:Point=[FAMILY_GARDEN_DOOR[0]+dx*.9,FAMILY_GARDEN_DOOR[1]+dz*.9];
+   parts=[[a,l],[r,b]];wall(l,r,ceiling-2.5,glass,false,2.5);wall(l,r,.065,metal,false,2.47,.08);
+  }
+  for(const [start,end] of parts){wall(start,end,ceiling,glass);wall(start,end,.1,metal,false,.08);wall(start,end,.12,metal,false,ceiling*.54);}
+  for(let j=0;j<=count;j++){const t=j/count,p:Point=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];if(gardenDoor&&Math.hypot(p[0]-FAMILY_GARDEN_DOOR[0],p[1]-FAMILY_GARDEN_DOOR[1])<.97)continue;box(p[0],ceiling/2,p[1],.07,ceiling,.07,metal);}
  }
   const shell=new THREE.Shape();
   shell.moveTo(-.18,-.23);shell.quadraticCurveTo(-.26,-.20,-.24,.13);shell.quadraticCurveTo(-.23,.26,0,.26);shell.quadraticCurveTo(.23,.26,.24,.13);shell.quadraticCurveTo(.26,-.20,.18,-.23);shell.closePath();
@@ -357,7 +377,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   }
  }
  function roomShell(room:InteriorRoom){
-  if(room.kind==='garden'||room.kind==='cafe'||room.id==='lobby-lounge')return;
+  if(room.kind==='garden'||room.kind==='cafe'||room.id==='lobby-lounge'||room.id==='amphitheater')return;
   if(room.id==='north-reset-zone'){resetZone(room);return;}
   if(room.id==='west-reset-zone'){
    const center=westFourthPlan(270,96);table(center[0],center[1],.6,white);
@@ -373,7 +393,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   room.polygon.forEach((a,i)=>{
    if(room.exteriorEdges?.includes(i))return;
    const wallMaterial=['0102','0108','0116'].includes(room.id)&&(i===1||i===3)?white:defaultWallMaterial;
-   const shellWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
+   const solidWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
     wall(start,end,height,material,collision,base);
     if(room.id!=='0324')return;
     const length=Math.hypot(end[0]-start[0],end[1]-start[1]);if(length<.01)return;
@@ -383,6 +403,21 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
     const g=new THREE.PlaneGeometry(length,height),uv=g.getAttribute('uv');
     for(let v=0;v<uv.count;v++)uv.setXY(v,uv.getX(v)*length/.48,uv.getY(v)*height/.15+base/.15);
     g.rotateY(-Math.atan2(end[1]-start[1],end[0]-start[0]));g.translate(mx+nx*.078,base+height/2,mz+nz*.078);put(g,brick);
+   };
+   const shellWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
+    const length=Math.hypot(end[0]-start[0],end[1]-start[1]);
+    if(room.id!=='0324'||![5,7,8,9].includes(i)||height<10||base!==0||length<3.4){solidWall(start,end,height,material,collision,base);return;}
+    // The garden photos show broad glazed bays in this brick elevation.
+    // Cut real openings in both wall faces, so the view works from the
+    // auditorium as well as from the terrace. Bay widths remain estimated.
+    const ux=(end[0]-start[0])/length,uz=(end[1]-start[1])/length;
+    const l:Point=[start[0]+ux*.55,start[1]+uz*.55],r:Point=[end[0]-ux*.55,end[1]-uz*.55],sill=6.65,head=9.05;
+    solidWall(start,l,height,material,collision);solidWall(r,end,height,material,collision);
+    solidWall(l,r,sill,material,collision);solidWall(l,r,height-head,material,collision,head);
+    wall(l,r,head-sill,gardenGlazing,true,sill,.03);
+    for(const y of [sill,head])wall(l,r,.055,metal,false,y,.1);
+    const panes=Math.max(2,Math.ceil((length-1.1)/1.4));
+    for(let j=0;j<=panes;j++){const t=j/panes;box(l[0]+(r[0]-l[0])*t,(sill+head)/2,l[1]+(r[1]-l[1])*t,.05,head-sill,.05,metal);}
    };
    const b=room.polygon[(i+1)%room.polygon.length];
    const len=Math.hypot(b[0]-a[0],b[1]-a[1]),dx=(b[0]-a[0])/len,dz=(b[1]-a[1])/len,half=(room.doorWidth??1.6)/2;
@@ -476,12 +511,14 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   cylinder(x,ceiling/2,z,.3,ceiling,white);
   for(let i=0;i<16;i++) {
    const a=i/16*Math.PI*2,b=(i+1)/16*Math.PI*2;
-   barriers.push({a:[x+Math.cos(a)*.3,z+Math.sin(a)*.3],b:[x+Math.cos(b)*.3,z+Math.sin(b)*.3]});
+   barriers.push({a:[x+Math.cos(a)*.3,z+Math.sin(a)*.3],b:[x+Math.cos(b)*.3,z+Math.sin(b)*.3],minY:0,maxY:ceiling});
   }
  }
+ if(floor==='1')buildFamilyGarden({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  if(floor==='G'||floor==='1')buildAtrium(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  // Public atrium furniture and material cues from HDR photographs.
  if(floor==='G') {
+  buildAmphitheater({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   buildLobbyCeiling({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   buildLobbySeating({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers,contact});
   for(const [px,py] of [[950,755],[1000,720],[1040,670]]){const [x,z]=groundPlan(px,py);box(x,1.05,z,2.8,.1,1.05,white);box(x-1.3,.52,z,.14,1.05,1.05,white);box(x+1.3,.52,z,.14,1.05,1.05,white);for(const dx of [-.85,0,.85]){cylinder(x+dx,.73,z+.9,.23,.08,yellow);cylinder(x+dx,.35,z+.9,.035,.7,metal);}}

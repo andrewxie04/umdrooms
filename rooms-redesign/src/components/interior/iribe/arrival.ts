@@ -1,9 +1,10 @@
+import { amphitheaterHeight } from './amphitheater';
 import { roofTerrainHeight } from './roof-layout';
 import { antonovHeight, gannonHeight } from './auditorium';
 import { FLOOR_HEIGHT, distanceToSegment, pointInPolygon, type InteriorRoom, type Point } from './layout';
 import type { Barrier } from './model';
 
-const localHeight=(room:InteriorRoom,p:Point)=>room.floor==='R'?roofTerrainHeight(p):room.id==='0324'?(antonovHeight(p)??0):room.id==='0318'?(gannonHeight(p)??0):0;
+const localHeight=(room:InteriorRoom,p:Point)=>room.floor==='R'?roofTerrainHeight(p):room.id==='0324'?(antonovHeight(p)??0):room.id==='0318'?(gannonHeight(p)??0):room.floor==='G'?(amphitheaterHeight(p)??0):0;
 
 /** A room shortcut must arrive on clear floor, never inside furniture or a wall. */
 export function roomArrival(room:InteriorRoom,barriers:Barrier[]):{point:Point;yaw:number;height:number}|null {

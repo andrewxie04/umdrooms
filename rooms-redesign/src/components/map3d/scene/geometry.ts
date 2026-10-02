@@ -1549,3 +1549,18 @@ export function buildSceneGeometries(data: CampusData, proj: Projection): Campus
     parkedCars: buildParkedCars(data, proj),
   };
 }
+
+/** Static scenery viewed through an interior window. Reuse the campus models
+ * without building night effects, snowfall, traffic, or another renderer. */
+export function buildSurroundingsGeometries(data: CampusData, proj: Projection) {
+  return {
+    buildings: buildBuildings(data, proj),
+    roads: buildRoads(data, proj),
+    areas: buildAreas(data, proj),
+    water: buildWater(data, proj),
+    trees: buildTrees(data, proj),
+    shrubs: buildShrubs(data, proj, []),
+    dayWindows: buildWindows(data, proj, true),
+    parkedCars: buildParkedCars(data, proj),
+  };
+}

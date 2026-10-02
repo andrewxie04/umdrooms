@@ -1,5 +1,5 @@
 import { supportHeight, FLOOR_ORDER, type Position } from './circulation';
-import { FLOOR_HEIGHT, type FloorId } from './layout';
+import { AMPH_DROP, FLOOR_HEIGHT, type FloorId } from './layout';
 import * as THREE from 'three';
 import { distanceToSegment, pointInPolygon, type Point, type Polygon } from './layout';
 import type { Barrier } from './model';
@@ -25,7 +25,7 @@ export function walkStep3(position:Position,delta:Point,barriers:(floor:FloorId)
   if(h===null)continue;
   const blocked=FLOOR_ORDER.some(floor=>{
    const localHeight=h-FLOOR_HEIGHT[floor],ceiling=floor==='G'?10.5:floor==='R'?1.2:4.2;
-   if(localHeight+1.65<=0||localHeight>=ceiling)return false;
+   if(localHeight+1.65<=(floor==='G'?-AMPH_DROP:0)||localHeight>=ceiling)return false;
    return barriers(floor).some(b=>localHeight+.18<(b.maxY??ceiling)&&localHeight+1.65>(b.minY??0)&&distanceToSegment([nx,nz],b.a,b.b)<.24);
   });
   if(!blocked){x=nx;y=h;z=nz;}

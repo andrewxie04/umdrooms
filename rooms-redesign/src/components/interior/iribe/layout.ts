@@ -86,7 +86,7 @@ export const cafePoint=(x:number,z:number):Point=>[CAFE_ORIGIN[0]+CAFE_U[0]*x+CA
 export const CAFE_SPACE:InteriorRoom={id:'breakpoint-cafe',name:'Breakpoint Café',floor:'G',kind:'cafe',evidence:'photo',polygon:[[0,.9],[CAFE_LENGTH,.9],[CAFE_LENGTH,4],[0,4]].map(([x,z])=>cafePoint(x,z)),door:cafePoint(CAFE_LENGTH/2,4)};
 ROOMS.push(CAFE_SPACE);
 export const ELEVATOR = plan(657,1114);
-export const ENTRY = groundPlan(1305,850);
+export const ENTRY = groundPlan(1380,850);
 // The HDR guide shows the central elevator enclosure and two-flight stair.
 // The opening is fitted to that topology; metric dimensions remain estimated.
 export const ATRIUM_CENTER=plan(665,1120);
@@ -217,3 +217,52 @@ ROOMS.push(
  {floor:'4',id:'4-core-room-east',name:'Service room',kind:'service',listed:false,evidence:'plan',polygon:coreTrace([[1055,279],[1154,291],[1146,373],[1043,358]]),door:fourthCorePlan(1151,317),doorWidth:1.05},
  {floor:'4',id:'4-core-room-southeast',name:'Service room',kind:'service',listed:false,evidence:'plan',polygon:coreTrace([[1042,374],[1140,389],[1128,485],[1030,485]]),door:fourthCorePlan(1136,423),doorWidth:1.05},
 );
+
+// The ground-floor guide and UMD amphitheater photograph show the lobby stepping
+// down toward the cantilever entrance. Plan trace fixes the orientation; the
+// 1.8 m drop is a visual estimate, not a surveyed elevation.
+export const AMPH_ORIGIN=groundPlan(1281,738);
+const amphEnd=groundPlan(1261,900);
+export const AMPH_DEPTH=Math.hypot(amphEnd[0]-AMPH_ORIGIN[0],amphEnd[1]-AMPH_ORIGIN[1]);
+export const AMPH_V:Point=[(amphEnd[0]-AMPH_ORIGIN[0])/AMPH_DEPTH,(amphEnd[1]-AMPH_ORIGIN[1])/AMPH_DEPTH];
+export const AMPH_U:Point=[AMPH_V[1],-AMPH_V[0]];
+export const AMPH_WIDTH=4.44,AMPH_DROP=1.8,AMPH_SOUTH_AISLE=1.6,AMPH_NORTH_RUN=3;
+export const amphPoint=(u:number,v:number):Point=>[AMPH_ORIGIN[0]+AMPH_U[0]*u+AMPH_V[0]*v,AMPH_ORIGIN[1]+AMPH_U[1]*u+AMPH_V[1]*v];
+export const amphLocal=(p:Point):Point=>[(p[0]-AMPH_ORIGIN[0])*AMPH_U[0]+(p[1]-AMPH_ORIGIN[1])*AMPH_U[1],(p[0]-AMPH_ORIGIN[0])*AMPH_V[0]+(p[1]-AMPH_ORIGIN[1])*AMPH_V[1]];
+const amphFacadeA=amphLocal(groundPlan(1625,160)),amphFacadeB=amphLocal(groundPlan(1375,969));
+export const amphFacade=(v:number)=>amphFacadeA[0]+(amphFacadeB[0]-amphFacadeA[0])*(v-amphFacadeA[1])/(amphFacadeB[1]-amphFacadeA[1])-.025;
+// A 25 mm inset leaves a valid hole inside the curtain-wall floor outline.
+export const AMPH_LOWER:Polygon=[[0,0],[amphFacade(0),0],[amphFacade(AMPH_DEPTH+AMPH_SOUTH_AISLE),AMPH_DEPTH+AMPH_SOUTH_AISLE],[0,AMPH_DEPTH+AMPH_SOUTH_AISLE]].map(([u,v])=>amphPoint(u,v));
+export const AMPH_SPACE:InteriorRoom={id:'amphitheater',name:'Amphitheater',floor:'G',kind:'lounge',evidence:'photo',polygon:AMPH_LOWER,door:amphPoint(6.2,AMPH_DEPTH*.55)};
+ROOMS.push(AMPH_SPACE);
+
+// Level 1 garden: register the HDR spread at its corridor doorway and the
+// auditorium's south/east wall. Dimensions are interpreted from the diagram.
+export const FAMILY_GARDEN_DOOR=onEnvelope(plan(508.3849737,927.4092956));
+const gardenGuide:Polygon=[[302,670],[490,542],[644,595],[793,493],[805,265],[886,262],[737,745],[537,718]];
+const gardenWorld:Polygon=[onEnvelope(plan(488.4218,1123.7397)),groundPlan(1216,436),groundPlan(1344,480),groundPlan(1480,468),groundPlan(1520,206),[groundPlan(1520,206)[0],groundPlan(1520,206)[1]-6.5],onEnvelope(plan(511.9475,761.2109)),FAMILY_GARDEN_DOOR];
+const gardenTriangles=[[6,7,1],[7,0,1],[6,1,2],[6,2,3],[6,3,5],[3,4,5]] as const;
+export function familyGardenPlan(x:number,y:number):Point {
+ // The public sheets disagree in their relative auditorium/corridor scale.
+ // A continuous piecewise registration fixes both boundaries without folding
+ // the terrace over the auditorium or placing planters inside the corridor.
+ let best:Point=[0,0],penalty=Infinity;
+ for(const [a,b,c] of gardenTriangles){
+  const [u,v]=barycentric([x,y],gardenGuide[a],gardenGuide[b],gardenGuide[c]);
+  const outside=Math.max(0,-u)+Math.max(0,-v)+Math.max(0,u+v-1);
+  if(outside<penalty){penalty=outside;best=blendTriangle(u,v,gardenWorld[a],gardenWorld[b],gardenWorld[c]);}
+ }
+ return best;
+}
+const theaterCenter:Point=[ANTONOV_FOOTPRINT.reduce((s,p)=>s+p[0],0)/ANTONOV_FOOTPRINT.length,ANTONOV_FOOTPRINT.reduce((s,p)=>s+p[1],0)/ANTONOV_FOOTPRINT.length];
+export function theaterOffset(p:Point,d:number):Point {
+ const dx=p[0]-theaterCenter[0],dz=p[1]-theaterCenter[1],length=Math.hypot(dx,dz);return [p[0]+dx/length*d,p[1]+dz/length*d];
+}
+export const FAMILY_THEATER_EDGE:Polygon=ANTONOV_FOOTPRINT.slice(4,13).reverse().map(p=>theaterOffset(p,.19));
+export const FAMILY_TERRACE:Polygon=[
+ onEnvelope(familyGardenPlan(302,670)),...FAMILY_THEATER_EDGE,
+ familyGardenPlan(886,262),onEnvelope(familyGardenPlan(739,746)),
+ ...[[550,721],[537,718],[443,711],[361,693]].map(([x,y])=>onEnvelope(familyGardenPlan(x,y))),
+];
+export const FAMILY_GARDEN:InteriorRoom={floor:'1',id:'family-garden',name:'Margulis–Antonov Family Garden',kind:'garden',evidence:'plan',polygon:FAMILY_TERRACE,door:FAMILY_GARDEN_DOOR};
+ROOMS.push(FAMILY_GARDEN);
