@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { MAIN_FOOTPRINT, ROOF_PUBLIC_FOOTPRINT, plan, pointInPolygon, type Point, type Polygon } from './layout';
-import { ROOF_BEDS, ROOF_LAWN, ROOF_POOL, ROOF_PORTALS } from './roof-layout';
+import { MAIN_FOOTPRINT, ROOF_PUBLIC_FOOTPRINT, plan, roofPlan, pointInPolygon, type Point, type Polygon } from './layout';
+import { ROOF_BEDS, ROOF_LAWN, ROOF_POOL, ROOF_FACADE, ROOF_DOORS, ROOF_OUTDOOR, ROOF_FOYER } from './roof-layout';
 import type { Barrier } from './model';
 
 type Material=THREE.Material;
@@ -17,6 +17,7 @@ export interface RoofBuilder {
 export function buildRoof(b:RoofBuilder){
  const {box,cylinder,surface,wall,put,palette:m}=b;
  const material=(color:number,roughness=.8)=>{const mat=new THREE.MeshStandardMaterial({color,roughness});b.materials.push(mat);return mat;};
+ const foyerCeiling=material(0x737773);foyerCeiling.side=THREE.DoubleSide;
  const deck=material(0xb2a18b),soil=material(0x453b30),grass=material(0x52723c),leaf=material(0x526d35),maple=material(0x795345),bark=material(0x615347),stone=material(0x77756d),water=material(0x34565d,.23),gravel=material(0x969a98);
  // Weathered boards: generated texture in world units, without photo overlays.
  const pixels=new Uint8Array(128*128*4);
@@ -26,34 +27,66 @@ export function buildRoof(b:RoofBuilder){
   const shade=joint?.55:1+grain+(board%3-1)*.025;
   pixels[i]=201*shade;pixels[i+1]=185*shade;pixels[i+2]=160*shade;pixels[i+3]=255;
  }
- const map=new THREE.DataTexture(pixels,128,128);map.colorSpace=THREE.SRGBColorSpace;map.wrapS=map.wrapT=THREE.RepeatWrapping;map.repeat.set(.5,.5);map.needsUpdate=true;map.magFilter=THREE.LinearFilter;deck.map=map;deck.color.setHex(0xffffff);b.textures.push(map);
+ const map=new THREE.DataTexture(pixels,128,128);map.colorSpace=THREE.SRGBColorSpace;map.wrapS=map.wrapT=THREE.RepeatWrapping;map.repeat.set(.5,.5);map.needsUpdate=true;map.magFilter=THREE.LinearFilter;map.generateMipmaps=true;map.minFilter=THREE.LinearMipmapLinearFilter;map.anisotropy=4;deck.map=map;deck.color.setHex(0xffffff);b.textures.push(map);
+ // Fine turf color variation stays in one texture and one material batch.
+ const turfPixels=new Uint8Array(128*128*4);let turfSeed=5317;
+ for(let i=0;i<128*128;i++){
+  turfSeed=(Math.imul(turfSeed,1664525)+1013904223)>>>0;
+  const shade=.85+(turfSeed/4294967296)*.3;
+  turfPixels[i*4]=97*shade;turfPixels[i*4+1]=119*shade;turfPixels[i*4+2]=65*shade;turfPixels[i*4+3]=255;
+ }
+ const turf=new THREE.DataTexture(turfPixels,128,128);turf.colorSpace=THREE.SRGBColorSpace;turf.wrapS=turf.wrapT=THREE.RepeatWrapping;turf.repeat.set(2,2);turf.generateMipmaps=true;turf.minFilter=THREE.LinearMipmapLinearFilter;turf.magFilter=THREE.LinearFilter;turf.anisotropy=4;turf.needsUpdate=true;
+ grass.map=turf;grass.color.setHex(0xffffff);b.textures.push(turf);
  surface(MAIN_FOOTPRINT,-.035,gravel);
- const outdoor:Polygon=[plan(515,449),plan(740,449),plan(774,760),plan(675,760),plan(673,725),plan(599,737),plan(599,760),plan(509,760)];
- surface(outdoor,.008,deck);
- const foyer:Polygon=[plan(509,760),plan(599,760),plan(599,737),plan(673,725),plan(675,760),plan(774,760),plan(794,940),plan(507,940)];
- surface(foyer,3.45,m.black);
- // The perimeter is a full-height glazed wind screen in the published photos.
- const threshold=plan(660,760)[1];
+ surface(ROOF_OUTDOOR,.008,deck);
+ surface(ROOF_FOYER,3.45,foyerCeiling);
+ const cladding=material(0x68747c,.58),windowTrim=material(0x754a35,.62);
+ // Tall glazed wind screens surround the garden. The enclosed foyer has
+ // full-height windows below its ceiling, rather than a low terrace railing.
  ROOF_PUBLIC_FOOTPRINT.forEach((a,i)=>{
   const end=ROOF_PUBLIC_FOOTPRINT[(i+1)%ROOF_PUBLIC_FOOTPRINT.length];
-  if(i===2){wall(a,end,3.45,gravel);return;}
+  if(i===2){wall(a,end,3.45,cladding);return;}
   const count=Math.ceil(Math.hypot(end[0]-a[0],end[1]-a[1])/1.55);
   for(let j=0;j<count;j++){
    const p:Point=[a[0]+(end[0]-a[0])*j/count,a[1]+(end[1]-a[1])*j/count],q:Point=[a[0]+(end[0]-a[0])*(j+1)/count,a[1]+(end[1]-a[1])*(j+1)/count];
-   const h=(p[1]+q[1])/2>threshold?3.45:2.45;
+   const h=pointInPolygon([(p[0]+q[0])/2,(p[1]+q[1])/2],ROOF_FOYER)?3.45:2.45;
    wall(p,q,h,m.glass);wall(p,q,.17,m.metal,false,h-.17,.17);wall(p,q,.13,m.metal,false,0,.15);box(p[0],h/2,p[1],.13,h,.13,m.metal);
   }
  });
- // Open double-door routes flank the projecting gallery window.
- for(const [a,c] of [[[509,760],[542,760]],[[566,760],[599,760]],[[675,760],[710,760]],[[734,760],[774,760]]] as const){
-  const p=plan(a[0],a[1]),q=plan(c[0],c[1]);wall(p,q,3.35,m.glass);wall(p,q,.12,m.metal,false,3.25);box(p[0],1.7,p[1],.08,3.4,.08,m.metal);
- }
- for(const [x,z] of ROOF_PORTALS){
-  box(x,2.4,z,2.08,.1,.09,m.metal);
-  for(const side of [-1,1]){box(x+side*1.02,1.2,z,.08,2.4,.08,m.metal);wall([x+side*1.02,z],[x+side*1.02,z+1],2.3,m.glass,true,0,.035);box(x+side*1.02,1.05,z+.78,.055,.45,.055,m.metal);}
- }
- for(const [px,py] of [[574,875],[715,860],[585,804],[720,804]]){const [x,z]=plan(px,py);box(x,3.17,z,2.7,.06,.09,m.light,.65);}
- const sign=plan(637,820);b.label('REISSE PARK',sign[0],2.7,sign[1],Math.PI,3.1);
+ // The projecting gallery window sits in a metal-clad rooftop enclosure.
+ // Derive wall breaks and open leaves from the same segments as the collision
+ // geometry, including both terrace entrances shown on the architectural plan.
+ ROOF_FACADE.slice(0,-1).forEach((a,i)=>{
+  const end=ROOF_FACADE[i+1],dx=end[0]-a[0],dz=end[1]-a[1],len=Math.hypot(dx,dz),ux=dx/len,uz=dz/len;
+  let nx=-uz,nz=ux;
+  if(pointInPolygon([(a[0]+end[0])/2+nx*.2,(a[1]+end[1])/2+nz*.2],ROOF_FOYER)){nx=-nx;nz=-nz;}
+  const shifted=(p:Point,offset:number):Point=>[p[0]+nx*offset,p[1]+nz*offset];
+  const clad=(p:Point,q:Point)=>{
+   // Gallery walls are already part of its room shell; avoid duplicate faces.
+   if(i!==2&&i!==4)wall(p,q,3.45,m.white);
+   wall(shifted(p,.105),shifted(q,.105),4.2,cladding,false,0,.06);
+   for(let y=.25;y<4.2;y+=.22)wall(shifted(p,.14),shifted(q,.14),.012,m.metal,false,y,.009);
+  };
+  if(i===3){
+   wall(shifted(a,.14),shifted(end,.14),.26,windowTrim,false,3.22,.26);
+   wall(shifted(a,.14),shifted(end,.14),.22,windowTrim,false,0,.26);
+   for(const p of [a,end])box(p[0]+nx*.14,1.72,p[1]+nz*.14,.22,3.44,.22,windowTrim);
+   const panes=Math.ceil(len/1.3);
+   for(let j=1;j<panes;j++)box(a[0]+dx*j/panes,1.7,a[1]+dz*j/panes,.035,3.2,.035,m.metal);
+   wall(a,end,.75,cladding,false,3.45,.16);return;
+  }
+  const door=ROOF_DOORS.find(d=>d.edge===i);
+  if(!door){clad(a,end);return;}
+  const l:Point=[door.center[0]-ux*door.width/2,door.center[1]-uz*door.width/2],r:Point=[door.center[0]+ux*door.width/2,door.center[1]+uz*door.width/2];
+  clad(a,l);clad(r,end);wall(l,r,1.8,cladding,false,2.4,.16);
+  wall(l,r,.08,m.metal,false,2.32,.1);
+  for(const p of [l,r])box(p[0],1.2,p[1],.065,2.4,.065,m.metal);
+  const open:Point=[l[0]-nx*door.width,l[1]-nz*door.width];
+  wall(l,open,2.3,m.glass,true,0,.035);wall(l,open,.045,m.metal,false,0,.045);wall(l,open,.045,m.metal,false,2.28,.045);
+  box(open[0],1.15,open[1],.055,2.3,.055,m.metal);box(open[0]+ux*.055,1.07,open[1]+uz*.055,.04,.34,.04,m.metal);
+ });
+ for(const [px,py] of [[574,875],[715,860],[585,804],[720,840]]){const [x,z]=plan(px,py);if(pointInPolygon([x,z],ROOF_FOYER))box(x,3.17,z,2.7,.06,.09,m.light,.65);}
+ const sign=plan(637,855);b.label('REISSE PARK',sign[0],2.7,sign[1],Math.PI,3.1);
  const border=(poly:Polygon,h:number,thickness=.16)=>poly.forEach((p,i)=>wall(p,poly[(i+1)%poly.length],h,m.white,true,0,thickness));
  border(ROOF_LAWN,.15,.16);surface(ROOF_LAWN,.15,grass);
  border(ROOF_POOL,.43,.18);surface(ROOF_POOL,.25,water);
@@ -106,8 +139,12 @@ export function buildRoof(b:RoofBuilder){
   const x=poolCenter[0]+(p[0]-poolCenter[0])*t,z=poolCenter[1]+(p[1]-poolCenter[1])*t;
   const g=new THREE.IcosahedronGeometry(.08+random()*.13,0);g.scale(1.4,.5,1);g.rotateY(random()*Math.PI);g.translate(x,.28,z);put(g,stone);
  }
+ // Stepped rock shelves descend within the basin, beside the gallery glass.
+ // Inset every shelf so the cascade cannot protrude through the white curb.
+ const flowA=roofPlan(750,910),flowB=roofPlan(767,923),flowAngle=-Math.atan2(flowB[1]-flowA[1],flowB[0]-flowA[0]);
  for(let i=0;i<3;i++){
-  const p=ROOF_POOL[40+i*4];box(p[0],.34+i*.08,p[1],.8,.13,.45,stone,.3);box(p[0],.41+i*.08,p[1]-.05,.53,.015,.27,water,.3);
+  const t=i/2,x=flowA[0]+(flowB[0]-flowA[0])*t,z=flowA[1]+(flowB[1]-flowA[1])*t,top=.66-i*.12;
+  box(x,top-.08,z,.66,.16,.7,stone,flowAngle);box(x,top+.009,z,.49,.018,.53,water,flowAngle);
  }
  // Short bollard lights around the lawn, visible in both official roof photos.
  for(let i=0;i<ROOF_LAWN.length;i+=10){const [x,z]=ROOF_LAWN[i];cylinder(x,.48,z,.055,.72,m.metal);cylinder(x,.75,z,.057,.06,m.light);}

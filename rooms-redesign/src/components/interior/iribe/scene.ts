@@ -22,11 +22,11 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
  const entranceYaw = Math.atan2(ENTRY[0]-atrium[0],ENTRY[1]-atrium[1]);
  let activeFloor:FloorId='G';
  const showFloor=(f:FloorId)=>{activeFloor=f;const index=FLOOR_ORDER.indexOf(f);models.forEach((m,id)=>{m.group.visible=Math.abs(FLOOR_ORDER.indexOf(id)-index)<=1;});};showFloor('G');
- let dirty=true,disposed=false,frame=0,last=performance.now(),reportAt=0;
+ let dirty=true,reportPending=true,disposed=false,frame=0,last=performance.now(),reportAt=0;
  const controls=new WalkControls(camera,renderer.domElement,floor=>models.get(floor)!.barriers,()=>{dirty=true;});controls.setPose(ENTRY,entranceYaw);
  const resize=()=>{const w=host.clientWidth,h=host.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/Math.max(1,h);camera.updateProjectionMatrix();dirty=true;};
  const observer=new ResizeObserver(resize);observer.observe(host);resize();
- const render=(now:number)=>{if(disposed)return;frame=requestAnimationFrame(render);if(document.hidden){last=now;return;}const dt=Math.min(.05,(now-last)/1000);last=now;if(controls.update(dt)){dirty=true;const floor=floorAtPosition([camera.position.x,camera.position.y-1.65,camera.position.z]);if(floor!==activeFloor)showFloor(floor);}if(dirty){renderer.render(scene,camera);dirty=false;if(now-reportAt>150){onLocation(camera.position.x,camera.position.z,activeFloor);reportAt=now;}}};frame=requestAnimationFrame(render);
+ const render=(now:number)=>{if(disposed)return;frame=requestAnimationFrame(render);if(document.hidden){last=now;return;}const dt=Math.min(.05,(now-last)/1000);last=now;if(controls.update(dt)){dirty=true;const floor=floorAtPosition([camera.position.x,camera.position.y-1.65,camera.position.z]);if(floor!==activeFloor)showFloor(floor);}if(dirty){renderer.render(scene,camera);dirty=false;reportPending=true;}if(reportPending&&now-reportAt>150){onLocation(camera.position.x,camera.position.z,activeFloor);reportAt=now;reportPending=false;}};frame=requestAnimationFrame(render);
  return {
   setFloor(floor:FloorId){showFloor(floor);const entry=stairEntry(floor);controls.setPose(floor==='G'?ENTRY:floor==='R'?plan(578,915):[entry[0]-1.1,entry[1]+1.2],floor==='G'?entranceYaw:floor==='R'?0:Math.PI,floor);dirty=true;},
   visitRoom(floor:FloorId,id:string){

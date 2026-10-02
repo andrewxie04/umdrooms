@@ -5,8 +5,8 @@
 export type Point = readonly [number, number];
 export type Polygon = readonly Point[];
 export type FloorId = 'G' | '1' | '2' | '3' | '4' | '5' | 'R';
-export type RoomKind = 'classroom' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden';
-export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; }
+export type RoomKind = 'classroom' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom';
+export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; doorWidth?: number; additionalDoors?: Point[]; officeMeeting?: boolean; }
 export const PLAN_SCALE = .085;
 export const plan = (x: number, y: number): Point => [(x - 660) * PLAN_SCALE, (y - 1100) * PLAN_SCALE];
 const trace = (points: Polygon): Polygon => points.map(([x,y]) => plan(x,y));
@@ -81,9 +81,53 @@ export const ENTRY = groundPlan(1305,850);
 export const ATRIUM_VOID = trace([[548,1050],[716,1064],[727,1132],[643,1173],[566,1138]]);
 
 // Align the rooftop spread to the same building frame using the northern
-// exterior corners and western stair. This is a diagram alignment, not a survey.
-export const roofPlan=(x:number,y:number):Point=>plan(.0133811582*x-.940414808*y+1464.36648,-.768577856*x-.0578845247*y+1344.54434);
-export const ROOF_PUBLIC_FOOTPRINT:Polygon=[plan(515,449),plan(740,449),plan(794,940),plan(507,940)];
-export const ROOF_GALLERY:InteriorRoom={floor:'R',id:'6217',name:'Andre Reisse Gallery',kind:'conference',evidence:'plan',polygon:[[635,835],[741,852],[720,930],[626,926]].map(([x,y])=>roofPlan(x,y)),door:roofPlan(650,929)};
-ROOMS.push(ROOF_GALLERY);
+// exterior corners and western stair. Preserve handedness: guide +Y is building
+// +X, while guide +X is building -Z. This is a diagram alignment, not a survey.
+export const roofPlan=(x:number,y:number):Point=>plan(-.102848138*x+.933676709*y-105.119852,-.779447619*x-.058703168*y+1357.20976);
+export const ROOF_PUBLIC_FOOTPRINT:Polygon=[plan(515,449),plan(740,449),plan(807,940),plan(507,940)];
+export const ROOF_GALLERY:InteriorRoom={floor:'R',id:'6217',name:'Andre Reisse Gallery',kind:'conference',evidence:'plan',polygon:[[635,835],[741,852],[720,930],[626,926]].map(([x,y])=>roofPlan(x,y)),door:roofPlan(650,837.4056604)};
+export const ROOF_LAWN_PLAN:Polygon=[[827,850],[870,842],[960,846],[994,857],[1010,898],[977,925],[895,954],[866,947],[838,916]];
+export const ROOF_PARK:InteriorRoom={floor:'R',id:'reisse-park',name:'Reisse Park terrace',kind:'garden',evidence:'plan',polygon:ROOF_LAWN_PLAN.map(([x,y])=>roofPlan(x,y)),door:roofPlan(865,933)};
+ROOMS.push(ROOF_GALLERY,ROOF_PARK);
 export const footprintForFloor=(floor:FloorId):Polygon=>floor==='G'?GROUND_FOOTPRINT:floor==='R'?ROOF_PUBLIC_FOOTPRINT:MAIN_FOOTPRINT;
+
+
+// HDR Level 4 sheet, aligned independently by its north corners and north-west
+// stair. The public wayfinding sheets are schematic, so this is not a survey.
+export const fourthPlan=(x:number,y:number):Point=>plan(-.10140141*x+.92056662*y-96.11915764,-.759457617*x-.097689569*y+1374.95531);
+const fourthTrace=(p:Polygon):Polygon=>p.map(([x,y])=>fourthPlan(x,y));
+ROOMS.push(
+ {floor:'4',id:'4105',name:'Room 4105',kind:'service',evidence:'plan',polygon:fourthTrace([[196,735],[310,765],[273,902],[142,844]]),door:fourthPlan(263,898)},
+ {floor:'4',id:'north-reset-zone',name:'North study lounge',kind:'lounge',evidence:'plan',polygon:fourthTrace([[998,840],[1104,852],[1085,1021],[1040,1021],[1040,957],[981,951]]),door:fourthPlan(1022,953)},
+);
+export const roomTitle=(room:InteriorRoom)=>/^\d+$/.test(room.id)&&room.name!==`Room ${room.id}`?`${room.id} · ${room.name}`:room.name;
+
+
+// Office partitions traced from HDR's Level 4 plan. Room numbers are not
+// printed on that plan: these internal IDs are deliberately absent from signs
+// and the destination picker. Window edges meet the existing building envelope.
+const upperWindow=(p:Point,side:'west'|'east'):Point=>{
+ const py=p[1]/PLAN_SCALE+1100;
+ const px=side==='west'?515+(505-515)*(py-449)/(1090-449):740+(827-740)*(py-449)/(1230-449);
+ return [plan(px,py)[0],p[1]];
+};
+const westOfficeBreaks=[650,688.5,727.5,767,805.5,844.5,882,920.5,959,997,1035.5,1074.5];
+const officeTop=(x:number)=>727.5+(x-650)*.132;
+const officeMeetingIndices=new Set([0,1,4,7,8,9]);
+for(let i=0;i<westOfficeBreaks.length-1;i++){
+ const a=westOfficeBreaks[i],b=westOfficeBreaks[i+1];
+ const points:Polygon=[upperWindow(fourthPlan(a,officeTop(a)),'west'),upperWindow(fourthPlan(b,officeTop(b)),'west'),fourthPlan(b-6,officeTop(b)+62),fourthPlan(a-6,officeTop(a)+62)];
+ const t=i%2?.23:.77,door:Point=[points[3][0]+(points[2][0]-points[3][0])*t,points[3][1]+(points[2][1]-points[3][1])*t];
+ ROOMS.push({floor:'4',id:`4-west-office-${i+1}`,name:'Office',kind:'office',polygon:points,door,doorWidth:.9,exteriorEdges:[0],officeMeeting:officeMeetingIndices.has(i),evidence:'plan',listed:false});
+}
+const eastOfficeBreaks=[619.5,654,691.5,731,770.5,809.5,847.5,886.5,926,965,1005,1044];
+for(let i=0;i<eastOfficeBreaks.length-1;i++){
+ const a=eastOfficeBreaks[i],b=eastOfficeBreaks[i+1];
+ const points:Polygon=[fourthPlan(a,966),fourthPlan(b,966),upperWindow(fourthPlan(b,1027),'east'),upperWindow(fourthPlan(a,1027),'east')];
+ const t=i%2?.77:.23,door:Point=[points[0][0]+(points[1][0]-points[0][0])*t,points[0][1]+(points[1][1]-points[0][1])*t];
+ ROOMS.push({floor:'4',id:`4-east-office-${i+1}`,name:'Office',kind:'office',polygon:points,door,doorWidth:.9,exteriorEdges:[2],officeMeeting:officeMeetingIndices.has(i),evidence:'plan',listed:false});
+}
+ROOMS.push(
+ {floor:'4',id:'4-north-workroom-west',name:'Shared workroom (west)',kind:'workroom',evidence:'plan',polygon:fourthTrace([[817,834],[903,845],[891,941],[808,941]]),door:fourthPlan(829,835.535),doorWidth:.95},
+ {floor:'4',id:'4-north-workroom-east',name:'Shared workroom (east)',kind:'workroom',evidence:'plan',polygon:fourthTrace([[903,845],[992,856],[982,941],[891,941]]),door:fourthPlan(977,854.146),additionalDoors:[fourthPlan(965,941)],doorWidth:.95},
+);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUp, ArrowDown, ArrowRight, BookOpen, X } from 'lucide-react';
 import { useInteriorStore } from './store';
 import { createIribeScene } from './iribe/scene';
-import { FLOOR_LABEL, footprintForFloor, ROOMS, type FloorId } from './iribe/layout';
+import { FLOOR_LABEL, footprintForFloor, ROOMS, roomTitle, type FloorId } from './iribe/layout';
 import { ROOF_BEDS, ROOF_LAWN, ROOF_POOL } from './iribe/roof-layout';
 import { IRIBE_REFERENCES } from './iribe/reference';
 
@@ -24,11 +24,11 @@ export default function IribeInterior(){
   </header>
   <div className="absolute bottom-5 left-3 rounded-xl bg-[#faf7ee] p-3 shadow-sm sm:left-5">
    <label className="text-xs">Explore a floor<select value={floor} onChange={e=>changeFloor(e.target.value as FloorId)} className="mt-2 block min-h-10 rounded-lg border border-black/15 bg-transparent px-3 text-sm">{Object.entries(FLOOR_LABEL).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
-   {ROOMS.some(r=>r.floor===floor)&&<label className="mt-3 block text-xs">Visit a room<select value="" onChange={e=>scene.current?.visitRoom(floor,e.target.value)} className="mt-2 block min-h-10 w-44 rounded-lg border border-black/15 bg-transparent px-2 text-sm"><option value="" disabled>Choose a room</option>{ROOMS.filter(r=>r.floor===floor).map(r=><option key={r.id} value={r.id}>{r.id} · {r.name}</option>)}</select></label>}
+   {ROOMS.some(r=>r.floor===floor&&r.listed!==false)&&<label className="mt-3 block text-xs">Visit a space<select value="" onChange={e=>scene.current?.visitRoom(floor,e.target.value)} className="mt-2 block min-h-10 w-44 rounded-lg border border-black/15 bg-transparent px-2 text-sm"><option value="" disabled>Choose a space</option>{ROOMS.filter(r=>r.floor===floor&&r.listed!==false).map(r=><option key={r.id} value={r.id}>{roomTitle(r)}</option>)}</select></label>}
    <svg viewBox="-50 -75 105 145" className="mt-2 hidden h-36 w-32 sm:block" aria-label="Interior position">
     <polygon points={footprint.map(p=>p.join(',')).join(' ')} fill="#e2ded2" stroke="#858982" strokeWidth=".4"/>
     {floor==='R'&&<>{[ROOF_LAWN,...ROOF_BEDS].map((p,i)=><polygon key={i} points={p.map(p=>p.join(',')).join(' ')} fill="#77935c"/>)}<polygon points={ROOF_POOL.map(p=>p.join(',')).join(' ')} fill="#587b87"/></>}
-    {ROOMS.filter(r=>r.floor===floor).map(r=><polygon key={r.id} points={r.polygon.map(p=>p.join(',')).join(' ')} fill="#b9bfb6" stroke="#faf7ee" strokeWidth=".35"/>)}
+    {ROOMS.filter(r=>r.floor===floor&&r.kind!=='garden').map(r=><polygon key={r.id} points={r.polygon.map(p=>p.join(',')).join(' ')} fill="#b9bfb6" stroke="#faf7ee" strokeWidth=".35"/>)}
     <circle cx={location[0]} cy={location[1]} r="1.8" fill="#b51c32" stroke="white" strokeWidth=".5"/>
    </svg>
   </div>
