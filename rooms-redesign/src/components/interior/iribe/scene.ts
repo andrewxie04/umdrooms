@@ -1,3 +1,4 @@
+import { communicatingStairForFloor } from './communicating-layout';
 import { loadSurroundings } from './surroundings';
 import { amphitheaterHeight } from './amphitheater';
 import { ATRIUM_CENTER } from './layout';
@@ -24,7 +25,7 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
  const atrium = ATRIUM_CENTER;
  const entranceYaw = Math.atan2(ENTRY[0]-atrium[0],ENTRY[1]-atrium[1]);
  let activeFloor:FloorId='G';
- const showFloor=(f:FloorId)=>{activeFloor=f;const index=FLOOR_ORDER.indexOf(f);models.forEach((m,id)=>{m.group.visible=Math.abs(FLOOR_ORDER.indexOf(id)-index)<=1;});};showFloor('G');
+ const showFloor=(f:FloorId)=>{activeFloor=f;const index=FLOOR_ORDER.indexOf(f);models.forEach((m,id)=>{m.setDetailsVisible(Math.abs(FLOOR_ORDER.indexOf(id)-index)<=1);});};showFloor('G');
  let dirty=true,reportPending=true,disposed=false,frame=0,last=performance.now(),reportAt=0;
  const contextAbort=new AbortController();let surroundings:Awaited<ReturnType<typeof loadSurroundings>>|null=null;
  void loadSurroundings(contextAbort.signal).then(context=>{if(disposed){context.dispose();return;}surroundings=context;scene.add(context.group);dirty=true;onSurroundings?.('ready');}).catch(()=>{if(!disposed)onSurroundings?.('unavailable');});
@@ -38,6 +39,11 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
    const room=ROOMS.find(r=>r.floor===floor&&r.id===id);if(!room)return false;
    const arrival=roomArrival(room,models.get(floor)!.barriers);if(!arrival)return false;
    showFloor(floor);controls.setPose(arrival.point,arrival.yaw,floor,arrival.height);dirty=true;return true;
+  },
+  visitStair(){
+   const stair=communicatingStairForFloor(activeFloor);if(!stair)return;
+   const point=activeFloor===stair.lower?stair.entry:stair.exit,target=activeFloor===stair.lower?stair.path[0]:stair.path.at(-1)!;
+   controls.setPose(point,Math.atan2(point[0]-target[0],point[1]-target[1]),activeFloor);dirty=true;
   },
   setPaused:(paused:boolean)=>controls.setPaused(paused),
   setMove:(x:number,z:number)=>controls.setMove(x,z),

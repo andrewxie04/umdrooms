@@ -1,3 +1,5 @@
+import { buildCommunicatingStair } from './communicating-stairs';
+import { communicatingStairForFloor } from './communicating-layout';
 import { buildFamilyGarden } from './family-garden';
 import { FAMILY_GARDEN_DOOR } from './layout';
 import * as THREE from 'three';
@@ -18,12 +20,15 @@ import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferG
 import { footprintForFloor, fourthPlan, westFourthPlan, roomTitle, ROOF_GALLERY, ANTONOV_FOOTPRINT, ATRIUM_VOID, ROOMS, plan, groundPlan, type FloorId, type Point, type Polygon, type InteriorRoom, distanceToSegment, pointInPolygon } from './layout';
 
 export interface Barrier {a:Point;b:Point;minY?:number;maxY?:number;}
-export interface InteriorModel { group:THREE.Group; barriers:Barrier[]; footprint:Polygon; dispose():void; }
+export interface InteriorModel { group:THREE.Group; barriers:Barrier[]; footprint:Polygon; setDetailsVisible(visible:boolean):void; dispose():void; }
 
-/** Material batches keep draw calls low while adjacent floors remain visible. */
+/** Keep the building shell visible from terraces/windows; cull distant furnishings.
+ * Both sets share materials and retain per-material geometry batches. */
 export function buildInteriorFloor(floor:FloorId):InteriorModel {
  const group=new THREE.Group(); const barriers:Barrier[]=[];
- const batches=new Map<THREE.Material,THREE.BufferGeometry[]>();
+ const shellBatches=new Map<THREE.Material,THREE.BufferGeometry[]>();
+ const detailBatches=new Map<THREE.Material,THREE.BufferGeometry[]>();
+ let batches=shellBatches;
  const textures:THREE.Texture[]=[];
  const mat=(color:number,roughness=.75)=>new THREE.MeshStandardMaterial({color,roughness});
  const white=mat(0xeeeae1), concrete=mat(0xaaa99f), black=mat(0x20262a), oak=mat(0x946333), metal=mat(0x858f92,.35), blue=mat(0x26869b), yellow=mat(0xe1b924), lime=mat(0x86a544), red=mat(0xb93731);
@@ -68,7 +73,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   ctx.fillStyle='#283034';ctx.fillRect(0,0,768,128);ctx.fillStyle='#f4f0e5';ctx.font='500 38px Arial';ctx.textAlign='center';ctx.textBaseline='middle';if(text==='sandbox'){ctx.fillStyle='#ebe8df';ctx.fillRect(0,0,768,128);ctx.font='italic 600 88px Arial';const colors=['#df555e','#e6b532','#76a943','#26a69c','#3a9ab8','#8580ba','#b66fa8'];[...text].forEach((letter,i)=>{ctx.fillStyle=colors[i];ctx.fillText(letter,75+i*103,64);});}else ctx.fillText(text,384,64,730);
   const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;textures.push(texture);
   const material=new THREE.MeshBasicMaterial({map:texture});materials.push(material);
-  const g=new THREE.PlaneGeometry(width,width/6);g.rotateY(angle);g.translate(x,y,z);put(g,material);
+  const g=new THREE.PlaneGeometry(width,width/6);g.rotateY(angle);g.translate(x,y,z);const previous=batches;batches=detailBatches;put(g,material);batches=previous;
  };
  // Subtle poured-concrete grain and joints, generated locally (no photo downloads).
  const floorCanvas=document.createElement('canvas');floorCanvas.width=256;floorCanvas.height=256;
@@ -78,7 +83,8 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  const floorMap=new THREE.CanvasTexture(floorCanvas);floorMap.wrapS=floorMap.wrapT=THREE.RepeatWrapping;floorMap.repeat.set(.5,.5);floorMap.colorSpace=THREE.SRGBColorSpace;textures.push(floorMap);concrete.map=floorMap;concrete.color.setHex(0xffffff);
  const footprint=footprintForFloor(floor);
  const ceiling=floor==='G'?6.3:floor==='R'?3.45:4.2;
- const slabHoles=floor==='G'?[AMPH_LOWER]:floor==='1'?[STAIR_HOLE,ATRIUM_VOID]:[STAIR_HOLE];
+ const communicating=communicatingStairForFloor(floor);
+ const slabHoles=floor==='G'?[AMPH_LOWER]:floor==='1'?[STAIR_HOLE,ATRIUM_VOID]:communicating?.upper===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE];
  surface(footprint,0,concrete,slabHoles);
  // A top-only floor disappears when seen through a lower window. Give upper
  // slabs an underside and edge thickness so furnishings cannot appear to float
@@ -89,7 +95,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   for(const ring of [footprint,...slabHoles])ring.forEach((a,i)=>wall(a,ring[(i+1)%ring.length],.19,concrete,false,-.19,.025));
  }
 
- if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:black,floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT]:[STAIR_HOLE]);
+ if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:black,floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT]:communicating?.lower===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE]);
 
  // Solid stairwell walls enclose the switchback flights; the corridor entry
  // stays open across both the ascending and descending landings.
@@ -99,6 +105,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   wall([sx-1.85,sz-3.8],[sx+1.85,sz-3.8],ceiling,white);
   wall([sx+1.85,sz-3.8],[sx+1.85,sz+4.3],ceiling,white);
  }
+ batches=detailBatches;
  // Enclosed stair flights are modeled with individual treads and handrails.
  for(const flight of ENCLOSED_FLIGHTS.filter(f=>f.lower===floor)) {
   const [ax,ay,az]=flight.from,[bx,by,bz]=flight.to;
@@ -117,6 +124,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    const rail=new THREE.CylinderGeometry(.03,.03,start.distanceTo(end),8);rail.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),end.clone().sub(start).normalize()));rail.translate(...start.add(end).multiplyScalar(.5).toArray());put(rail,metal);
   }
  }
+ batches=shellBatches;
  // Curtain wall with individual panels and mullions, not opaque painted walls.
  for(let i=0;floor!=='R'&&i<footprint.length;i++) {
   const a=footprint[i],b=footprint[(i+1)%footprint.length];
@@ -131,6 +139,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   for(const [start,end] of parts){wall(start,end,ceiling,glass);wall(start,end,.1,metal,false,.08);wall(start,end,.12,metal,false,ceiling*.54);}
   for(let j=0;j<=count;j++){const t=j/count,p:Point=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];if(gardenDoor&&Math.hypot(p[0]-FAMILY_GARDEN_DOOR[0],p[1]-FAMILY_GARDEN_DOOR[1])<.97)continue;box(p[0],ceiling/2,p[1],.07,ceiling,.07,metal);}
  }
+ batches=detailBatches;
   const shell=new THREE.Shape();
   shell.moveTo(-.18,-.23);shell.quadraticCurveTo(-.26,-.20,-.24,.13);shell.quadraticCurveTo(-.23,.26,0,.26);shell.quadraticCurveTo(.23,.26,.24,.13);shell.quadraticCurveTo(.26,-.20,.18,-.23);shell.closePath();
   const grip=new THREE.Path();grip.moveTo(-.065,.15);grip.lineTo(.065,.15);grip.lineTo(.065,.185);grip.lineTo(-.065,.185);grip.closePath();shell.holes.push(grip);
@@ -242,7 +251,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  function auditorium(room:InteriorRoom){
   const antonov=room.id==='0324',top=antonov?10.5:3.3;
-  surface(room.polygon,top,walnut);walnut.side=THREE.DoubleSide;
+  batches=shellBatches;surface(room.polygon,top,walnut);walnut.side=THREE.DoubleSide;
   const floorMaterial=classroomFloor;
   if(antonov){
    surface(auditoriumStrip(1100,ROW_START),.01,floorMaterial);
@@ -267,6 +276,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    surface(auditoriumStrip(1494,1600,-Infinity,Infinity,GANNON_PLAN),.9,floorMaterial);
    for(const x of [1435,1460,1485])for(const y of [140,225,310]){const p=groundPlan(x,y);cylinder(p[0],top-.03,p[1],.13,.025,light);}
   }
+  batches=detailBatches;
   const seats=auditoriumSeats(room.id),tableAngle=-Math.atan2(AUD_WIDTH[1],AUD_WIDTH[0]);
   for(const seat of seats){
    const [x,z]=seat.point,y=seat.height,depth=seat.depth,width=seat.width,seatAngle=Math.atan2(depth[0],depth[1]);
@@ -386,6 +396,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    for(const [x,y] of [[209,179],[186,208]]){const p=westFourthPlan(x,y);if(clearInside(room,p,.45))chair(p[0],p[1],angle,blue);}
    return;
   }
+  batches=shellBatches;
   const wallHeight=room.id==='0324'?10.5:room.id==='0318'?3.3:room.kind==='classroom'?3.25:ceiling;
   const defaultWallMaterial=room.kind==='auditorium'?walnut:room.kind==='lab'?glass:white;
   const nearestEdge=(p:Point)=>room.polygon.reduce((best,a,i)=>distanceToSegment(p,a,room.polygon[(i+1)%room.polygon.length])<distanceToSegment(p,room.polygon[best],room.polygon[(best+1)%room.polygon.length])?i:best,0);
@@ -446,6 +457,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    }
    shellWall(cursor,b,wallHeight,wallMaterial);
   });
+  batches=detailBatches;
   const xs=room.polygon.map(p=>p[0]),zs=room.polygon.map(p=>p[1]);
   const x=(Math.min(...xs)+Math.max(...xs))/2,z=(Math.min(...zs)+Math.max(...zs))/2;
   if(room.kind==='office')office(room);
@@ -501,9 +513,12 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
 
  if(floor==='R'){
+  batches=shellBatches;
   buildRoof({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  batches=detailBatches;
   const [px,pz]=ROOF_GALLERY.polygon.reduce<Point>((s,p)=>[s[0]+p[0]/4,s[1]+p[1]/4],[0,0]);box(px,3.12,pz,.04,.48,.04,metal);box(px,2.84,pz,.48,.19,.4,white);box(px,2.84,pz-.205,.15,.1,.015,black);
  }
+ batches=shellBatches;
  // White structural columns follow the public circulation edges.
  const columns=floor==='G' ? [[740,770],[905,840],[1180,897],[1180,655],[1100,610],[1400,620],[1460,435]] .map(([x,y])=>groundPlan(x,y)) : [[540,680],[745,680],[544,940],[772,940],[733,1195],[701,1390],[529,1535],[360,1600]].map(([x,y])=>plan(x,y));
  for(const [x,z] of floor==='R'?[]:columns) {
@@ -514,20 +529,24 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    barriers.push({a:[x+Math.cos(a)*.3,z+Math.sin(a)*.3],b:[x+Math.cos(b)*.3,z+Math.sin(b)*.3],minY:0,maxY:ceiling});
   }
  }
+ if(communicating)buildCommunicatingStair(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  if(floor==='1')buildFamilyGarden({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  if(floor==='G'||floor==='1')buildAtrium(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  // Public atrium furniture and material cues from HDR photographs.
  if(floor==='G') {
   buildAmphitheater({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   buildLobbyCeiling({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  batches=detailBatches;
   buildLobbySeating({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers,contact});
   for(const [px,py] of [[950,755],[1000,720],[1040,670]]){const [x,z]=groundPlan(px,py);box(x,1.05,z,2.8,.1,1.05,white);box(x-1.3,.52,z,.14,1.05,1.05,white);box(x+1.3,.52,z,.14,1.05,1.05,white);for(const dx of [-.85,0,.85]){cylinder(x+dx,.73,z+.9,.23,.08,yellow);cylinder(x+dx,.35,z+.9,.035,.7,metal);}}
   buildCafe({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers,chair,table});
  }
+ batches=detailBatches;
  // Irregular suspended luminous strips, spaced along the curved building spine.
  const spine:Point[]=[plan(633,580),plan(640,900),plan(642,1130),plan(630,1310),plan(470,1510),plan(379,1660)];
  for(let i=0;floor!=='R'&&i<spine.length-1;i++){const a=spine[i],b=spine[i+1],len=Math.hypot(b[0]-a[0],b[1]-a[1]);for(let j=0;j<len;j+=3){const t=j/len,x=a[0]+(b[0]-a[0])*t,z=a[1]+(b[1]-a[1])*t;if(pointInPolygon([x,z],footprint)){if(floor==='G'){if(!pointInPolygon([x,z],ATRIUM_VOID))cylinder(x,ceiling-.012,z,.105,.025,light);}else box(x,ceiling-.4,z,3.3,.055,.09,light,(j%2?1:-1)*.7);}}}
  chairBackTemplate.dispose();
- for(const [m,geometries] of batches){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(!merged)continue;const mesh=new THREE.Mesh(merged,m);mesh.castShadow=false;mesh.receiveShadow=true;group.add(mesh);}
- return {group,barriers,footprint,dispose(){group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}};
+ const details:THREE.Mesh[]=[];
+ for(const batch of [shellBatches,detailBatches])for(const [m,geometries] of batch){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(!merged)continue;const mesh=new THREE.Mesh(merged,m);mesh.castShadow=false;mesh.receiveShadow=true;mesh.userData.interiorLayer=batch===shellBatches?'shell':'detail';if(batch===detailBatches)details.push(mesh);group.add(mesh);}
+ return {group,barriers,footprint,setDetailsVisible(visible){details.forEach(mesh=>{mesh.visible=visible;});},dispose(){group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}};
 }

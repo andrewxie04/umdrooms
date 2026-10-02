@@ -1,3 +1,4 @@
+import { COMMUNICATING_STAIRS } from './communicating-layout';
 import { amphitheaterHeight } from './amphitheater';
 import { roofTerrainHeight } from './roof-layout';
 import { antonovHeight, gannonHeight } from './auditorium';
@@ -30,7 +31,7 @@ for(let i=1;i<=24;i++){
 atriumPath.push(atriumPosition(3.7,intermediate,-3.4),atriumPosition(3,intermediate,-3.4),atriumPosition(-2.2,FLOOR_HEIGHT['1'],-3.4));
 export const ATRIUM_FLIGHTS:Flight[]=atriumPath.slice(0,-1).map((from,i)=>({from,to:atriumPath[i+1],width:1.8,lower:'G',upper:'1'}));
 export const ATRIUM_LANDING:Flight={from:atriumPath[atriumPath.length-1],to:atriumPosition(-5.5,FLOOR_HEIGHT['1'],-3.4),width:1.8,lower:'G',upper:'1'};
-export const FLIGHTS=[...ENCLOSED_FLIGHTS,...ATRIUM_FLIGHTS,ATRIUM_LANDING];
+export const FLIGHTS=[...ENCLOSED_FLIGHTS,...ATRIUM_FLIGHTS,ATRIUM_LANDING,...COMMUNICATING_STAIRS.flatMap(stair=>[...stair.flights,stair.landing])];
 
 export function flightHeight(point:Point,flight:Flight):number|null {
  const [x,y,z]=flight.from,[bx,by,bz]=flight.to,dx=bx-x,dz=bz-z,len2=dx*dx+dz*dz;
@@ -55,7 +56,7 @@ export function supportHeight(point:Point,current:number):number|null {
  const candidates:number[]=[];
  for(const f of FLOOR_ORDER){
   const footprint=footprintForFloor(f);
-  if((pointInPolygon(point,footprint)||(f==='1'&&pointInPolygon(point,FAMILY_TERRACE))) && (f==='G'||!pointInPolygon(point,STAIR_HOLE)) && (f!=='1'||!pointInPolygon(point,ATRIUM_VOID))) candidates.push(FLOOR_HEIGHT[f]+(f==='R'?roofTerrainHeight(point):f==='G'?(amphitheaterHeight(point)??0):0));
+  if((pointInPolygon(point,footprint)||(f==='1'&&pointInPolygon(point,FAMILY_TERRACE))) && (f==='G'||!pointInPolygon(point,STAIR_HOLE)) && (f!=='1'||!pointInPolygon(point,ATRIUM_VOID)) && !COMMUNICATING_STAIRS.some(stair=>stair.upper===f&&pointInPolygon(point,stair.void))) candidates.push(FLOOR_HEIGHT[f]+(f==='R'?roofTerrainHeight(point):f==='G'?(amphitheaterHeight(point)??0):0));
  }
  const gannon=gannonHeight(point);if(gannon!==null)candidates.push(gannon);
  const auditorium=antonovHeight(point);if(auditorium!==null)candidates.push(auditorium);

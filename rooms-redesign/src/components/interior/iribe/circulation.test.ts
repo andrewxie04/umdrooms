@@ -1,3 +1,4 @@
+import { COMMUNICATING_STAIRS } from './communicating-layout';
 import { FAMILY_BEDS,FAMILY_MAPLES } from './family-garden-layout';
 import { FAMILY_GARDEN,FAMILY_GARDEN_DOOR,FAMILY_TERRACE,familyGardenPlan } from './layout';
 import { amphitheaterHeight, AMPH_NORTH_AISLE } from './amphitheater';
@@ -57,6 +58,33 @@ describe('continuous stair navigation', () => {
  });
 });
 
+for(const stair of COMMUNICATING_STAIRS)describe(`Level ${stair.lower}–${stair.upper} communicating stair`,()=>{
+ const {flights:COMMUNICATING_FLIGHTS,landing:COMMUNICATING_LANDING,path:COMMUNICATING_PATH,entry:COMMUNICATING_ENTRY,exit:COMMUNICATING_EXIT,void:COMMUNICATING_VOID,core:COMMUNICATING_CORE}=stair;
+ const first=COMMUNICATING_FLIGHTS[0].from;
+ const approach:Flight={from:[COMMUNICATING_ENTRY[0],FLOOR_HEIGHT[stair.lower],COMMUNICATING_ENTRY[1]],to:first,width:1.35,lower:stair.lower,upper:stair.upper};
+ const route=[approach,...COMMUNICATING_FLIGHTS,COMMUNICATING_LANDING];
+ it('walks from the lower corridor to the upper corridor',()=>follow(route));
+ it('walks back down from the upper corridor',()=>follow(route,true));
+ it('fits the new stair and core between the existing rooms',()=>{
+  for(const floor of [stair.lower,stair.upper])for(const p of [...COMMUNICATING_PATH,...COMMUNICATING_CORE,COMMUNICATING_ENTRY,COMMUNICATING_EXIT]){
+   expect(pointInPolygon(p,footprintForFloor(floor))).toBe(true);
+   expect(ROOMS.some(r=>r.floor===floor&&pointInPolygon(p,r.polygon)),`room overlap at ${floor}/${p}`).toBe(false);
+  }
+ });
+ it('cuts the ceiling and upper slab to provide headroom on the stair',()=>{
+  const meshes:THREE.Object3D[]=[];
+  for(const floor of [stair.lower,stair.upper]){const model=models.get(floor)!;model.group.position.y=FLOOR_HEIGHT[floor];model.group.updateMatrixWorld(true);model.group.traverse(o=>{if(o instanceof THREE.Mesh)meshes.push(o);});}
+  try{
+   for(const flight of COMMUNICATING_FLIGHTS){
+    const x=(flight.from[0]+flight.to[0])/2,z=(flight.from[2]+flight.to[2])/2,y=(flight.from[1]+flight.to[1])/2;
+    expect(pointInPolygon([x,z],COMMUNICATING_VOID)).toBe(true);
+    const ray=new THREE.Raycaster(new THREE.Vector3(x,y+.2,z),new THREE.Vector3(0,1,0),0,1.7);
+    expect(ray.intersectObjects(meshes,false),`ceiling at ${x}/${z}`).toHaveLength(0);
+   }
+  }finally{for(const floor of [stair.lower,stair.upper]){models.get(floor)!.group.position.y=0;models.get(floor)!.group.updateMatrixWorld(true);}}
+ });
+});
+
 describe('rendered interior integrity',()=>{
  it('merges every furniture material without dropping geometry',()=>expect(renderingErrors).toEqual([]));
  it('places every room shortcut clear of walls and furniture',()=>{
@@ -66,6 +94,43 @@ describe('rendered interior integrity',()=>{
    expect(arrival,`${room.floor}/${room.id}`).not.toBeNull();
    if(arrival){const h=arrival.height-FLOOR_HEIGHT[room.floor];expect(barriers.every(b=>h>=(b.maxY??Infinity)||h+1.65<=(b.minY??-Infinity)||distanceToSegment(arrival.point,b.a,b.b)>=.42)).toBe(true);}
   }
+ });
+});
+
+describe('building visibility from other floors',()=>{
+ function visibleMeshes(model:InteriorModel){const meshes:THREE.Object3D[]=[];model.group.updateMatrixWorld(true);model.group.traverseVisible(o=>{if(o instanceof THREE.Mesh)meshes.push(o);});return meshes;}
+ for(const floor of FLOOR_ORDER.slice(1))it(`keeps the ${floor} slab visible with distant furniture hidden`,()=>{
+  const model=models.get(floor)!,[x,z]=plan(625,600);
+  try{
+   model.setDetailsVisible(false);
+   const ray=new THREE.Raycaster(new THREE.Vector3(x,-1,z),new THREE.Vector3(0,1,0),0,2);
+   const hit=ray.intersectObjects(visibleMeshes(model),false)[0];
+   expect(hit).toBeDefined();expect(hit.point.y).toBeCloseTo(-.19,3);
+   expect(((hit.object as THREE.Mesh).material as THREE.Material).name).toBe('Floor slab underside');
+  }finally{model.setDetailsVisible(true);}
+ });
+ it('keeps the auditorium roof and garden deck visible from upper windows',()=>{
+  for(const [floor,point,y] of [['G',groundPlan(1360,300),10.5],['1',familyGardenPlan(545,707),0]] as const){
+   const model=models.get(floor)!;
+   try{
+    model.setDetailsVisible(false);
+    const ray=new THREE.Raycaster(new THREE.Vector3(point[0],y+.3,point[1]),new THREE.Vector3(0,-1,0),0,.5);
+    const hit=ray.intersectObjects(visibleMeshes(model),false)[0];
+    expect(hit,`${floor} outdoor surface`).toBeDefined();expect(hit.point.y).toBeCloseTo(y,2);
+   }finally{model.setDetailsVisible(true);}
+  }
+ });
+ it('culls and restores furnished detail without rebuilding geometry or collision',()=>{
+  const model=models.get('4')!,objects=[...model.group.children],barriers=model.barriers;
+  const triangleCount=(objects:THREE.Object3D[])=>objects.reduce((sum,o)=>sum+(o instanceof THREE.Mesh?(o.geometry.index?.count??o.geometry.getAttribute('position').count)/3:0),0);
+  const fullCount=triangleCount(visibleMeshes(model));
+  try{
+   model.setDetailsVisible(false);
+   expect(triangleCount(visibleMeshes(model))).toBeLessThan(fullCount*.5);
+   expect(model.group.visible).toBe(true);expect(model.barriers).toBe(barriers);
+   model.setDetailsVisible(true);
+   expect(model.group.children).toEqual(objects);expect(triangleCount(visibleMeshes(model))).toBe(fullCount);
+  }finally{model.setDetailsVisible(true);}
  });
 });
 
