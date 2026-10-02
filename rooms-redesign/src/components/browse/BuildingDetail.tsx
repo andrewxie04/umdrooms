@@ -1,3 +1,4 @@
+import { useInteriorStore } from '@/components/interior/store';
 // browse/BuildingDetail.tsx — detail view for a selected building (or a room
 // selection, which resolves to its building). Header with back / favorite /
 // navigate actions, then the building's full room list, available-first, each
@@ -142,6 +143,7 @@ export function BuildingDetail() {
 
       <div ref={scrollRef} className="rooms-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain" role="region" aria-label={`Details and rooms for ${building.name}`} tabIndex={0}>
         <div className="border-b border-border/70 px-5 py-4 sm:px-6">
+          {building.code === 'IRB' && <button onClick={() => useInteriorStore.getState().enter()} className="mb-4 flex min-h-11 w-full items-center justify-between rounded-lg bg-foreground px-4 text-sm text-background">Enter building <span aria-hidden>↗</span></button>}
           <h2 className="text-xl font-semibold leading-tight tracking-[-0.035em] text-foreground">
             {building.name}
           </h2>

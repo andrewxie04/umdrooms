@@ -10,7 +10,9 @@
 // pending deep link (?building=CODE&room=ID) once the data pipeline reports
 // ready — select the target, fly the camera to it, and clear the link.
 
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
+import { useInteriorStore } from './components/interior/store';
+const IribeInterior = lazy(() => import('./components/interior/IribeInterior'));
 import CampusMap3D from './components/map3d/CampusMap3D';
 import { AppShell, PanelRouter } from './components/shell';
 import { BootLoader } from './components/features';
@@ -21,6 +23,7 @@ import { useDarkModeSync } from './lib/useDarkModeSync';
 
 export default function App() {
   useDarkModeSync();
+  const interior = useInteriorStore(s => s.building);
 
   const init = useCampusStore((s) => s.init);
   useEffect(() => {
@@ -70,6 +73,8 @@ export default function App() {
     // Consume the link even when unresolved so it never fires twice.
     useCampusStore.setState({ pendingDeepLink: null });
   }, [loadingStatus, pendingDeepLink]);
+
+  if (interior) return <ErrorBoundary><Suspense fallback={<div className="flex h-full items-center justify-center bg-background">Opening Iribe…</div>}><IribeInterior /></Suspense></ErrorBoundary>;
 
   return (
     <ErrorBoundary>

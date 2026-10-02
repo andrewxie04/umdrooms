@@ -1,0 +1,79 @@
+/** Plan coordinates trace UMD wayfinding's first-floor sheet (1080 × 1920).
+ * Positive Z is down that sheet. All floors share this local building frame.
+ * Scale is an estimate pending dimensioned drawings; topology follows the plans.
+ */
+export type Point = readonly [number, number];
+export type Polygon = readonly Point[];
+export type FloorId = 'G' | '1' | '2' | '3' | '4' | '5' | 'R';
+export type RoomKind = 'classroom' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden';
+export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; }
+export const PLAN_SCALE = .085;
+export const plan = (x: number, y: number): Point => [(x - 660) * PLAN_SCALE, (y - 1100) * PLAN_SCALE];
+const trace = (points: Polygon): Polygon => points.map(([x,y]) => plan(x,y));
+export const MAIN_FOOTPRINT = trace([[515,449],[740,449],[827,1230],[835,1320],[819,1400],[787,1463],[750,1508],[408,1760],[220,1620],[380,1414],[432,1340],[470,1250],[497,1155],[505,1090]]);
+export const FLOOR_HEIGHT: Record<FloorId,number> = {G:0,'1':6.5,'2':10.9,'3':15.3,'4':19.7,'5':24.1,R:28.5};
+export const FLOOR_LABEL: Record<FloorId,string> = {G:'Ground floor','1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4','5':'Level 5',R:'Rooftop'};
+function room(floor:FloorId,id:string,name:string,kind:RoomKind,points:Polygon,door:Point): InteriorRoom {
+ return {floor,id,name,kind,polygon:trace(points),door:plan(...door),evidence:'plan'};
+}
+export const ROOMS: InteriorRoom[] = [
+ room('1','1231','Singh Sandbox','lab',[[532,463],[718,463],[744,685],[531,706]],[620,704]),
+ room('1','1207','Collaborative classroom','classroom',[[558,863],[710,863],[713,1019],[557,1019]],[630,1019]),
+ room('1','1104','DICE lounge','lounge',[[732,1090],[790,1082],[801,1174],[732,1168]],[732,1128]),
+ room('1','1108','Tutoring','lounge',[[738,1180],[802,1190],[822,1305],[720,1268]],[727,1228]),
+ room('1','1116','Collaborative classroom','classroom',[[715,1284],[811,1325],[801,1380],[773,1437],[735,1477],[674,1528],[616,1480]],[671,1370]),
+ room('1','1150','Undergraduate desk','service',[[521,1148],[566,1172],[550,1214],[503,1182]],[532,1188]),
+ room('1','1156','Undergraduate lounge','lounge',[[506,1194],[548,1225],[521,1300],[480,1277]],[534,1255]),
+ room('1','1119','Conference room','conference',[[565,1369],[619,1398],[597,1431],[549,1400]],[586,1423]),
+ room('1','1127','Conference room','conference',[[429,1544],[499,1596],[450,1641],[388,1597]],[480,1613]),
+ room('1','1134','Conference room','conference',[[390,1658],[445,1700],[407,1731],[365,1699]],[427,1714]),
+ room('2','2207','Collaborative classroom','classroom',[[583,863],[723,863],[739,1019],[582,1019]],[652,1019]),
+ room('2','2107','Collaborative classroom','classroom',[[576,1160],[747,1184],[700,1330],[543,1271]],[660,1172]),
+ room('2','2109','Staffworld','service',[[543,1276],[700,1336],[672,1418],[520,1333]],[535,1310]),
+ room('2','2119','Conference & huddle rooms','conference',[[511,1347],[668,1427],[641,1468],[486,1384]],[574,1431]),
+ room('2','2143','Conference room','conference',[[392,1488],[439,1522],[412,1560],[366,1526]],[425,1544]),
+ room('2','2137','Conference room','conference',[[355,1532],[494,1638],[448,1695],[310,1599]],[471,1660]),
+];
+
+export function pointInPolygon([x,z]:Point,polygon:Polygon):boolean {
+ let inside=false;
+ for(let i=0,j=polygon.length-1;i<polygon.length;j=i++) {
+  const [ax,az]=polygon[i], [bx,bz]=polygon[j];
+  if((az>z)!==(bz>z) && x < (bx-ax)*(z-az)/(bz-az)+ax) inside=!inside;
+ }
+ return inside;
+}
+export function distanceToSegment(p:Point,a:Point,b:Point):number {
+ const dx=b[0]-a[0], dz=b[1]-a[1];
+ const t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dz)/(dx*dx+dz*dz || 1)));
+ return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dz);
+}
+
+// Align the ground-floor wayfinding sheet to the Level 1 sheet using the
+// western tip and central elevator core as reference points.
+export const groundPlan = (x:number,y:number):Point => plan(640 + .832*(y-810) - .069*(x-1080),1120 - .832*(x-1080) - .069*(y-810));
+const groundTrace = (p:Polygon):Polygon => p.map(([x,y])=>groundPlan(x,y));
+export const GROUND_FOOTPRINT = groundTrace([[550,240],[390,413],[385,448],[430,547],[535,734],[605,838],[690,907],[802,954],[895,970],[1218,970],[1212,998],[1350,998],[1352,970],[1375,969],[1625,160],[1602,149],[1560,145],[1562,128],[1535,126],[1520,94],[1490,66],[1430,44],[1360,39],[1300,42],[1250,56],[1230,97],[1167,62],[1145,157],[1136,252],[1140,365],[1178,465],[1160,485],[1137,451],[1060,510],[1080,535],[992,605],[921,574],[837,511]]);
+const gRoom=(id:string,name:string,kind:RoomKind,p:Polygon,door:Point):InteriorRoom=>({id,name,kind,floor:'G',polygon:groundTrace(p),door:groundPlan(...door),evidence:'plan'});
+ROOMS.push(
+ gRoom('0116','Robotics Manipulator Lab','lab',[[648,691],[746,775],[661,875],[586,756]],[699,746]),
+ gRoom('0110','Immersive Media Design Lab','lab',[[748,779],[852,834],[797,949],[665,882]],[800,807]),
+ gRoom('0108','Brin Family Aerial Robotics Lab','lab',[[858,839],[973,884],[949,963],[803,954]],[917,864]),
+ gRoom('0102','Small Artifacts Lab','lab',[[977,887],[1104,907],[1091,964],[955,964]],[1035,897]),
+ gRoom('0324','Michael Antonov Auditorium','auditorium',[[1394,65],[1394,468],[1344,480],[1290,480],[1249,467],[1216,436],[1188,380],[1173,307],[1179,235],[1200,166],[1240,102],[1288,78],[1340,65]],[1320,477]),
+ gRoom('0318','Gannon Auditorium','auditorium',[[1405,66],[1460,67],[1497,89],[1515,118],[1520,206],[1520,341],[1510,373],[1406,373]],[1460,373]),
+);
+ROOMS.push(
+ room('5','5237','Conference room','conference',[[560,500],[718,500],[724,588],[558,588]],[640,588]),
+ room('5','5165','Conference room','conference',[[567,1143],[651,1173],[624,1253],[541,1228]],[636,1213]),
+ room('5','5105','Conference room','conference',[[660,1178],[747,1203],[711,1289],[633,1260]],[644,1220]),
+ room('5','5161','Conference room','conference',[[537,1236],[615,1265],[591,1323],[516,1294]],[604,1294]),
+ room('5','5107','Conference room','conference',[[626,1271],[709,1298],[682,1355],[602,1327]],[613,1300]),
+ room('5','5111','Conference room','conference',[[511,1303],[585,1333],[566,1383],[492,1344]],[577,1355]),
+ room('5','5109','Mailroom','service',[[594,1339],[679,1367],[650,1429],[574,1388]],[584,1361]),
+ room('5','5119','Conference & huddle rooms','conference',[[485,1358],[642,1446],[620,1484],[463,1397]],[545,1446]),
+ room('5','5137','Conference room','conference',[[350,1537],[484,1638],[436,1697],[300,1600]],[460,1664]),
+);
+export const ELEVATOR = plan(657,1114);
+export const ENTRY = groundPlan(1305,850);
+export const ATRIUM_VOID = trace([[548,1050],[716,1064],[727,1132],[643,1173],[566,1138]]);
