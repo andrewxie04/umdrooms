@@ -1,4 +1,11 @@
-import { distanceToSegment, pointInPolygon, type InteriorRoom, type Point } from './layout';
+import { distanceToSegment, pointInPolygon, FIRST_CLASSROOM_TABLES, type InteriorRoom, type Point } from './layout';
+import { structuralColumns } from './structure';
+
+// Published UMIACS occupancies for standalone rooms that can be fitted as a
+// meeting table. Arrangement and dimensions are estimates, not furniture plans.
+// 5105 (24 people) needs a room-specific furniture reference before replacing
+// its placeholder; do not squeeze 24 chairs around an undersized table.
+export const MEETING_CAPACITIES:Readonly<Record<string,number>>={1119:6,1127:12,2137:12,2143:6,4137:12,4237:12,4145:6,5107:12,5111:6,5137:18,5161:12,5165:16,5237:12};
 
 /** Furniture is fitted to the traced room, not its axis-aligned bounding box.
  * Dimensions and placement are interpretations of the UMD/HDR photographs.
@@ -19,6 +26,7 @@ export function roomFrame(room: InteriorRoom,rotation=0) {
  return {minU:Math.min(...us),maxU:Math.max(...us),minV:Math.min(...vs),maxV:Math.max(...vs),angle:-Math.atan2(u[1],u[0]),u,v,at:(x:number,z:number):Point=>[u[0]*x+v[0]*z,u[1]*x+v[1]*z]};
 }
 export function teachingTables(room: InteriorRoom): Point[] {
+ if(room.id==='1207')return FIRST_CLASSROOM_TABLES;
  const radius=1.32,spacing=room.id==='1116'?3.1:3.8;
  let best:Point[]=[];
  for(let rotation=0;rotation<(room.id==='1116'?Math.PI/3:.01);rotation+=Math.PI/36){
@@ -39,14 +47,34 @@ export function teachingTables(room: InteriorRoom): Point[] {
  return best.slice(0,room.id==='1116'?16:9);
 }
 export interface MeetingTable { center:Point; length:number; width:number; angle:number; u:Point; v:Point; }
+export interface MeetingSeat {point:Point;angle:number;}
+export function meetingSeats(room:InteriorRoom,table:MeetingTable):MeetingSeat[]{
+ const capacity=MEETING_CAPACITIES[room.id],ends=capacity!==undefined;
+ const count=ends?(capacity-2)/2:room.id==='6217'?5:Math.max(2,Math.floor(table.length/.85));
+ const pitch=ends?Math.min(.78,(table.length-.5)/(count-1||1)):.85;
+ const {center,u,v,width,length}=table,seats:MeetingSeat[]=[];
+ const seat=(along:number,across:number,dx:number,dz:number)=>seats.push({point:[center[0]+u[0]*along+v[0]*across,center[1]+u[1]*along+v[1]*across],angle:Math.atan2(dx,dz)});
+ for(let i=0;i<count;i++)for(const side of [-1,1])seat((i-(count-1)/2)*pitch,side*(width/2+(ends?.25:.35)),v[0]*side,v[1]*side);
+ if(ends)for(const side of [-1,1])seat(side*(length/2+.4),0,u[0]*side,u[1]*side);
+ return seats;
+}
 export function meetingTable(room: InteriorRoom):MeetingTable|null {
  const f=roomFrame(room);
- for(let length=Math.min(6,f.maxU-f.minU-2.4);length>=1.2;length-=.3){
-  for(let du=-.5;du<=.5;du+=.5)for(let dv=-.5;dv<=.5;dv+=.5){
+ const capacity=MEETING_CAPACITIES[room.id];
+ const preferred=capacity?Math.max(1.9,((capacity-2)/2-1)*.7+.6):6;
+ const minimum=capacity?Math.max(1.7,((capacity-2)/2-1)*.6+.5):1.2;
+ for(let length=Math.min(preferred,f.maxU-f.minU-2.4);length>=minimum;length-=.15){
+  for(let du=-.5;du<=.5001;du+=capacity?.2:.5)for(let dv=-.5;dv<=.5001;dv+=capacity?.2:.5){
    const midU=(f.minU+f.maxU)/2+du,midV=(f.minV+f.maxV)/2+dv;
-   const center=f.at(midU,midV),width=.95;
+   const center=f.at(midU,midV),width=capacity?.8:.95;
    const corners=[[-1,-1],[-1,1],[1,-1],[1,1]].map(([x,z])=>f.at(midU+x*(length/2+.35),midV+z*(width/2+.7)));
-   if(corners.every(p=>clearInside(room,p,.18)) && Math.hypot(center[0]-room.door[0],center[1]-room.door[1])>1.25)return {center,length,width,angle:f.angle,u:f.u,v:f.v};
+   if(!corners.every(p=>clearInside(room,p,.18)) || Math.hypot(center[0]-room.door[0],center[1]-room.door[1])<=1.25)continue;
+   const table={center,length,width,angle:f.angle,u:f.u,v:f.v};
+   if(capacity){
+    const seats=meetingSeats(room,table),columns=structuralColumns(room.floor);
+    if(seats.some(({point})=>!clearInside(room,point,.88)||Math.hypot(point[0]-room.door[0],point[1]-room.door[1])<1.1||columns.some(p=>Math.hypot(p[0]-point[0],p[1]-point[1])<.85)))continue;
+   }
+   return table;
   }
  }
  return null;

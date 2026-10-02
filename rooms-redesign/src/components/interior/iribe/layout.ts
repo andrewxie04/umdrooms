@@ -17,7 +17,6 @@ function room(floor:FloorId,id:string,name:string,kind:RoomKind,points:Polygon,d
  return {floor,id,name,kind,polygon:trace(points),door:plan(...door),evidence:'plan'};
 }
 export const ROOMS: InteriorRoom[] = [
- room('1','1207','Collaborative classroom','classroom',[[558,863],[710,863],[713,1019],[557,1019]],[630,1019]),
  room('1','1104','DICE lounge','lounge',[[732,1090],[790,1082],[801,1174],[732,1168]],[732,1128]),
  room('1','1108','Tutoring','lounge',[[738,1180],[802,1190],[822,1305],[720,1268]],[727,1228]),
  room('1','1116','Collaborative classroom','classroom',[[715,1284],[811,1325],[801,1380],[773,1437],[735,1477],[674,1528],[616,1480]],[671,1370]),
@@ -31,7 +30,7 @@ export const ROOMS: InteriorRoom[] = [
  room('2','2109','Staffworld','service',[[543,1276],[700,1336],[672,1418],[520,1333]],[535,1310]),
  room('2','2119','Conference & huddle rooms','conference',[[511,1347],[668,1427],[641,1468],[486,1384]],[574,1431]),
  room('2','2143','Conference room','conference',[[392,1488],[439,1522],[412,1560],[366,1526]],[425,1544]),
- room('2','2137','Conference room','conference',[[355,1532],[494,1638],[448,1695],[310,1599]],[471,1660]),
+ room('2','2137','Naresh and Nidhi Gupta Conference Room','conference',[[355,1532],[494,1638],[448,1695],[310,1599]],[471,1660]),
 ];
 
 export function pointInPolygon([x,z]:Point,polygon:Polygon):boolean {
@@ -74,7 +73,7 @@ ROOMS.push(
  room('5','5111','Conference room','conference',[[511,1303],[585,1333],[566,1383],[492,1344]],[577,1355]),
  room('5','5109','Mailroom','service',[[594,1339],[679,1367],[650,1429],[574,1388]],[584,1361]),
  room('5','5119','Conference & huddle rooms','conference',[[485,1358],[642,1446],[620,1484],[463,1397]],[545,1446]),
- room('5','5137','Conference room','conference',[[350,1537],[484,1638],[436,1697],[300,1600]],[460,1664]),
+ room('5','5137','Howard Gobioff Conference Room','conference',[[350,1537],[484,1638],[436,1697],[300,1600]],[460,1664]),
 );
 // Café front follows the diagonal counter on UMD's ground-floor diagram.
 export const CAFE_ORIGIN=groundPlan(773,729),CAFE_END=groundPlan(902,653);
@@ -127,7 +126,7 @@ export function fourthPlan(x:number,y:number):Point{
 }
 const fourthTrace=(p:Polygon):Polygon=>p.map(([x,y])=>fourthPlan(x,y));
 ROOMS.push(
- {floor:'4',id:'4105',name:'Room 4105',kind:'service',evidence:'plan',polygon:fourthTrace([[196,735],[310,765],[273,902],[142,844]]),door:fourthPlan(263,898)},
+ {floor:'4',id:'4105',name:'Feng Peng and Xin Lei Classroom',kind:'service',evidence:'plan',polygon:fourthTrace([[196,735],[310,765],[273,902],[142,844]]),door:fourthPlan(263,898)},
  {floor:'4',id:'north-reset-zone',name:'North study lounge',kind:'lounge',evidence:'plan',polygon:fourthTrace([[998,840],[1104,852],[1085,1021],[1040,1021],[1040,957],[981,951]]),door:fourthPlan(1022,953)},
 );
 export const roomTitle=(room:InteriorRoom)=>/^\d+$/.test(room.id)&&room.name!==`Room ${room.id}`?`${room.id} · ${room.name}`:room.name;
@@ -266,11 +265,23 @@ export const FAMILY_TERRACE:Polygon=[
 export const FAMILY_GARDEN:InteriorRoom={floor:'1',id:'family-garden',name:'Margulis–Antonov Family Garden',kind:'garden',evidence:'plan',polygon:FAMILY_TERRACE,door:FAMILY_GARDEN_DOOR};
 ROOMS.push(FAMILY_GARDEN);
 
-// Sandbox wiki's labeled 900 × 629 studio diagram, fitted to the north end
-// of the Level 1 envelope. Diagram registration and dimensions are estimates.
+// One registration for the Level 1 north wing: HDR page 9 rendered at 2×.
+// North façade corners and the central elevator core anchor the drawing.
+// The colored wayfinding blocks include surrounding support rooms and are
+// not classroom wall outlines. Metric dimensions remain estimates.
+export function firstNorthPlan(x:number,y:number):Point {
+ const [u,v]=barycentric([x,y],[1115,794],[1086,1023],[392,859]);
+ return blendTriangle(u,v,plan(515,449),plan(740,449),ELEVATOR);
+}
+export const FIRST_CLASSROOM:InteriorRoom={floor:'1',id:'1207',name:'Collaborative classroom',kind:'classroom',evidence:'plan',
+ polygon:[[470,804],[614,822],[600,931],[455,930]].map(([x,y])=>firstNorthPlan(x,y)),door:firstNorthPlan(590,930.9310345),additionalDoors:[firstNorthPlan(605,820.875)],doorWidth:1.15};
+export const FIRST_CLASSROOM_TABLES:Point[]=[[490,830],[532.5,835],[574.25,840.75],[487.5,868.75],[531.25,874.25],[574.75,876],[479.25,907.25],[522.25,907.5],[565.75,907.5]].map(([x,y])=>firstNorthPlan(x,y));
+ROOMS.push(FIRST_CLASSROOM);
+
+// Sandbox wiki's labeled 900 × 629 diagram, registered into the same drawing.
 export function sandboxPlan(x:number,y:number):Point {
  const [u,v]=barycentric([x,y],[877,103],[825,581],[217,581]);
- return blendTriangle(u,v,plan(515,449),plan(740,449),plan(774.2,756));
+ return blendTriangle(u,v,firstNorthPlan(1115,794),firstNorthPlan(1086,1023),firstNorthPlan(780,1023));
 }
 const sandboxStudio=(id:string,name:string,outline:Polygon,door:Point,exterior?:number,kind:RoomKind='lab'):InteriorRoom=>({
  floor:'1',id,name,kind,evidence:'plan',door:sandboxPlan(...door),doorWidth:1.15,
@@ -292,9 +303,9 @@ export const SANDBOX_COMMON:InteriorRoom={floor:'1',id:'1231',name:'Singh Sandbo
 ROOMS.push(SANDBOX_COMMON,...SANDBOX_STUDIOS);
 
 // HDR Level 1, PDF page 9: crop (300,402)–(410,479), rendered at 10×.
-// Register the restroom block between the wayfinding sheet's classroom and
-// Sandbox zones. The public diagrams differ in scale; metric fit is estimated.
-export const firstCorePlan=(x:number,y:number):Point=>plan(563+(x-400)*12/450+(y-145)*144/492,838-(x-400)*103/450);
+// Use the north-wing registration so storage and classroom walls align with
+// the restroom block. The public diagrams are undimensioned.
+export const firstCorePlan=(x:number,y:number):Point=>firstNorthPlan(600+x/5,804+y/5);
 const firstCoreTrace=(points:Polygon)=>points.map(([x,y])=>firstCorePlan(x,y));
 export const FIRST_RESTROOMS:InteriorRoom[]=[
  {floor:'1',id:'1218',name:'Restroom (west)',kind:'restroom',evidence:'plan',polygon:firstCoreTrace([[402,143],[520,159],[524,136],[860,170],[836,387],[452,342],[460,253],[382,245]]),door:firstCorePlan(421,249),doorWidth:1.05},
@@ -302,9 +313,37 @@ export const FIRST_RESTROOMS:InteriorRoom[]=[
 ];
 ROOMS.push(...FIRST_RESTROOMS);
 
-// HDR Level 2 (PDF page 11) repeats this fixture/partition topology. Its
-// wayfinding sheet places the block 22 plan units east of the Level 1 fit.
-export const secondCorePoint=([x,z]:Point):Point=>[x+22*PLAN_SCALE,z];
+// Room numbers/functions: Sandbox's public emergency plan and Other Rooms
+// inventory. Storage outlines and cabinet positions follow the HDR drawing.
+export const SANDBOX_SUPPORT:InteriorRoom[]=[
+ {floor:'1',id:'1213',name:'Sandbox · Supply storage',kind:'service',evidence:'plan',polygon:firstCoreTrace([[48,287],[228,307],[214,459],[29,439]]),door:firstCorePlan(217.776316,418),doorWidth:1.05},
+ {floor:'1',id:'1209',name:'Sandbox · Tool storage',kind:'service',evidence:'plan',polygon:firstCoreTrace([[28,455],[241,481],[221,631],[8,631]]),door:firstCorePlan(236.466667,515),doorWidth:1.05},
+ {floor:'1',id:'1214',name:'Sandbox · Manager office',kind:'office',evidence:'plan',exteriorEdges:[0],doorWidth:1.05,
+ polygon:[onEnvelope(firstNorthPlan(744,1023.25)),onEnvelope(firstNorthPlan(778.5,1023.25)),firstNorthPlan(778.5,962.5),firstNorthPlan(744,962.5)],door:firstNorthPlan(750,962.5)},
+];
+ROOMS.push(...SANDBOX_SUPPORT);
+
+// Perimeter rooms traced on HDR Level 1. Names below remain generic where the
+// small emergency-map labels do not provide a confident room-number reading.
+const firstOffice=(id:string,outline:Polygon,door:Point):InteriorRoom=>({floor:'1',id,name:'Office',kind:'office',listed:false,evidence:'plan',exteriorEdges:[0],doorWidth:1.05,
+ polygon:outline.map(([x,y],i)=>i<2?onEnvelope(firstNorthPlan(x,y)):firstNorthPlan(x,y)),door:firstNorthPlan(...door)});
+export const FIRST_OFFICES:InteriorRoom[]=[
+ firstOffice('1-north-office-1',[[671,737.25],[700.5,740.75],[694.25,798.5],[664,794.5]],[688.5,797.7396694]),
+ firstOffice('1-north-office-2',[[704,742],[738,745.25],[732.5,803.75],[698,799.25]],[703,799.9021739]),
+ firstOffice('1-north-office-3',[[741,746],[774,750],[769.5,809.25],[736,804.75]],[762,808.2425373]),
+ firstOffice('1-north-office-4',[[777,751],[811.5,754.25],[805.5,814],[773,810]],[779,810.7384615]),
+ firstOffice('1-east-office-1',[[635,1023.25],[667,1023.25],[667,962.5],[643,962.5]],[661,962.5]),
+ firstOffice('1-east-office-2',[[669.5,1023.25],[703.75,1023.25],[703.75,962.5],[669.5,962.5]],[676,962.5]),
+ firstOffice('1-east-office-3',[[706.5,1023.25],[739.5,1023.25],[739.5,962.5],[706.5,962.5]],[733,962.5]),
+];
+ROOMS.push(...FIRST_OFFICES);
+
+// HDR Level 2 (PDF page 11) repeats this fixture/partition topology. Recover
+// diagram coordinates to retain its independent wayfinding registration.
+export const secondCorePoint=(point:Point):Point=>{
+ const [x,y]=barycentric(point,firstCorePlan(0,0),firstCorePlan(1,0),firstCorePlan(0,1));
+ return plan(585+(x-400)*12/450+(y-145)*144/492,838-(x-400)*103/450);
+};
 export const SECOND_RESTROOMS:InteriorRoom[]=FIRST_RESTROOMS.map((room,i)=>({...room,floor:'2',id:i===0?'2-restroom-west':'2-restroom-east',polygon:room.polygon.map(secondCorePoint),door:secondCorePoint(room.door)}));
 ROOMS.push(...SECOND_RESTROOMS);
 

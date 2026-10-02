@@ -20,6 +20,9 @@ import * as THREE from 'three';
 import { buildRoboticsLab, ROBOT_STATIONS } from './robotics';
 import { buildLobbySeating } from './lobby';
 import { buildRestroom, RESTROOM_PLANS, restroomFrame, restroomStalls } from './restrooms';
+import { MEETING_CAPACITIES, meetingTable, meetingSeats } from './furniture';
+import { FIRST_CLASSROOM, FIRST_CLASSROOM_TABLES, SANDBOX_SUPPORT } from './layout';
+import { supportCabinetFrame } from './support-rooms';
 import { ROOMS, FLOOR_HEIGHT, ANTONOV_FOOTPRINT, ENTRY, CAFE_LENGTH, cafePoint, groundPlan, pointInPolygon, distanceToSegment } from './layout';
 
 const renderingErrors:string[]=[];
@@ -408,6 +411,14 @@ function walkInteriorTargets(room:typeof ROOMS[number],targets:Point[][],gridSte
   }
 }
 
+describe('conference seating circulation',()=>{
+ for(const room of ROOMS.filter(r=>r.kind==='conference'&&MEETING_CAPACITIES[r.id]))it(`walks from the door to every seating position in ${room.id}`,()=>{
+  const table=meetingTable(room);expect(table).not.toBeNull();if(!table)return;
+  const targets=meetingSeats(room,table).map(({point,angle})=>[[point[0]+Math.sin(angle)*.58,point[1]+Math.cos(angle)*.58] as Point]);
+  walkInteriorTargets(room,targets,.1);
+ });
+});
+
 describe('fourth-floor shared workroom furniture',()=>{
  const rooms=ROOMS.filter(r=>r.floor==='4'&&r.deskBanks);
  for(const room of rooms)it(`reaches every desk bank from the doorway in ${room.id}`,()=>{
@@ -570,10 +581,42 @@ describe('Sandbox studio layout and circulation',()=>{
 
 
 describe('Level 1 north corridor',()=>{
- it('connects classroom 1207, both restrooms, and the Sandbox entrance in both directions',()=>{
+ for(const [index,door] of [FIRST_CLASSROOM.door,...(FIRST_CLASSROOM.additionalDoors??[])].entries())it(`walks through classroom 1207 door ${index+1} in both directions`,()=>{
+  const polygon=FIRST_CLASSROOM.polygon;
+  const edge=polygon.map((a,i)=>({a,b:polygon[(i+1)%polygon.length]})).sort((a,b)=>distanceToSegment(door,a.a,a.b)-distanceToSegment(door,b.a,b.b))[0];
+  const length=Math.hypot(edge.b[0]-edge.a[0],edge.b[1]-edge.a[1]),normal:Point=[-(edge.b[1]-edge.a[1])/length,(edge.b[0]-edge.a[0])/length];
+  const sign=pointInPolygon([door[0]+normal[0]*.5,door[1]+normal[1]*.5],polygon)?1:-1;
+  const from:Position=[door[0]-normal[0]*sign*.7,FLOOR_HEIGHT['1'],door[1]-normal[1]*sign*.7],to:Position=[door[0]+normal[0]*sign*.8,FLOOR_HEIGHT['1'],door[1]+normal[1]*sign*.8];
+  const path:Flight[]=[{from,to,width:1.15,lower:'1',upper:'1'}];follow(path);follow(path,true);
+ });
+ it('connects classroom 1207, storage, the manager office, restrooms, and the Sandbox in both directions',()=>{
   const classroom=ROOMS.find(r=>r.id==='1207')!;
-  const corridor={...classroom,kind:'garden' as const,polygon:[[516,450],[739,450],[805,1050],[508,1050]].map(([x,y])=>plan(x,y))};
-  walkInteriorTargets(corridor,[...FIRST_RESTROOMS,SANDBOX_COMMON].map(room=>[roomArrival(room,models.get('1')!.barriers)!.point]));
+  const corridor={...classroom,kind:'garden' as const,polygon:[[516,450],[739,450],[811,1090],[506,1090]].map(([x,y])=>plan(x,y))};
+  walkInteriorTargets(corridor,[...FIRST_RESTROOMS,SANDBOX_COMMON,...SANDBOX_SUPPORT].map(room=>[roomArrival(room,models.get('1')!.barriers)!.point]));
+ });
+ it('keeps classroom 1207 distinct from the service block',()=>{
+  const rooms=[FIRST_CLASSROOM,...FIRST_RESTROOMS,...SANDBOX_SUPPORT,...SANDBOX_STUDIOS];
+  for(const room of rooms)for(const other of rooms.filter(r=>r!==room)){
+   for(let i=0;i<room.polygon.length;i++){
+    const a=room.polygon[i],b=room.polygon[(i+1)%room.polygon.length];
+    for(const t of [.1,.5,.9]){
+     const p:Point=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+     const deep=pointInPolygon(p,other.polygon)&&other.polygon.every((c,j)=>distanceToSegment(p,c,other.polygon[(j+1)%other.polygon.length])>.12);
+     expect(deep,`${room.id} overlaps ${other.id}`).toBe(false);
+    }
+   }
+  }
+ });
+ it('connects both classroom doors and all nine table groups',()=>{
+  const room=FIRST_CLASSROOM;
+  const targets=FIRST_CLASSROOM_TABLES.map(p=>[0,1,2,3].map(i=>[p[0]+Math.sin(i*Math.PI/2)*1.7,p[1]+Math.cos(i*Math.PI/2)*1.7] as Point));
+  for(const door of room.additionalDoors??[])targets.push([roomArrival({...room,door},models.get('1')!.barriers)!.point]);
+  walkInteriorTargets(room,targets,.1);
+ });
+ for(const room of SANDBOX_SUPPORT.filter(r=>r.kind==='service'))it(`keeps ${room.id} cabinets inside and reachable`,()=>{
+  const f=supportCabinetFrame(room)!;
+  for(const x of [0,f.length])for(const z of [0,.52])expect(pointInPolygon(f.at(x,z),room.polygon)).toBe(true);
+  walkInteriorTargets(room,[[f.at(f.length/2,1.05)]],.1);
  });
 });
 

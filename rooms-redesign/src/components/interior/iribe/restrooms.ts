@@ -17,6 +17,11 @@ export const RESTROOM_PLANS:Record<string,RestroomPlan>={
 for(const [id,source] of [['2-restroom-west','1218'],['2-restroom-east','1219']]){
  const data=RESTROOM_PLANS[source];RESTROOM_PLANS[id]={...data,back:data.back.map(secondCorePoint),sinks:data.sinks.map(secondCorePoint),urinals:data.urinals?.map(secondCorePoint)};
 }
+// Level 1 now uses the unified architectural registration, whose restroom
+// depth is smaller than the older wayfinding fit. Keep the wider end bays and
+// shorten their estimated depth to preserve the aisle in front of the sinks.
+RESTROOM_PLANS['1218'].stallDepths=[1.65,1.65,1.65,1.65,1.8,1.85];
+RESTROOM_PLANS['1219'].stallDepths=[1.65,1.8,1.85];
 export function restroomStalls(data:RestroomPlan,length:number){
  const ratios=data.stallRatios??Array.from({length:data.stalls},()=>1),sum=ratios.reduce((a,b)=>a+b,0);let start=0;
  return ratios.map((ratio,i)=>{const end=start+ratio/sum*length,stall={start,end,center:(start+end)/2,depth:data.stallDepths?.[i]??data.depth};start=end;return stall;});

@@ -1,4 +1,8 @@
 import { buildHatchery } from './hatchery';
+import { createConferenceAVBuilder } from './conference-av';
+import { structuralColumns } from './structure';
+import { buildSupportStorage } from './support-rooms';
+import { buildFirstOffice, FIRST_OFFICE_TYPES } from './first-offices';
 import { buildSandbox } from './sandbox';
 import { SANDBOX_STUDIOS } from './layout';
 import { buildCommunicatingStair } from './communicating-stairs';
@@ -16,7 +20,7 @@ import { buildRestroom } from './restrooms';
 import { buildAmphitheater } from './amphitheater';
 import { AMPH_LOWER } from './layout';
 import { GANNON_AISLES, GANNON_PLAN, AUD_AISLES, AUD_DEPTH, AUD_WIDTH, AUD_SCALE, ROW_START, ROW_PITCH, ROW_RISE, auditoriumSeats, auditoriumStrip, auditoriumSidePoint } from './auditorium';
-import { clearInside, meetingTable, roomFrame, teachingTables } from './furniture';
+import { clearInside, meetingTable, meetingSeats, roomFrame, teachingTables } from './furniture';
 import { ENCLOSED_FLIGHTS, STAIR_CENTER, STAIR_HOLE } from './circulation';
 import { FLOOR_HEIGHT } from './layout';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -207,10 +211,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   for(const offset of [-length*.35,length*.35])box(x+u[0]*offset,.37,z+u[1]*offset,.08,.72,.6,metal,angle);
   const ends:Point[]=[[-length/2,-width/2],[length/2,-width/2],[length/2,width/2],[-length/2,width/2]].map(([a,b])=>[x+u[0]*a+v[0]*b,z+u[1]*a+v[1]*b]);
   for(let i=0;i<4;i++)barriers.push({a:ends[i],b:ends[(i+1)%4]});
-  const count=gallery?5:Math.max(2,Math.floor(length/.85));
-  for(let i=0;i<count;i++)for(const side of [-1,1]){
-   const along=(i-(count-1)/2)*.85,across=side*(width/2+.35);
-   const cx=x+u[0]*along+v[0]*across,cz=z+u[1]*along+v[1]*across,rotation=Math.atan2(v[0]*side,v[1]*side);
+  for(const {point:[cx,cz],angle:rotation} of meetingSeats(room,fitted)){
    if(gallery){
     const seat=new THREE.SphereGeometry(1,12,8);seat.scale(.255,.065,.235);seat.rotateY(rotation);seat.translate(cx,.48,cz);put(seat,galleryFabric);
     const back=new THREE.SphereGeometry(1,12,8);back.scale(.255,.26,.065);back.rotateX(-.12);back.rotateY(rotation);back.translate(cx+Math.sin(rotation)*.19,.73,cz+Math.cos(rotation)*.19);put(back,galleryFabric);
@@ -438,7 +439,9 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   const xs=room.polygon.map(p=>p[0]),zs=room.polygon.map(p=>p[1]);
   const x=(Math.min(...xs)+Math.max(...xs))/2,z=(Math.min(...zs)+Math.max(...zs))/2;
   if(SANDBOX_STUDIOS.includes(room))buildSandbox(room.id,sandboxBuilder());
+  else if(room.id==='1213'||room.id==='1209')buildSupportStorage(room,sandboxBuilder());
   else if(room.id==='2237'||room.id==='hatchery-west-workroom')buildHatchery(room.id,sandboxBuilder());
+  else if(FIRST_OFFICE_TYPES[room.id]){surface(room.polygon,.01,classroomFloor);buildFirstOffice(room,{...sandboxBuilder(),chair});}
   else if(room.kind==='office')office(room);
   else if(room.kind==='workroom')workroom(room);
   else if(room.kind==='restroom')buildRestroom(room,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
@@ -452,7 +455,8 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   } else if(room.kind==='auditorium') {
    auditorium(room);
   } else if(room.id!=='4105'&&!(room.kind==='service'&&room.listed===false)&&clearInside(room,[x,z],1.45))tableSet(x,z);
-  if(room.kind==='classroom'||(room.kind==='conference'&&room.id!=='6217')) {
+  const hasDocumentedAV=room.kind==='conference'&&conferenceAV(room);
+  if(room.kind==='classroom'||(room.kind==='conference'&&room.id!=='6217'&&!hasDocumentedAV)) {
    const candidates=room.polygon.map((a,i)=>({a,b:room.polygon[(i+1)%room.polygon.length],i})).filter(({a,b,i})=>Math.hypot(b[0]-a[0],b[1]-a[1])>(i===nearest?8:4));
    for(const {a,b,i} of candidates.slice(0,room.kind==='classroom'?4:1)){
     const len=Math.hypot(b[0]-a[0],b[1]-a[1]),dx=(b[0]-a[0])/len,dz=(b[1]-a[1])/len;
@@ -464,6 +468,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    }
   }
  }
+ const conferenceAV=createConferenceAVBuilder({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  ROOMS.filter(r=>r.floor===floor).forEach(roomShell);
  if(floor==='4'){
   // The public upper-floor photos show exposed services over the corridors.
@@ -498,9 +503,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  batches=shellBatches;
  // White structural columns follow the public circulation edges.
- const columns=floor==='G' ? [[740,770],[905,840],[1180,897],[1180,655],[1100,610],[1400,620],[1460,435]] .map(([x,y])=>groundPlan(x,y)) : [[540,680],[745,680],[544,940],[772,940],[733,1195],[701,1390],[529,1535],[360,1600]].map(([x,y])=>plan(x,y));
- for(const [x,z] of floor==='R'?[]:columns) {
-  if(floor==='G'&&pointInPolygon([x,z],ANTONOV_FOOTPRINT))continue;
+ for(const [x,z] of structuralColumns(floor)) {
   cylinder(x,ceiling/2,z,.3,ceiling,white);
   for(let i=0;i<16;i++) {
    const a=i/16*Math.PI*2,b=(i+1)/16*Math.PI*2;
