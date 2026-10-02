@@ -5,7 +5,7 @@
 export type Point = readonly [number, number];
 export type Polygon = readonly Point[];
 export type FloorId = 'G' | '1' | '2' | '3' | '4' | '5' | 'R';
-export type RoomKind = 'classroom' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom' | 'restroom';
+export type RoomKind = 'classroom' | 'seminar' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom' | 'restroom';
 export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; glazedEdges?: readonly number[]; timberEdges?: readonly number[]; doorWidth?: number; arrivalFocus?:Point; additionalDoors?: Point[]; officeMeeting?: boolean; officeMeetingRadius?:number; officeMeetingSeats?:2|4; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
 export const PLAN_SCALE = .085;
 export const plan = (x: number, y: number): Point => [(x - 660) * PLAN_SCALE, (y - 1100) * PLAN_SCALE];
@@ -126,7 +126,7 @@ export function fourthPlan(x:number,y:number):Point{
 }
 const fourthTrace=(p:Polygon):Polygon=>p.map(([x,y])=>fourthPlan(x,y));
 ROOMS.push(
- {floor:'4',id:'4105',name:'Feng Peng and Xin Lei Classroom',kind:'service',evidence:'plan',polygon:fourthTrace([[196,735],[310,765],[273,902],[142,844]]),door:fourthPlan(263,898)},
+ {floor:'4',id:'4105',name:'Feng Peng and Xin Lei Classroom',kind:'seminar',evidence:'plan',polygon:fourthTrace([[196,735],[310,765],[273,902],[142,844]]),door:fourthPlan(263,898)},
  {floor:'4',id:'north-reset-zone',name:'North study lounge',kind:'lounge',evidence:'plan',polygon:fourthTrace([[998,840],[1104,852],[1085,1021],[1040,1021],[1040,957],[981,951]]),door:fourthPlan(1022,953)},
 );
 export const roomTitle=(room:InteriorRoom)=>/^\d+$/.test(room.id)&&room.name!==`Room ${room.id}`?`${room.id} · ${room.name}`:room.name;
@@ -266,13 +266,21 @@ export const FAMILY_GARDEN:InteriorRoom={floor:'1',id:'family-garden',name:'Marg
 ROOMS.push(FAMILY_GARDEN);
 
 // One registration for the Level 1 north wing: HDR page 9 rendered at 2×.
-// North façade corners and the central elevator core anchor the drawing.
+// North facade corners, enclosed stair and central elevator anchor the drawing.
 // The colored wayfinding blocks include surrounding support rooms and are
 // not classroom wall outlines. Metric dimensions remain estimates.
-export function firstNorthPlan(x:number,y:number):Point {
- const [u,v]=barycentric([x,y],[1115,794],[1086,1023],[392,859]);
- return blendTriangle(u,v,plan(515,449),plan(740,449),ELEVATOR);
+const firstNorthDiagram:Point[]=[[607,760],[575,1023],[1115,794],[1086,1023],[392,859]];
+const firstNorthWorld:Point[]=[plan(536,865),plan(740+87*(865-449)/781,865),plan(515,449),plan(740,449),ELEVATOR];
+function registerFirstNorth(point:Point,inverse=false):Point{
+ // Preserve both vertical cores and the north facade. The piecewise affine
+ // map is continuous across its seams and has an explicit inverse for Level 2.
+ const source=inverse?firstNorthWorld:firstNorthDiagram,target=inverse?firstNorthDiagram:firstNorthWorld;
+ const [u,v]=barycentric(point,source[0],source[1],source[2]);
+ const indices=v<0?[0,1,4]:u+v<=1?[0,1,2]:[1,3,2];
+ const [a,b,c]=indices,[s,t]=barycentric(point,source[a],source[b],source[c]);
+ return blendTriangle(s,t,target[a],target[b],target[c]);
 }
+export function firstNorthPlan(x:number,y:number):Point {return registerFirstNorth([x,y]);}
 export const FIRST_CLASSROOM:InteriorRoom={floor:'1',id:'1207',name:'Collaborative classroom',kind:'classroom',evidence:'plan',
  polygon:[[470,804],[614,822],[600,931],[455,930]].map(([x,y])=>firstNorthPlan(x,y)),door:firstNorthPlan(590,930.9310345),additionalDoors:[firstNorthPlan(605,820.875)],doorWidth:1.15};
 export const FIRST_CLASSROOM_TABLES:Point[]=[[490,830],[532.5,835],[574.25,840.75],[487.5,868.75],[531.25,874.25],[574.75,876],[479.25,907.25],[522.25,907.5],[565.75,907.5]].map(([x,y])=>firstNorthPlan(x,y));
@@ -341,7 +349,7 @@ ROOMS.push(...FIRST_OFFICES);
 // HDR Level 2 (PDF page 11) repeats this fixture/partition topology. Recover
 // diagram coordinates to retain its independent wayfinding registration.
 export const secondCorePoint=(point:Point):Point=>{
- const [x,y]=barycentric(point,firstCorePlan(0,0),firstCorePlan(1,0),firstCorePlan(0,1));
+ const [px,py]=registerFirstNorth(point,true),x=(px-600)*5,y=(py-804)*5;
  return plan(585+(x-400)*12/450+(y-145)*144/492,838-(x-400)*103/450);
 };
 export const SECOND_RESTROOMS:InteriorRoom[]=FIRST_RESTROOMS.map((room,i)=>({...room,floor:'2',id:i===0?'2-restroom-west':'2-restroom-east',polygon:room.polygon.map(secondCorePoint),door:secondCorePoint(room.door)}));

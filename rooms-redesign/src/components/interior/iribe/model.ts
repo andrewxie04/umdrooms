@@ -1,3 +1,6 @@
+import { WEST_STAIR } from './west-stair-layout';
+import { buildWestStair } from './west-stairs';
+import { buildSeminarAV } from './seminar-av';
 import { buildHatchery } from './hatchery';
 import { createConferenceAVBuilder } from './conference-av';
 import { structuralColumns } from './structure';
@@ -92,6 +95,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  const ceiling=floor==='G'?6.3:floor==='R'?3.45:4.2;
  const communicating=communicatingStairForFloor(floor);
  const slabHoles=floor==='G'?[AMPH_LOWER]:floor==='1'?[STAIR_HOLE,ATRIUM_VOID]:communicating?.upper===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE];
+ if(floor===WEST_STAIR.upper)slabHoles.push(WEST_STAIR.opening);
  surface(footprint,0,concrete,slabHoles);
  // A top-only floor disappears when seen through a lower window. Give upper
  // slabs an underside and edge thickness so furnishings cannot appear to float
@@ -102,7 +106,9 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   for(const ring of [footprint,...slabHoles])ring.forEach((a,i)=>wall(a,ring[(i+1)%ring.length],.19,concrete,false,-.19,.025));
  }
 
- if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:black,floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT]:communicating?.lower===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE]);
+ const ceilingHoles=floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT]:communicating?.lower===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE];
+ if(floor===WEST_STAIR.lower)ceilingHoles.push(WEST_STAIR.opening);
+ if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:black,ceilingHoles);
 
  // Solid stairwell walls enclose the switchback flights; the corridor entry
  // stays open across both the ascending and descending landings.
@@ -445,6 +451,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   else if(room.kind==='office')office(room);
   else if(room.kind==='workroom')workroom(room);
   else if(room.kind==='restroom')buildRestroom(room,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  else if(room.kind==='seminar')buildSeminarAV(room,sandboxBuilder());
   else if(room.kind==='classroom') classroom(room);
   else if(room.kind==='conference') conference(room);
   else if(room.id==='0116')buildRoboticsLab(room,{box,cylinder,put,palette:{white,oak,metal,glass,black,light},materials,barriers});
@@ -454,7 +461,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    for(const dx of [-1.7,1.7])for(const dz of [-2.5,0,2.5]){box(x+dx,.84,z+dz,2,.1,1.1,oak);for(const offset of [-.8,.8])box(x+dx+offset,.4,z+dz,.07,.8,.8,metal);box(x+dx,1.2,z+dz, .8,.55,.12,screen);}
   } else if(room.kind==='auditorium') {
    auditorium(room);
-  } else if(room.id!=='4105'&&!(room.kind==='service'&&room.listed===false)&&clearInside(room,[x,z],1.45))tableSet(x,z);
+  } else if(!(room.kind==='service'&&room.listed===false)&&clearInside(room,[x,z],1.45))tableSet(x,z);
   const hasDocumentedAV=room.kind==='conference'&&conferenceAV(room);
   if(room.kind==='classroom'||(room.kind==='conference'&&room.id!=='6217'&&!hasDocumentedAV)) {
    const candidates=room.polygon.map((a,i)=>({a,b:room.polygon[(i+1)%room.polygon.length],i})).filter(({a,b,i})=>Math.hypot(b[0]-a[0],b[1]-a[1])>(i===nearest?8:4));
@@ -470,6 +477,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  const conferenceAV=createConferenceAVBuilder({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  ROOMS.filter(r=>r.floor===floor).forEach(roomShell);
+ buildWestStair(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  if(floor==='4'){
   // The public upper-floor photos show exposed services over the corridors.
   // Their exact routing is estimated; these runs follow the traced circulation.

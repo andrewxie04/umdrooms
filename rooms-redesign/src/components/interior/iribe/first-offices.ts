@@ -16,19 +16,19 @@ export function firstOfficeFurniture(room:InteriorRoom){
  const surfaces:{x:number;z:number;w:number;d:number}[]=[],chairs:{point:Point;angle:number}[]=[];
  let round:{point:Point;radius:number}|undefined;
  const seat=(x:number,z:number,back:Point)=>chairs.push({point:f.at(x,z),angle:Math.atan2(back[0],back[1])});
- if(kind==='wraparound'){
-  // Two parallel desk surfaces and a side return match the plan symbols.
-  const side=room.id==='1-north-office-2'||room.id==='1-east-office-3'?1:-1;
-  surfaces.push({x:0,z:.48,w:1.8,d:.48},{x:side*.7,z:1.24,w:.4,d:1.06},{x:0,z:2,w:1.8,d:.58});
-  seat(0,1.22,[-f.n[0],-f.n[1]]);
-  for(const x of [-.4,.4])seat(x,2.6,f.n);
- }else if(kind==='desk-meeting'){
-  surfaces.push({x:0,z:.75,w:1.7,d:.65});seat(0,1.45,f.n);
+ if(kind==='wraparound'||kind==='desk-meeting'){
+  // The plan places the return against one side wall, leaving access along
+  // the opposite side. A centered U desk would trap its task chair.
+  const side=room.id==='1-north-office-2'||room.id==='1-east-office-3'||kind==='desk-meeting'?1:-1;
+  const width=Math.min(1.8,f.length-1.02),offset=side*(f.length/2-width/2-.22);
+  surfaces.push({x:offset,z:.48,w:width,d:.48},{x:offset+side*(width/2-.2),z:1.24,w:.4,d:1.06},{x:offset,z:2,w:width,d:.58});
+  seat(offset,1.22,[-f.n[0],-f.n[1]]);
+  if(kind==='wraparound')for(const x of [-.36,.36])seat(offset+x,2.6,f.n);
  }
  if(kind==='meeting'||kind==='desk-meeting'){
-  const z=kind==='meeting'?2.7:3.35;
-  round={point:f.at(0,z),radius:.4};
-  for(let i=0;i<3;i++){const a=i*Math.PI*2/3;seat(Math.sin(a)*.68,z+Math.cos(a)*.68,[f.u[0]*Math.sin(a)+f.n[0]*Math.cos(a),f.u[1]*Math.sin(a)+f.n[1]*Math.cos(a)]);}
+  const z=kind==='meeting'?1.35:3.4,count=kind==='meeting'?3:2,x=kind==='meeting'?0:.25;
+  round={point:f.at(x,z),radius:.4};
+  for(let i=0;i<count;i++){const a=i*Math.PI*2/count;seat(x+Math.sin(a)*.68,z+Math.cos(a)*.68,[f.u[0]*Math.sin(a)+f.n[0]*Math.cos(a),f.u[1]*Math.sin(a)+f.n[1]*Math.cos(a)]);}
  }
  return {kind,frame:f,surfaces,chairs,round};
 }

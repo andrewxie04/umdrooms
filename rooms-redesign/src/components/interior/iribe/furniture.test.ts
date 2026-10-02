@@ -1,3 +1,5 @@
+import { FIRST_OFFICES, SANDBOX_SUPPORT } from './layout';
+import { firstOfficeFurniture } from './first-offices';
 import { describe, expect, it } from 'vitest';
 import { ROOMS, pointInPolygon } from './layout';
 import { clearInside, meetingTable, meetingSeats, MEETING_CAPACITIES, teachingTables } from './furniture';
@@ -38,5 +40,14 @@ describe('documented conference AV placement',()=>{
   // Small controllers and keyboards must not overhang the fitted tabletop.
   expect(meetingTable(room)!.length/2).toBeGreaterThan(.645);
   for(const column of structuralColumns(room.floor))for(const x of [-.9,0,.9])expect(distanceToSegment(column,meetingTable(room)!.center,frame.at(x,.28))).toBeGreaterThanOrEqual(.4);
+ });
+});
+
+describe('Level 1 perimeter office furniture',()=>{
+ for(const room of [...FIRST_OFFICES,...SANDBOX_SUPPORT.filter(r=>r.id==='1214')])it(`${room.id} contains its desks and chair footprints`,()=>{
+  const {frame,surfaces,chairs,round}=firstOfficeFurniture(room);
+  for(const desk of surfaces)for(const x of [-1,1])for(const z of [-1,1])expect(clearInside(room,frame.at(desk.x+x*desk.w/2,desk.z+z*desk.d/2),.02)).toBe(true);
+  for(const chair of chairs)expect(clearInside(room,chair.point,.26)).toBe(true);
+  if(round)expect(clearInside(room,round.point,round.radius)).toBe(true);
  });
 });

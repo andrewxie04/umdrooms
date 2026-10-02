@@ -1,3 +1,4 @@
+import { seminarAVLayout, buildSeminarAV } from './seminar-av';
 import { HATCHERY_COMMON, HATCHERY_ROOMS } from './layout';
 import { HATCHERY_ITEMS, hatcheryItemFrame, hatcheryItemFootprint, buildHatchery } from './hatchery';
 import { SANDBOX_COMMON, SANDBOX_STUDIOS, sandboxPlan, FIRST_RESTROOMS, SECOND_RESTROOMS } from './layout';
@@ -11,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildInteriorFloor, type InteriorModel } from './model';
 import { plan, fourthPlan, westFourthPlan, footprintForFloor, roofPlan, ROOF_GALLERY, ROOF_PUBLIC_FOOTPRINT, type Point, type FloorId } from './layout';
 import { ROOF_BEDS, ROOF_LAWN, ROOF_POOL, ROOF_DOORS, ROOF_FACADE, ROOF_FOYER, ROOF_OUTDOOR } from './roof-layout';
-import { ATRIUM_LANDING, ATRIUM_FLIGHTS, ENCLOSED_FLIGHTS, FLOOR_ORDER, type Flight, type Position } from './circulation';
+import { ATRIUM_LANDING, ATRIUM_FLIGHTS, ENCLOSED_FLIGHTS, FLOOR_ORDER, STAIR_CENTER, STAIR_HOLE, type Flight, type Position } from './circulation';
 import { GANNON_AISLES, gannonHeight, AUD_AISLES, AUD_SCALE, ROW_START, ROW_PITCH, auditoriumSeats, antonovHeight } from './auditorium';
 import { walkStep3 } from './walk';
 import { roomArrival } from './arrival';
@@ -21,8 +22,9 @@ import { buildRoboticsLab, ROBOT_STATIONS } from './robotics';
 import { buildLobbySeating } from './lobby';
 import { buildRestroom, RESTROOM_PLANS, restroomFrame, restroomStalls } from './restrooms';
 import { MEETING_CAPACITIES, meetingTable, meetingSeats } from './furniture';
-import { FIRST_CLASSROOM, FIRST_CLASSROOM_TABLES, SANDBOX_SUPPORT } from './layout';
+import { FIRST_CLASSROOM, FIRST_CLASSROOM_TABLES, SANDBOX_SUPPORT, FIRST_OFFICES, firstNorthPlan, ELEVATOR, firstCorePlan, secondCorePoint } from './layout';
 import { supportCabinetFrame } from './support-rooms';
+import { firstOfficeFurniture } from './first-offices';
 import { ROOMS, FLOOR_HEIGHT, ANTONOV_FOOTPRINT, ENTRY, CAFE_LENGTH, cafePoint, groundPlan, pointInPolygon, distanceToSegment } from './layout';
 
 const renderingErrors:string[]=[];
@@ -581,6 +583,24 @@ describe('Sandbox studio layout and circulation',()=>{
 
 
 describe('Level 1 north corridor',()=>{
+ it('registers the stair and elevator cores and keeps office walls outside the stair opening',()=>{
+  expect(firstNorthPlan(607,760)).toEqual(STAIR_CENTER);
+  const elevator=firstNorthPlan(392,859);expect(elevator[0]).toBeCloseTo(ELEVATOR[0],8);expect(elevator[1]).toBeCloseTo(ELEVATOR[1],8);
+  for(const room of FIRST_OFFICES)for(const p of room.polygon)expect(pointInPolygon(p,STAIR_HOLE),room.id).toBe(false);
+ });
+ it('preserves the independent Level 2 core registration across the Level 1 seams',()=>{
+  for(const x of [0,200,400,600,800,1000])for(const y of [0,200,400,650]){
+   const actual=secondCorePoint(firstCorePlan(x,y)),expected=plan(585+(x-400)*12/450+(y-145)*144/492,838-(x-400)*103/450);
+   expect(actual[0]).toBeCloseTo(expected[0],7);expect(actual[1]).toBeCloseTo(expected[1],7);
+  }
+ });
+
+ for(const room of [...FIRST_OFFICES,...SANDBOX_SUPPORT.filter(r=>r.id==='1214')])it(`connects ${room.id} doorway to its desk and guest seating`,()=>{
+  const f=firstOfficeFurniture(room);
+  const targets=f.chairs.map(chair=>[0,1,2,3].map(i=>[chair.point[0]+Math.sin(i*Math.PI/2)*.55,chair.point[1]+Math.cos(i*Math.PI/2)*.55] as Point));
+  walkInteriorTargets(room,targets,.1);
+ });
+
  for(const [index,door] of [FIRST_CLASSROOM.door,...(FIRST_CLASSROOM.additionalDoors??[])].entries())it(`walks through classroom 1207 door ${index+1} in both directions`,()=>{
   const polygon=FIRST_CLASSROOM.polygon;
   const edge=polygon.map((a,i)=>({a,b:polygon[(i+1)%polygon.length]})).sort((a,b)=>distanceToSegment(door,a.a,a.b)-distanceToSegment(door,b.a,b.b))[0];
@@ -592,10 +612,10 @@ describe('Level 1 north corridor',()=>{
  it('connects classroom 1207, storage, the manager office, restrooms, and the Sandbox in both directions',()=>{
   const classroom=ROOMS.find(r=>r.id==='1207')!;
   const corridor={...classroom,kind:'garden' as const,polygon:[[516,450],[739,450],[811,1090],[506,1090]].map(([x,y])=>plan(x,y))};
-  walkInteriorTargets(corridor,[...FIRST_RESTROOMS,SANDBOX_COMMON,...SANDBOX_SUPPORT].map(room=>[roomArrival(room,models.get('1')!.barriers)!.point]));
+  walkInteriorTargets(corridor,[...FIRST_RESTROOMS,SANDBOX_COMMON,...SANDBOX_SUPPORT,...FIRST_OFFICES].map(room=>[roomArrival(room,models.get('1')!.barriers)!.point]));
  });
  it('keeps classroom 1207 distinct from the service block',()=>{
-  const rooms=[FIRST_CLASSROOM,...FIRST_RESTROOMS,...SANDBOX_SUPPORT,...SANDBOX_STUDIOS];
+  const rooms=[FIRST_CLASSROOM,...FIRST_RESTROOMS,...SANDBOX_SUPPORT,...SANDBOX_STUDIOS,...FIRST_OFFICES];
   for(const room of rooms)for(const other of rooms.filter(r=>r!==room)){
    for(let i=0;i<room.polygon.length;i++){
     const a=room.polygon[i],b=room.polygon[(i+1)%room.polygon.length];
@@ -659,4 +679,28 @@ describe('Hatchery and Level 2 north offices',()=>{
   }
   walkInteriorTargets(suite,targets,.1);
  },60000);
+});
+
+
+describe('4105 large seminar presentation system',()=>{
+ const room=ROOMS.find(r=>r.id==='4105')!;
+ it('keeps the lectern and wall hardware inside and clear of the entrance',()=>{
+  const f=seminarAVLayout(room);
+  const points=[...f.lecternFootprint,f.projector,f.presenter,f.audience,...[-1.65,1.65].map(x=>f.front.at(x,.27)),...[-.96,.96].map(x=>f.rear.at(x,.28)),f.front.at(2.15,.38)];
+  for(const p of points){expect(pointInPolygon(p,room.polygon)).toBe(true);expect(Math.hypot(p[0]-room.door[0],p[1]-room.door[1])).toBeGreaterThan(1);}
+ });
+ it('connects the doorway to the presentation area and both sides of the lectern',()=>{
+  const f=seminarAVLayout(room);
+  walkInteriorTargets(room,[[f.presenter],[f.audience],...[-1,1].map(side=>[f.front.at(f.lecternX+side*.95,f.lecternZ)])],.1);
+ });
+ it('models AV barriers at equipment height and a finite static control surface',()=>{
+  const barriers:InteriorModel['barriers']=[],materials:THREE.Material[]=[],textures:THREE.Texture[]=[],base=new THREE.MeshBasicMaterial();
+  let badGeometry=false;
+  buildSeminarAV(room,{box(){},cylinder(){},surface(){},wall(){},label(){},put(g){const p=g.getAttribute('position');for(let i=0;i<p.count;i++)if(!Number.isFinite(p.getX(i)+p.getY(i)+p.getZ(i)))badGeometry=true;g.dispose();},palette:{white:base,oak:base,metal:base,glass:base,black:base,light:base},materials,textures,barriers});
+  expect(badGeometry).toBe(false);expect(textures).toHaveLength(1);
+  expect(barriers.filter(b=>b.minY===0)).toHaveLength(4);
+  expect(barriers.filter(b=>b.minY!>1)).toHaveLength(3);
+  expect(roomArrival(room,models.get('4')!.barriers)).not.toBeNull();
+  materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());base.dispose();
+ });
 });
