@@ -19,5 +19,6 @@ export function roomArrival(room:InteriorRoom,barriers:Barrier[]):{point:Point;y
   const cost=Math.abs(distance-1.35)+.05*Math.hypot(x-center[0],z-center[1]);
   if(cost<score){best=p;score=cost;}
  }
- return best?{point:best,yaw:Math.atan2(best[0]-center[0],best[1]-center[1]),height:FLOOR_HEIGHT[room.floor]+localHeight(room,best)}:null;
+ const focus=room.arrivalFocus??center;
+ return best?{point:best,yaw:Math.atan2(best[0]-focus[0],best[1]-focus[1]),height:FLOOR_HEIGHT[room.floor]+localHeight(room,best)}:null;
 }

@@ -1,14 +1,26 @@
 import * as THREE from 'three';
-import { fourthCorePlan, pointInPolygon, type InteriorRoom, type Point } from './layout';
+import { fourthCorePlan, firstCorePlan, secondCorePoint, pointInPolygon, type InteriorRoom, type Point } from './layout';
 import type { RoofBuilder } from './roof';
 
 const p=fourthCorePlan;
 /** Fixture counts and partitions follow the HDR drawing. Ceramic, tile and
  * partition finishes are neutral estimates because no interior photos verify them. */
-export const RESTROOM_PLANS={
+export interface RestroomPlan {back:Point[];stalls:number;depth:number;sinks:Point[];sinkCount:number;urinals?:Point[];stallRatios?:number[];stallDepths?:number[];}
+const first=firstCorePlan;
+export const RESTROOM_PLANS:Record<string,RestroomPlan>={
+ '1218':{back:[first(467,340),first(815,380)],stalls:6,depth:1.65,stallRatios:[54,56,58,58,59,87],stallDepths:[1.65,1.65,1.65,1.65,2,2.15],sinks:[first(609,169),first(849,197)],sinkCount:5},
+ '1219':{back:[first(626,406),first(827,431)],stalls:3,depth:1.65,stallRatios:[58,58,90],stallDepths:[1.65,2,2.15],sinks:[first(551,591),first(799,622)],sinkCount:5,urinals:[first(484,393),first(541,400),first(597,407)]},
  '4-restroom-west':{back:[p(811,270),p(1042,288)],stalls:6,depth:1.65,sinks:[p(905,148),p(1050,165)],sinkCount:5},
  '4-restroom-east':{back:[p(913,318),p(1039,332)],stalls:3,depth:1.65,sinks:[p(880,428),p(1018,445)],sinkCount:5,urinals:[p(827,306),p(862,310),p(897,314)]},
-} satisfies Record<string,{back:Point[];stalls:number;depth:number;sinks:Point[];sinkCount:number;urinals?:Point[]}>;
+};
+// The independent Level 2 reference confirms the same six/three-stall layout.
+for(const [id,source] of [['2-restroom-west','1218'],['2-restroom-east','1219']]){
+ const data=RESTROOM_PLANS[source];RESTROOM_PLANS[id]={...data,back:data.back.map(secondCorePoint),sinks:data.sinks.map(secondCorePoint),urinals:data.urinals?.map(secondCorePoint)};
+}
+export function restroomStalls(data:RestroomPlan,length:number){
+ const ratios=data.stallRatios??Array.from({length:data.stalls},()=>1),sum=ratios.reduce((a,b)=>a+b,0);let start=0;
+ return ratios.map((ratio,i)=>{const end=start+ratio/sum*length,stall={start,end,center:(start+end)/2,depth:data.stallDepths?.[i]??data.depth};start=end;return stall;});
+}
 export function restroomFrame(room:InteriorRoom,a:Point,end:Point){
  const length=Math.hypot(end[0]-a[0],end[1]-a[1]),ux=(end[0]-a[0])/length,uz=(end[1]-a[1])/length;
  let vx=-uz,vz=ux;
@@ -26,7 +38,7 @@ export function buildRestroom(room:InteriorRoom,b:RoofBuilder){
  }
  const texture=new THREE.DataTexture(pixels,64,64);texture.colorSpace=THREE.SRGBColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.repeat.set(2,2);texture.generateMipmaps=true;texture.minFilter=THREE.LinearMipmapLinearFilter;texture.magFilter=THREE.LinearFilter;texture.anisotropy=4;texture.needsUpdate=true;tile.map=texture;b.textures.push(texture);
  b.surface(room.polygon,.015,tile);b.surface(room.polygon,3.05,ceiling);
- const row=restroomFrame(room,data.back[0],data.back[1]),width=row.length/data.stalls;
+ const row=restroomFrame(room,data.back[0],data.back[1]),stalls=restroomStalls(data,row.length);
  const rect=(f:ReturnType<typeof restroomFrame>,x:number,z:number,w:number,d:number,top:number)=>{
   const corners=[[-w/2,-d/2],[w/2,-d/2],[w/2,d/2],[-w/2,d/2]].map(([a,c])=>f.at(x+a,z+c));
   corners.forEach((a,i)=>b.barriers.push({a,b:corners[(i+1)%4],minY:0,maxY:top}));
@@ -47,17 +59,17 @@ export function buildRestroom(room:InteriorRoom,b:RoofBuilder){
   box(row,x+.055,1,.22,.1,.025,.025,b.palette.metal);
   rect(row,x,.61,.42,.68,.47);
  };
- for(let i=0;i<=data.stalls;i++){
-  const x=i*width,a=row.at(x,0),end=row.at(x,data.depth);
+ for(let i=0;i<=stalls.length;i++){
+  const x=i===stalls.length?row.length:stalls[i].start,depth=Math.max(stalls[i-1]?.depth??0,stalls[i]?.depth??0),a=row.at(x,0),end=row.at(x,depth);
   b.wall(a,end,1.74,partition,true,.16,.045);
-  for(const z of [.18,data.depth-.08]){const q=row.at(x,z);b.cylinder(q[0],.09,q[1],.016,.18,b.palette.metal);}
+  for(const z of [.18,depth-.08]){const q=row.at(x,z);b.cylinder(q[0],.09,q[1],.016,.18,b.palette.metal);}
  }
- for(let i=0;i<data.stalls;i++){
-  const x=(i+.5)*width,halfGap=Math.min(.37,width/2-.08),front=data.depth;
-  b.wall(row.at(i*width,front),row.at(x-halfGap,front),1.74,partition,true,.16,.045);
-  b.wall(row.at(x+halfGap,front),row.at((i+1)*width,front),1.74,partition,true,.16,.045);
+ for(const stall of stalls){
+  const x=stall.center,halfGap=Math.min(.37,(stall.end-stall.start)/2-.08),front=stall.depth;
+  b.wall(row.at(stall.start,front),row.at(x-halfGap,front),1.74,partition,true,.16,.045);
+  b.wall(row.at(x+halfGap,front),row.at(stall.end,front),1.74,partition,true,.16,.045);
   // Open leaf rests beside the divider and leaves the actual opening walkable.
-  b.wall(row.at((i+1)*width-.055,front),row.at((i+1)*width-.055,front-.7),1.68,partition,true,.19,.035);
+  b.wall(row.at(stall.end-.055,front),row.at(stall.end-.055,front-.7),1.68,partition,true,.19,.035);
   toilet(x);
  }
  const sinks=restroomFrame(room,data.sinks[0],data.sinks[1]);
@@ -72,7 +84,7 @@ export function buildRestroom(room:InteriorRoom,b:RoofBuilder){
   tube(new THREE.Vector3(tap[0],.9,tap[1]),new THREE.Vector3(tap[0],1.07,tap[1]),.013);
   tube(new THREE.Vector3(tap[0],1.07,tap[1]),new THREE.Vector3(spout[0],1.07,spout[1]),.013);
  }
- if('urinals' in data)for(const q of data.urinals){
+ if(data.urinals)for(const q of data.urinals){
   // Fixtures face the open aisle on the other side of the shared plumbing wall.
   const f=restroomFrame(room,q,[q[0]+row.ux,q[1]+row.uz]);
   box(f,0,.66,.19,.31,.55,.24,ceramic);box(f,0,.48,.31,.34,.12,.24,ceramic);box(f,0,.79,.325,.23,.27,.012,partition);rect(f,0,.22,.37,.4,.96);

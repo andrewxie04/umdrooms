@@ -1,3 +1,7 @@
+import { HATCHERY_COMMON, HATCHERY_ROOMS } from './layout';
+import { HATCHERY_ITEMS, hatcheryItemFrame, hatcheryItemFootprint, buildHatchery } from './hatchery';
+import { SANDBOX_COMMON, SANDBOX_STUDIOS, sandboxPlan, FIRST_RESTROOMS, SECOND_RESTROOMS } from './layout';
+import { SANDBOX_STATIONS, sandboxStationFootprint, sandboxStationPoint } from './sandbox';
 import { COMMUNICATING_STAIRS } from './communicating-layout';
 import { FAMILY_BEDS,FAMILY_MAPLES } from './family-garden-layout';
 import { FAMILY_GARDEN,FAMILY_GARDEN_DOOR,FAMILY_TERRACE,familyGardenPlan } from './layout';
@@ -15,7 +19,7 @@ import { labFrame, buildSmallArtifacts, DRONE_CAGE, DRONE_CAGE_AREA, DRONE_CAGE_
 import * as THREE from 'three';
 import { buildRoboticsLab, ROBOT_STATIONS } from './robotics';
 import { buildLobbySeating } from './lobby';
-import { buildRestroom, RESTROOM_PLANS, restroomFrame } from './restrooms';
+import { buildRestroom, RESTROOM_PLANS, restroomFrame, restroomStalls } from './restrooms';
 import { ROOMS, FLOOR_HEIGHT, ANTONOV_FOOTPRINT, ENTRY, CAFE_LENGTH, cafePoint, groundPlan, pointInPolygon, distanceToSegment } from './layout';
 
 const renderingErrors:string[]=[];
@@ -372,8 +376,8 @@ it('keeps all curved lounge seating and coffee tables inside the ground-floor en
 });
 
 
-function walkInteriorTargets(room:typeof ROOMS[number],targets:Point[][]){
-  const step=room.kind==='restroom'?.1:.25,minX=Math.min(...room.polygon.map(p=>p[0])),minZ=Math.min(...room.polygon.map(p=>p[1]));
+function walkInteriorTargets(room:typeof ROOMS[number],targets:Point[][],gridStep?:number){
+  const step=gridStep??(room.kind==='restroom'?.1:.25),minX=Math.min(...room.polygon.map(p=>p[0])),minZ=Math.min(...room.polygon.map(p=>p[1]));
   const maxX=Math.max(...room.polygon.map(p=>p[0])),maxZ=Math.max(...room.polygon.map(p=>p[1]));
   const local=FLOOR_ORDER.flatMap(f=>models.get(f)!.barriers.map(b=>({...b,minY:(b.minY??0)+FLOOR_HEIGHT[f]-FLOOR_HEIGHT[room.floor],maxY:(b.maxY??(f==='G'?10.5:f==='R'?1.2:4.2))+FLOOR_HEIGHT[f]-FLOOR_HEIGHT[room.floor]}))).filter(b=>(b.minY??0)<1.65&&(b.maxY??Infinity)>0&&Math.max(b.a[0],b.b[0])>=minX-.5&&Math.min(b.a[0],b.b[0])<=maxX+.5&&Math.max(b.a[1],b.b[1])>=minZ-.5&&Math.min(b.a[1],b.b[1])<=maxZ+.5);
   const free=new Map<string,Point>();
@@ -439,26 +443,27 @@ describe('fourth-floor shared workroom furniture',()=>{
 });
 
 
-describe('fourth-floor restroom fixtures',()=>{
+describe('restroom fixtures',()=>{
  for(const room of ROOMS.filter(r=>r.kind==='restroom')){
   it(`keeps all fixtures and partitions inside ${room.id}`,()=>{
    const barriers:InteriorModel['barriers']=[],materials:THREE.Material[]=[],textures:THREE.Texture[]=[];
    const base=new THREE.MeshBasicMaterial();
    buildRestroom(room,{box(){},cylinder(){},surface(){},wall(a,b,h,_m,collision=true,base=0){if(collision)barriers.push({a,b,minY:base,maxY:base+h});},label(){},put(g){g.dispose();},palette:{white:base,oak:base,metal:base,glass:base,black:base,light:base},materials,textures,barriers});
-   for(const wall of barriers)for(const p of [wall.a,wall.b])expect(pointInPolygon(p,room.polygon)||room.polygon.some((a,i)=>distanceToSegment(p,a,room.polygon[(i+1)%room.polygon.length])<.02),`${room.id} fixture ${p}`).toBe(true);
+   const outside=barriers.flatMap(wall=>[wall.a,wall.b]).filter(p=>!pointInPolygon(p,room.polygon)&&!room.polygon.some((a,i)=>distanceToSegment(p,a,room.polygon[(i+1)%room.polygon.length])<.02));
+   expect(outside,`${room.id} fixtures outside walls`).toEqual([]);
    materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());base.dispose();
   });
   it(`connects the entry to all stalls and sinks in ${room.id}`,()=>{
    const data=RESTROOM_PLANS[room.id as keyof typeof RESTROOM_PLANS],row=restroomFrame(room,data.back[0],data.back[1]),sinks=restroomFrame(room,data.sinks[0],data.sinks[1]);
-   const targets:Point[][]=Array.from({length:data.stalls},(_,i)=>[row.at((i+.5)*row.length/data.stalls,data.depth-.3)]);
+   const targets:Point[][]=restroomStalls(data,row.length).map(stall=>[row.at(stall.center,stall.depth-.3)]);
    for(let i=0;i<data.sinkCount;i++)targets.push([sinks.at((i+.5)*sinks.length/data.sinkCount,.98)]);
    walkInteriorTargets(room,targets);
   });
   it(`walks through every open stall doorway in ${room.id}`,()=>{
-   const data=RESTROOM_PLANS[room.id as keyof typeof RESTROOM_PLANS],f=restroomFrame(room,data.back[0],data.back[1]),width=f.length/data.stalls;
-   for(let i=0;i<data.stalls;i++){
-    const x=(i+.5)*width,start=f.at(x,data.depth+.32),inside=f.at(x,data.depth-.3);
-    let position:Position=[start[0],FLOOR_HEIGHT['4'],start[1]];
+   const data=RESTROOM_PLANS[room.id as keyof typeof RESTROOM_PLANS],f=restroomFrame(room,data.back[0],data.back[1]);
+   for(const [i,stall] of restroomStalls(data,f.length).entries()){
+    const x=stall.center,start=f.at(x,stall.depth+.32),inside=f.at(x,stall.depth-.3);
+    let position:Position=[start[0],FLOOR_HEIGHT[room.floor],start[1]];
     for(const target of [inside,start]){
      const from=position;for(let j=0;j<100;j++)position=walkStep3(position,[(target[0]-from[0])/100,(target[1]-from[2])/100],floor=>models.get(floor)!.barriers);
      expect(position[0],`${room.id} stall ${i}`).toBeCloseTo(target[0],1);expect(position[2],`${room.id} stall ${i}`).toBeCloseTo(target[1],1);
@@ -546,4 +551,69 @@ it('opens the garden glazing through the auditorium wall',()=>{
   const hits=ray.intersectObject(models.get('G')!.group,true);
   expect(hits.length).toBeGreaterThan(0);expect(((hits[0].object as THREE.Mesh).material as THREE.Material).name).toBe('Auditorium garden glazing');
  }
+});
+
+
+describe('Sandbox studio layout and circulation',()=>{
+ it('fits every workstation inside its documented studio or common area',()=>{
+  for(const station of SANDBOX_STATIONS){
+   const room=station.room==='1231'?SANDBOX_COMMON:SANDBOX_STUDIOS.find(r=>r.id===station.room)!;
+   for(const point of sandboxStationFootprint(station))expect(pointInPolygon(point,room.polygon),`${station.kind} in ${station.room} at ${point}`).toBe(true);
+  }
+ });
+ it('connects the suite entrance to every studio and equipment station and back',()=>{
+  const suite={...SANDBOX_COMMON,kind:'garden' as const,polygon:[[205,25],[885,95],[835,593],[205,593]].map(([x,y])=>sandboxPlan(x,y))};
+  const targets=SANDBOX_STATIONS.map(station=>[-1,1].map(side=>sandboxStationPoint(station,0,side*(station.depth/2+.6))));
+  walkInteriorTargets(suite,targets);
+ });
+});
+
+
+describe('Level 1 north corridor',()=>{
+ it('connects classroom 1207, both restrooms, and the Sandbox entrance in both directions',()=>{
+  const classroom=ROOMS.find(r=>r.id==='1207')!;
+  const corridor={...classroom,kind:'garden' as const,polygon:[[516,450],[739,450],[805,1050],[508,1050]].map(([x,y])=>plan(x,y))};
+  walkInteriorTargets(corridor,[...FIRST_RESTROOMS,SANDBOX_COMMON].map(room=>[roomArrival(room,models.get('1')!.barriers)!.point]));
+ });
+});
+
+
+describe('Level 2 north corridor',()=>{
+ it('connects classroom 2207 to both restrooms and back',()=>{
+  const classroom=ROOMS.find(r=>r.id==='2207')!;
+  const corridor={...classroom,kind:'garden' as const,polygon:[[516,450],[739,450],[805,1050],[508,1050]].map(([x,y])=>plan(x,y))};
+  walkInteriorTargets(corridor,SECOND_RESTROOMS.map(room=>[roomArrival(room,models.get('2')!.barriers)!.point]));
+ });
+});
+
+
+describe('Hatchery and Level 2 north offices',()=>{
+ it('places the collaboration shortcut in the common area, outside enclosed rooms',()=>{
+  const arrival=roomArrival(HATCHERY_COMMON,models.get('2')!.barriers)!;
+  expect(arrival).toBeDefined();expect(pointInPolygon(arrival.point,HATCHERY_COMMON.polygon)).toBe(true);
+  expect(HATCHERY_ROOMS.some(room=>pointInPolygon(arrival.point,room.polygon))).toBe(false);
+  expect(pointInPolygon([arrival.point[0]-Math.sin(arrival.yaw)*2,arrival.point[1]-Math.cos(arrival.yaw)*2],HATCHERY_COMMON.polygon)).toBe(true);
+ });
+ it('keeps furniture and chairs within their rooms',()=>{
+  for(const room of [HATCHERY_COMMON,...HATCHERY_ROOMS.filter(r=>r.kind==='workroom')]){
+   const barriers:InteriorModel['barriers']=[],materials:THREE.Material[]=[],textures:THREE.Texture[]=[],base=new THREE.MeshBasicMaterial();
+   buildHatchery(room.id,{box(){},cylinder(){},surface(){},wall(){},label(){},put(g){g.dispose();},palette:{white:base,oak:base,metal:base,glass:base,black:base,light:base},materials,textures,barriers});
+   const outside=barriers.flatMap(wall=>[wall.a,wall.b]).filter(p=>!pointInPolygon(p,room.polygon));
+   expect(outside,room.id).toEqual([]);materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());base.dispose();
+  }
+ });
+ it('keeps common-area furniture clear of the offices and workrooms',()=>{
+  for(const item of HATCHERY_ITEMS.filter(item=>item.room===HATCHERY_COMMON.id))for(const p of hatcheryItemFootprint(item))expect(HATCHERY_ROOMS.some(room=>pointInPolygon(p,room.polygon))).toBe(false);
+ });
+ it('connects classroom 2207 to both workrooms, every office, and every shared furniture zone',()=>{
+  const classroom=ROOMS.find(r=>r.id==='2207')!,suite={...classroom,kind:'garden' as const,polygon:[[516,450],[739,450],[805,1050],[508,1050]].map(([x,y])=>plan(x,y))};
+  const targets:Point[][]=HATCHERY_ROOMS.map(room=>[roomArrival(room,models.get('2')!.barriers)!.point]);
+  for(const item of HATCHERY_ITEMS){const f=hatcheryItemFrame(item);targets.push(item.kind==='desk'?[f.at(0,item.depth/2+.95)]:item.kind==='windowbar'?[f.at(0,1.2)]:item.kind==='round'?[f.at(item.width/2+1,0),f.at(-item.width/2-1,0),f.at(0,item.depth/2+1),f.at(0,-item.depth/2-1)]:[f.at(0,item.depth/2+1),f.at(0,-item.depth/2-1)]);}
+  for(const room of HATCHERY_ROOMS.filter(room=>room.kind==='office')){
+   const a=room.polygon[0],b=room.polygon[1],length=Math.hypot(b[0]-a[0],b[1]-a[1]),u:Point=[(b[0]-a[0])/length,(b[1]-a[1])/length],mid:Point=[(a[0]+b[0])/2,(a[1]+b[1])/2];let n:Point=[-u[1],u[0]];
+   if(!pointInPolygon([mid[0]+n[0]*.3,mid[1]+n[1]*.3],room.polygon))n=[-n[0],-n[1]];
+   targets.push([[mid[0]+n[0]*2.4,mid[1]+n[1]*2.4]]);
+  }
+  walkInteriorTargets(suite,targets,.1);
+ },60000);
 });

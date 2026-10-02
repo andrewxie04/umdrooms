@@ -6,7 +6,7 @@ export type Point = readonly [number, number];
 export type Polygon = readonly Point[];
 export type FloorId = 'G' | '1' | '2' | '3' | '4' | '5' | 'R';
 export type RoomKind = 'classroom' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom' | 'restroom';
-export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; doorWidth?: number; additionalDoors?: Point[]; officeMeeting?: boolean; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
+export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; glazedEdges?: readonly number[]; timberEdges?: readonly number[]; doorWidth?: number; arrivalFocus?:Point; additionalDoors?: Point[]; officeMeeting?: boolean; officeMeetingRadius?:number; officeMeetingSeats?:2|4; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
 export const PLAN_SCALE = .085;
 export const plan = (x: number, y: number): Point => [(x - 660) * PLAN_SCALE, (y - 1100) * PLAN_SCALE];
 const trace = (points: Polygon): Polygon => points.map(([x,y]) => plan(x,y));
@@ -17,7 +17,6 @@ function room(floor:FloorId,id:string,name:string,kind:RoomKind,points:Polygon,d
  return {floor,id,name,kind,polygon:trace(points),door:plan(...door),evidence:'plan'};
 }
 export const ROOMS: InteriorRoom[] = [
- room('1','1231','Singh Sandbox','lab',[[532,463],[718,463],[744,685],[531,706]],[620,704]),
  room('1','1207','Collaborative classroom','classroom',[[558,863],[710,863],[713,1019],[557,1019]],[630,1019]),
  room('1','1104','DICE lounge','lounge',[[732,1090],[790,1082],[801,1174],[732,1168]],[732,1128]),
  room('1','1108','Tutoring','lounge',[[738,1180],[802,1190],[822,1305],[720,1268]],[727,1228]),
@@ -266,3 +265,73 @@ export const FAMILY_TERRACE:Polygon=[
 ];
 export const FAMILY_GARDEN:InteriorRoom={floor:'1',id:'family-garden',name:'Margulis–Antonov Family Garden',kind:'garden',evidence:'plan',polygon:FAMILY_TERRACE,door:FAMILY_GARDEN_DOOR};
 ROOMS.push(FAMILY_GARDEN);
+
+// Sandbox wiki's labeled 900 × 629 studio diagram, fitted to the north end
+// of the Level 1 envelope. Diagram registration and dimensions are estimates.
+export function sandboxPlan(x:number,y:number):Point {
+ const [u,v]=barycentric([x,y],[877,103],[825,581],[217,581]);
+ return blendTriangle(u,v,plan(515,449),plan(740,449),plan(774.2,756));
+}
+const sandboxStudio=(id:string,name:string,outline:Polygon,door:Point,exterior?:number,kind:RoomKind='lab'):InteriorRoom=>({
+ floor:'1',id,name,kind,evidence:'plan',door:sandboxPlan(...door),doorWidth:1.15,
+ polygon:outline.map((p,i)=>exterior!==undefined&&(i===exterior||i===(exterior+1)%outline.length)?onEnvelope(sandboxPlan(...p)):sandboxPlan(...p)),
+ exteriorEdges:exterior===undefined?undefined:[exterior],
+});
+export const SANDBOX_STUDIOS:InteriorRoom[]=[
+ sandboxStudio('1246','Sandbox · Electronics',[[286,35],[417,50],[405,169],[277,151]],[350,161],0),
+ sandboxStudio('1242','Sandbox · Crafting',[[434,53],[535,65],[522,185],[420,172]],[480,179],0),
+ sandboxStudio('1238','Sandbox · Sewing',[[546,68],[647,80],[633,202],[533,187]],[587,195],0),
+ sandboxStudio('1245','Sandbox · Staff office',[[320,211],[416,224],[406,310],[308,295]],[396,221],undefined,'office'),
+ sandboxStudio('1223','Sandbox · Laser cutting',[[308,310],[406,322],[395,414],[297,400]],[360,409]),
+ sandboxStudio('1220','Sandbox · Projects',[[217,457],[372,457],[372,581],[217,581]],[329,457],2),
+ sandboxStudio('1222','Sandbox · CNC',[[378,457],[479,457],[479,581],[378,581]],[437,457],2),
+ sandboxStudio('1224','Sandbox · Woodworking',[[485,457],[588,457],[588,581],[485,581]],[536,457],2),
+];
+export const SANDBOX_COMMON:InteriorRoom={floor:'1',id:'1231',name:'Singh Sandbox · Open work area',kind:'workroom',evidence:'plan',
+ polygon:[[277,174],[415,190],[637,215],[652,85],[870,110],[819,575],[596,575],[596,449],[310,449],[310,421],[407,428],[431,209],[314,199]].map(([x,y])=>sandboxPlan(x,y)),door:sandboxPlan(310,439)};
+ROOMS.push(SANDBOX_COMMON,...SANDBOX_STUDIOS);
+
+// HDR Level 1, PDF page 9: crop (300,402)–(410,479), rendered at 10×.
+// Register the restroom block between the wayfinding sheet's classroom and
+// Sandbox zones. The public diagrams differ in scale; metric fit is estimated.
+export const firstCorePlan=(x:number,y:number):Point=>plan(563+(x-400)*12/450+(y-145)*144/492,838-(x-400)*103/450);
+const firstCoreTrace=(points:Polygon)=>points.map(([x,y])=>firstCorePlan(x,y));
+export const FIRST_RESTROOMS:InteriorRoom[]=[
+ {floor:'1',id:'1218',name:'Restroom (west)',kind:'restroom',evidence:'plan',polygon:firstCoreTrace([[402,143],[520,159],[524,136],[860,170],[836,387],[452,342],[460,253],[382,245]]),door:firstCorePlan(421,249),doorWidth:1.05},
+ {floor:'1',id:'1219',name:'Restroom (east)',kind:'restroom',evidence:'plan',polygon:firstCoreTrace([[449,377],[834,425],[808,637],[445,599],[449,574],[340,554],[350,473],[431,484]]),door:firstCorePlan(390,478.4321),doorWidth:1.05},
+];
+ROOMS.push(...FIRST_RESTROOMS);
+
+// HDR Level 2 (PDF page 11) repeats this fixture/partition topology. Its
+// wayfinding sheet places the block 22 plan units east of the Level 1 fit.
+export const secondCorePoint=([x,z]:Point):Point=>[x+22*PLAN_SCALE,z];
+export const SECOND_RESTROOMS:InteriorRoom[]=FIRST_RESTROOMS.map((room,i)=>({...room,floor:'2',id:i===0?'2-restroom-west':'2-restroom-east',polygon:room.polygon.map(secondCorePoint),door:secondCorePoint(room.door)}));
+ROOMS.push(...SECOND_RESTROOMS);
+
+// HDR Level 2 north-end crop (404,365)–(560,513), rendered at 8×.
+// North façade corners fix the orientation. The south registration is fitted
+// to the Level 2 wayfinding restroom block; dimensions remain estimates.
+export function hatcheryPlan(x:number,y:number):Point {
+ const [u,v]=barycentric([x,y],[1198,230],[1077,1158],[14,1158]);
+ return blendTriangle(u,v,plan(515,449),plan(740,449),plan(768.5,705));
+}
+const hatcheryTrace=(points:Polygon)=>points.map(([x,y])=>hatcheryPlan(x,y));
+export const HATCHERY_ROOMS:InteriorRoom[]=[
+ {floor:'2',id:'2237',name:'Mokhtarzada Hatchery',kind:'workroom',evidence:'plan',polygon:hatcheryTrace([[376,459],[731,500],[693,830],[337,830]]),door:hatcheryPlan(648,490.42),additionalDoors:[hatcheryPlan(618,830)],doorWidth:1.15,glazedEdges:[1,2],timberEdges:[3]},
+ {floor:'2',id:'hatchery-west-workroom',name:'West project workroom',kind:'workroom',evidence:'plan',polygon:hatcheryTrace([[75,422],[365,456],[326,830],[16,830]]),door:hatcheryPlan(101,425.048),additionalDoors:[hatcheryPlan(46,830)],doorWidth:1.15},
+];
+const hatcheryNorthOuter:Polygon=[[148,100],[298,117],[444,137],[590,157],[737,178],[885,196],[1034,217]];
+const hatcheryNorthInner:Polygon=[[113,337],[272,359],[414,379],[562,398],[711,417],[857,435],[1002,454]];
+for(let i=0;i<6;i++){
+ const a=hatcheryNorthOuter[i],b=hatcheryNorthOuter[i+1],c=hatcheryNorthInner[i+1],d=hatcheryNorthInner[i];
+ HATCHERY_ROOMS.push({floor:'2',id:`2-north-west-office-${i+1}`,name:'Office',kind:'office',listed:false,evidence:'plan',exteriorEdges:[0],glazedEdges:[2],officeMeeting:[false,false,true,true,false,true][i],officeMeetingRadius:.36,officeMeetingSeats:4,
+ polygon:[onEnvelope(hatcheryPlan(a[0]+6,a[1])),onEnvelope(hatcheryPlan(b[0]-6,b[1])),hatcheryPlan(c[0]-6,c[1]),hatcheryPlan(d[0]+6,d[1])],door:hatcheryPlan(d[0]+(c[0]-d[0])*.77,d[1]+(c[1]-d[1])*.77),doorWidth:1.05});
+}
+const hatcherySouthCuts=[14,167,318,469,619,768,911];
+for(let i=0;i<6;i++){
+ const a=hatcherySouthCuts[i]+6,b=hatcherySouthCuts[i+1]-6;
+ HATCHERY_ROOMS.push({floor:'2',id:`2-north-east-office-${i+1}`,name:'Office',kind:'office',listed:false,evidence:'plan',exteriorEdges:[0],glazedEdges:[2],officeMeeting:i!==5,officeMeetingRadius:.36,officeMeetingSeats:4,
+ polygon:[onEnvelope(hatcheryPlan(a,1158)),onEnvelope(hatcheryPlan(b,1158)),hatcheryPlan(b,917),hatcheryPlan(a,917)],door:hatcheryPlan(a+(b-a)*.24,917),doorWidth:1.05});
+}
+export const HATCHERY_COMMON:InteriorRoom={floor:'2',id:'north-collaboration',name:'North collaboration area',kind:'lounge',evidence:'plan',polygon:hatcheryTrace([[125,355],[1005,458],[1037,227],[1190,235],[1072,1150],[919,1150],[919,906],[25,906],[25,844],[699,844],[735,504],[125,437]]),door:hatcheryPlan(750,870),arrivalFocus:hatcheryPlan(1020,690)};
+ROOMS.push(HATCHERY_COMMON,...HATCHERY_ROOMS);

@@ -1,3 +1,6 @@
+import { buildHatchery } from './hatchery';
+import { buildSandbox } from './sandbox';
+import { SANDBOX_STUDIOS } from './layout';
 import { buildCommunicatingStair } from './communicating-stairs';
 import { communicatingStairForFloor } from './communicating-layout';
 import { buildFamilyGarden } from './family-garden';
@@ -216,39 +219,6 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    }else chair(cx,cz,rotation,blue,true);
   }
  }
- function sandbox(room:InteriorRoom){
-  const f=roomFrame(room);let hasDemo=false;
-  for(let u=f.minU+2.6;u<f.maxU-2;u+=4.5)for(let v=f.minV+2.5;v<f.maxV-2;v+=4.2){
-   const [x,z]=f.at(u,v);if(!clearInside(room,[x,z],1.85)||Math.hypot(x-room.door[0],z-room.door[1])<3)continue;
-   box(x,.91,z,2.5,.1,1.15,oak,f.angle);
-   for(const a of [-1.1,1.1])for(const b of [-.44,.44]){const p=f.at(u+a,v+b);box(p[0],.43,p[1],.07,.86,.07,metal);}
-   for(const side of [-1,1]){
-    const p=f.at(u,v+side*.95);cylinder(p[0],.62,p[1],.23,.065,yellow);cylinder(p[0],.29,p[1],.035,.58,metal);circleBarrier(p[0],p[1],.23);
-   }
-   const corners=[[-1.25,-.575],[1.25,-.575],[1.25,.575],[-1.25,.575]].map(([a,b])=>f.at(u+a,v+b));
-   corners.forEach((a,i)=>barriers.push({a,b:corners[(i+1)%4]}));
-   // A small electronics demonstration on the workbench, like the LED cube
-   // photographed in UMD's guide; this is geometry rather than a photo overlay.
-   if(!hasDemo){box(x,1.19,z,.42,.44,.42,glass);
-    for(let i=0;i<3;i++)for(let j=0;j<3;j++)for(let k=0;k<3;k++)box(x+(i-1)*.13,1.04+j*.13,z+(k-1)*.13,.025,.025,.025,light);hasDemo=true;
-   }
-  }
-  const edge=room.polygon.map((a,i)=>({a,b:room.polygon[(i+1)%room.polygon.length]})).sort((a,b)=>distanceToSegment(room.door,b.a,b.b)-distanceToSegment(room.door,a.a,a.b))[0];
-  const dx=edge.b[0]-edge.a[0],dz=edge.b[1]-edge.a[1],len=Math.hypot(dx,dz),ux=dx/len,uz=dz/len;
-  const mx=(edge.a[0]+edge.b[0])/2,mz=(edge.a[1]+edge.b[1])/2;
-  const side=pointInPolygon([mx-uz*.5,mz+ux*.5],room.polygon)?1:-1,nx=-uz*side,nz=ux*side,angle=-Math.atan2(uz,ux);
-  const cx=mx+nx*.42,cz=mz+nz*.42;
-  for(let i=0;i<4;i++){
-   const x=cx+ux*(i-1.5)*.78,z=cz+uz*(i-1.5)*.78;
-   box(x,1.2,z,.76,2.4,.58,metal,angle);
-   box(x+nx*.305,1.2,z+nz*.305,.65,2.2,.025,glass,angle);
-   // Recessed openings with pale shelves behind the glazed doors.
-   box(x+nx*.295,1.2,z+nz*.295,.62,2.16,.018,black,angle);
-   for(let h=.35;h<2.3;h+=.45){box(x+nx*.32,h,z+nz*.32,.62,.035,.035,white,angle);box(x+nx*.32+ux*.14,h+.12,z+nz*.32+uz*.14,.22,.19,.025,h<1?yellow:blue,angle);}
-  }
-  label('sandbox',cx+nx*.34,2.78,cz+nz*.34,Math.atan2(nx,nz),3.6);
-  const ca:Point=[cx-ux*1.58+nx*.34,cz-uz*1.58+nz*.34],cb:Point=[cx+ux*1.58+nx*.34,cz+uz*1.58+nz*.34];barriers.push({a:ca,b:cb});
- }
  function auditorium(room:InteriorRoom){
   const antonov=room.id==='0324',top=antonov?10.5:3.3;
   batches=shellBatches;surface(room.polygon,top,walnut);walnut.side=THREE.DoubleSide;
@@ -341,8 +311,12 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   chair(x+nx*.78,z+nz*.78,Math.atan2(nx,nz),black,true);
   const meeting:Point=[mx+nx*3.4,mz+nz*3.4];
   if(room.officeMeeting&&clearInside(room,meeting,.93)&&Math.hypot(meeting[0]-room.door[0],meeting[1]-room.door[1])>1.5){
-   table(meeting[0],meeting[1],.43,white);
-   for(const side of [-1,1])chair(meeting[0]+ux*.73*side,meeting[1]+uz*.73*side,Math.atan2(ux*side,uz*side),blue);
+   const radius=room.officeMeetingRadius??.43,offset=room.officeMeetingRadius===undefined?.73:radius+.2;
+   table(meeting[0],meeting[1],radius,white);
+   for(const side of [-1,1]){
+    chair(meeting[0]+ux*offset*side,meeting[1]+uz*offset*side,Math.atan2(ux*side,uz*side),blue);
+    if(room.officeMeetingSeats===4)chair(meeting[0]+nx*offset*side,meeting[1]+nz*offset*side,Math.atan2(nx*side,nz*side),blue);
+   }
   }
   box(mx+nx*2.4,3.09,mz+nz*2.4,1.8,.04,.13,light,angle+Math.PI/2);
  }
@@ -387,6 +361,9 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   }
  }
  function roomShell(room:InteriorRoom){
+  const sandboxBuilder=()=>({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  if(room.id==='1231'){batches=detailBatches;buildSandbox(room.id,sandboxBuilder());return;}
+  if(room.id==='north-collaboration'){batches=detailBatches;buildHatchery(room.id,sandboxBuilder());return;}
   if(room.kind==='garden'||room.kind==='cafe'||room.id==='lobby-lounge'||room.id==='amphitheater')return;
   if(room.id==='north-reset-zone'){resetZone(room);return;}
   if(room.id==='west-reset-zone'){
@@ -403,7 +380,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   const nearest=nearestEdge(room.door),doors=[room.door,...(room.additionalDoors??[])];
   room.polygon.forEach((a,i)=>{
    if(room.exteriorEdges?.includes(i))return;
-   const wallMaterial=['0102','0108','0116'].includes(room.id)&&(i===1||i===3)?white:defaultWallMaterial;
+   const wallMaterial=room.glazedEdges?.includes(i)?glass:room.timberEdges?.includes(i)?oak:['0102','0108','0116'].includes(room.id)&&(i===1||i===3)?white:defaultWallMaterial;
    const solidWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
     wall(start,end,height,material,collision,base);
     if(room.id!=='0324')return;
@@ -460,12 +437,13 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   batches=detailBatches;
   const xs=room.polygon.map(p=>p[0]),zs=room.polygon.map(p=>p[1]);
   const x=(Math.min(...xs)+Math.max(...xs))/2,z=(Math.min(...zs)+Math.max(...zs))/2;
-  if(room.kind==='office')office(room);
+  if(SANDBOX_STUDIOS.includes(room))buildSandbox(room.id,sandboxBuilder());
+  else if(room.id==='2237'||room.id==='hatchery-west-workroom')buildHatchery(room.id,sandboxBuilder());
+  else if(room.kind==='office')office(room);
   else if(room.kind==='workroom')workroom(room);
   else if(room.kind==='restroom')buildRestroom(room,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   else if(room.kind==='classroom') classroom(room);
   else if(room.kind==='conference') conference(room);
-  else if(room.id==='1231') sandbox(room);
   else if(room.id==='0116')buildRoboticsLab(room,{box,cylinder,put,palette:{white,oak,metal,glass,black,light},materials,barriers});
   else if(room.id==='0108')buildDroneLab(room,{box,cylinder,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   else if(room.id==='0102')buildSmallArtifacts(room,{box,cylinder,put,palette:{white,oak,metal,glass,black,light},materials,barriers});
