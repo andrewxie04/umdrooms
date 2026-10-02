@@ -1,3 +1,5 @@
+import { imdLabLayout } from './imd-lab';
+import { westSupportCounter } from './west-support';
 import { WEST_HUDDLE_ROOMS } from './layout';
 import { westHuddleFurniture } from './west-huddles';
 import { FIFTH_SHARED_OFFICES } from './layout';
@@ -726,7 +728,8 @@ describe('west enclosed stair',()=>{
  it('fits between rooms inside the building',()=>{
   for(const floor of [s.lower,s.upper])for(const p of [...s.shaft,s.entry,s.door]){
    expect(pointInPolygon(p,footprintForFloor(floor))).toBe(true);
-   expect(ROOMS.filter(r=>r.floor===floor&&pointInPolygon(p,r.polygon)).map(r=>r.id),`room overlap ${floor}/${p}`).toEqual([]);
+   // A shaft corner may touch an adjoining room wall; entrances must remain outside rooms.
+   expect(ROOMS.filter(r=>r.floor===floor&&pointInPolygon(p,r.polygon)&&(!s.shaft.includes(p)||Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>1e-7)).map(r=>r.id),`room overlap ${floor}/${p}`).toEqual([]);
   }
  });
  it('provides headroom through the upper slab and lower ceiling',()=>{
@@ -748,12 +751,20 @@ describe('west stair support rooms',()=>{
   it(`${room.id} is inside the floor and separate from neighboring rooms`,()=>{
    for(const p of room.polygon){
     expect(pointInPolygon(p,footprintForFloor('4'))).toBe(true);
+    expect(pointInPolygon(p,WEST_STAIR.shaft)&&Math.min(...WEST_STAIR.shaft.map((a,i)=>distanceToSegment(p,a,WEST_STAIR.shaft[(i+1)%4])))>.02,`${room.id} overlaps the stair`).toBe(false);
     expect(ROOMS.filter(r=>r.floor==='4'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
    }
   });
   it(`walks through ${room.id} to the center`,()=>{
    const center:Point=[room.polygon.reduce((s,p)=>s+p[0],0)/room.polygon.length,room.polygon.reduce((s,p)=>s+p[1],0)/room.polygon.length];
-   walkInteriorTargets(room,[[center]]);
+   walkInteriorTargets(room,[[center],...(room.additionalDoors??[]).map(p=>[p])]);
+   const run=westSupportCounter(room.id);
+   if(run){
+    const side=(center[0]-run.center[0])*(-run.u[1])+(center[1]-run.center[1])*run.u[0]>0?1:-1;
+    const approaches=[.2,.5,.8].map(t=>[run.a[0]+run.u[0]*run.length*t-run.u[1]*.65*side,run.a[1]+run.u[1]*run.length*t+run.u[0]*.65*side] as Point);
+    for(const p of [run.a,run.b,...approaches])expect(pointInPolygon(p,room.polygon)).toBe(true);
+    walkInteriorTargets(room,approaches.map(p=>[p]),.1);
+   }
   });
  }
 });
@@ -761,7 +772,7 @@ describe('west stair support rooms',()=>{
 
 it('connects the west stair, support rooms, and shared workroom through the corridor',()=>{
  const corridor={...WEST_SUPPORT_ROOMS[0],id:'west-core-corridor',kind:'garden' as const,door:WEST_STAIR.entry,polygon:[[120,160],[730,160],[730,750],[120,750]].map(([x,y])=>westFourthPlan(x,y))};
- const targets=[...WEST_SUPPORT_ROOMS.map(r=>r.door),...WEST_HUDDLE_ROOMS.map(r=>r.door),ROOMS.find(r=>r.id==='4-west-shared-room')!.door];
+ const targets=[...WEST_SUPPORT_ROOMS.flatMap(r=>[r.door,...r.additionalDoors??[]]),...WEST_HUDDLE_ROOMS.map(r=>r.door),ROOMS.find(r=>r.id==='4-west-shared-room')!.door];
  walkInteriorTargets(corridor,targets.map(p=>[p]));
 },15000);
 
@@ -896,10 +907,47 @@ describe('Level 4 west small meeting rooms',()=>{
   it(`keeps ${room.id} separate from neighboring rooms`,()=>{
    for(const p of room.polygon)expect(ROOMS.filter(r=>r.floor==='4'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
   });
-  it(`allows entry and access to all three seats in ${room.id}`,()=>{
+  it(`renders the ceiling underside in ${room.id}`,()=>{
+   const meshes:THREE.Object3D[]=[];models.get('4')!.group.updateMatrixWorld(true);models.get('4')!.group.traverse(o=>{if(o instanceof THREE.Mesh)meshes.push(o);});
+   const center=westHuddleFurniture(room).table;
+   for(const vertex of room.polygon){
+    const p:Point=[(center[0]+vertex[0])/2,(center[1]+vertex[1])/2];
+    const ray=new THREE.Raycaster(new THREE.Vector3(p[0],1.65,p[1]),new THREE.Vector3(0,1,0),0,1.6);
+    expect(ray.intersectObjects(meshes,false).some(hit=>Math.abs(hit.distance-1.5)<.001),`ceiling above ${p}`).toBe(true);
+   }
+  });
+  it(`allows entry and access to every seat in ${room.id}`,()=>{
    const furniture=westHuddleFurniture(room);
-   for(const p of [furniture.table,...furniture.chairs])expect(pointInPolygon(p,room.polygon)).toBe(true);
+   expect(furniture.chairs).toHaveLength(room.id==='4-west-huddle-4'?6:3);
+   for(const p of [furniture.table,...furniture.chairs,...furniture.outline??[]])expect(pointInPolygon(p,room.polygon)).toBe(true);
    walkInteriorTargets(room,furniture.chairs.map(p=>Array.from({length:12},(_,i)=>[p[0]+Math.cos(i*Math.PI/6)*.55,p[1]+Math.sin(i*Math.PI/6)*.55] as Point)),.1);
   });
  }
+});
+
+
+describe('Level 1 enclosed office ceilings',()=>{
+ for(const room of [...FIRST_OFFICES,...SANDBOX_SUPPORT.filter(r=>r.id==='1214')]){
+  it(`is visible from inside ${room.id}`,()=>{
+   const model=models.get('1')!,meshes:THREE.Object3D[]=[];
+   model.group.updateMatrixWorld(true);model.group.traverse(o=>{if(o instanceof THREE.Mesh)meshes.push(o);});
+   const center:Point=[room.polygon.reduce((sum,p)=>sum+p[0],0)/room.polygon.length,room.polygon.reduce((sum,p)=>sum+p[1],0)/room.polygon.length];
+   for(const vertex of room.polygon){
+    const p:Point=[(center[0]+vertex[0])/2,(center[1]+vertex[1])/2];
+    const ray=new THREE.Raycaster(new THREE.Vector3(p[0],1.65,p[1]),new THREE.Vector3(0,1,0),0,1.6);
+    expect(ray.intersectObjects(meshes,false).some(hit=>Math.abs(hit.distance-1.5)<.001),`ceiling above ${p}`).toBe(true);
+   }
+  });
+ }
+});
+
+
+describe('Immersive Media Design lab',()=>{
+ const room=ROOMS.find(r=>r.id==='0110')!,layout=imdLabLayout(room);
+ it('fits the photographed furniture types inside the room',()=>{
+  for(const fixture of layout.fixtures)for(const p of layout.footprint(fixture))expect(pointInPolygon(p,room.polygon)).toBe(true);
+ });
+ it('keeps the counter, both display aisles and demonstration space reachable',()=>{
+  walkInteriorTargets(room,layout.approaches.map(p=>[p]),.15);
+ });
 });

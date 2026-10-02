@@ -1,3 +1,5 @@
+import { buildImdLab } from './imd-lab';
+import { buildWestSupport } from './west-support';
 import { buildWestHuddle } from './west-huddles';
 import { FIFTH_SERVICE_SHAFT } from './layout';
 import { buildWestLift } from './west-core';
@@ -391,7 +393,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   const nearest=nearestEdge(room.door),doors=[room.door,...(room.additionalDoors??[])];
   room.polygon.forEach((a,i)=>{
    if(room.exteriorEdges?.includes(i))return;
-   const wallMaterial=room.glazedEdges?.includes(i)?glass:room.timberEdges?.includes(i)?oak:['0102','0108','0116'].includes(room.id)&&(i===1||i===3)?white:defaultWallMaterial;
+   const wallMaterial=room.glazedEdges?.includes(i)?glass:room.timberEdges?.includes(i)?oak:['0102','0108','0110','0116'].includes(room.id)&&(i===1||i===3)?white:defaultWallMaterial;
    const solidWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
     wall(start,end,height,material,collision,base);
     if(room.id!=='0324')return;
@@ -421,7 +423,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    const b=room.polygon[(i+1)%room.polygon.length];
    const len=Math.hypot(b[0]-a[0],b[1]-a[1]),dx=(b[0]-a[0])/len,dz=(b[1]-a[1])/len,half=(room.doorWidth??1.6)/2;
    const openings=doors.filter(p=>nearestEdge(p)===i).map(p=>Math.max(half+.1,Math.min(len-half-.1,(p[0]-a[0])*dx+(p[1]-a[1])*dz))).sort((a,b)=>a-b);
-   if(['0102','0108','0116'].includes(room.id)&&i===0){
+   if(['0102','0108','0110','0116'].includes(room.id)&&i===0){
     // The photographed lobby glass has tall metal frames above its doors.
     const count=Math.ceil(len/1.35);
     for(let j=0;j<=count;j++){
@@ -436,7 +438,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    for(const t of openings){
     const l:Point=[a[0]+dx*(t-half),a[1]+dz*(t-half)],r:Point=[a[0]+dx*(t+half),a[1]+dz*(t+half)];
     shellWall(cursor,l,wallHeight,wallMaterial);shellWall(l,r,wallHeight-2.5,wallMaterial,false,2.5);cursor=r;
-    if(room.kind==='office'||room.kind==='workroom'||['0102','0108','0116'].includes(room.id)){
+    if(room.kind==='office'||room.kind==='workroom'||['0102','0108','0110','0116'].includes(room.id)){
      for(const jamb of [l,r])box(jamb[0],1.25,jamb[1],.035,2.5,.18,metal,-Math.atan2(dz,dx));
      wall(l,r,.035,metal,false,2.48,.18);
     }
@@ -452,6 +454,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   else if(room.id==='1213'||room.id==='1209')buildSupportStorage(room,sandboxBuilder());
   else if(room.id==='2237'||room.id==='hatchery-west-workroom')buildHatchery(room.id,sandboxBuilder());
   else if(FIRST_OFFICE_TYPES[room.id]){surface(room.polygon,.01,classroomFloor);buildFirstOffice(room,{...sandboxBuilder(),chair});}
+  else if(room.id==='4-west-support-counter'||room.id==='4-west-support-long')buildWestSupport(room.id,sandboxBuilder());
   else if(room.kind==='huddle')buildWestHuddle(room,{...sandboxBuilder(),chair});
   else if(room.kind==='office')office(room);
   else if(room.kind==='workroom')workroom(room);
@@ -459,6 +462,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   else if(room.kind==='seminar')buildSeminarAV(room,sandboxBuilder());
   else if(room.kind==='classroom') classroom(room);
   else if(room.kind==='conference') conference(room);
+  else if(room.id==='0110')buildImdLab(room,sandboxBuilder());
   else if(room.id==='0116')buildRoboticsLab(room,{box,cylinder,put,palette:{white,oak,metal,glass,black,light},materials,barriers});
   else if(room.id==='0108')buildDroneLab(room,{box,cylinder,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   else if(room.id==='0102')buildSmallArtifacts(room,{box,cylinder,put,palette:{white,oak,metal,glass,black,light},materials,barriers});

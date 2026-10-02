@@ -1,3 +1,4 @@
+import { ceilingGeometry } from './ceiling';
 import { pointInPolygon, type InteriorRoom, type Point } from './layout';
 import type { RoofBuilder } from './roof';
 
@@ -52,6 +53,6 @@ export function buildFirstOffice(room:InteriorRoom,b:OfficeBuilder){
  // Desk/chair topology is documented. Finishes and these light dimensions
  // remain neutral estimates; no personal belongings are fabricated.
  const lamp=f.at(0,2);b.box(lamp[0],3.08,lamp[1],1.8,.04,.12,m.light,f.angle+Math.PI/2);
- b.surface(room.polygon,3.15,m.white);
+ b.put(ceilingGeometry(room.polygon,3.15),m.white);
  return true;
 }

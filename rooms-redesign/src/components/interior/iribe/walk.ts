@@ -54,7 +54,7 @@ export class WalkControls {
  }
  private orient(){this.camera.rotation.set(this.pitch,this.yaw,0,'YXZ');}
  resetInput(){this.keys.clear();this.touchMove=[0,0];this.dragging=false;}
- setPose(point:Point,yaw=0,floor:FloorId='G',height=FLOOR_HEIGHT[floor]){this.camera.position.set(point[0],height+1.65,point[1]);this.yaw=yaw;this.pitch=0;this.orient();this.resetInput();this.dirty();}
+ setPose(point:Point,yaw=0,floor:FloorId='G',height=FLOOR_HEIGHT[floor],pitch=0){this.camera.position.set(point[0],height+1.65,point[1]);this.yaw=yaw;this.pitch=THREE.MathUtils.clamp(pitch,-1.35,1.35);this.orient();this.resetInput();this.dirty();}
  setPaused(paused:boolean){this.paused=paused;this.resetInput();}
  setMove(x:number,z:number){if(this.paused)return;this.touchMove=[x,z];this.dirty();}
  update(dt:number){

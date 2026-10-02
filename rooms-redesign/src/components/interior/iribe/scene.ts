@@ -39,7 +39,7 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
   visitRoom(floor:FloorId,id:string){
    const room=ROOMS.find(r=>r.floor===floor&&r.id===id);if(!room)return false;
    const arrival=roomArrival(room,models.get(floor)!.barriers);if(!arrival)return false;
-   showFloor(floor);controls.setPose(arrival.point,arrival.yaw,floor,arrival.height);dirty=true;return true;
+   showFloor(floor);controls.setPose(arrival.point,arrival.yaw,floor,arrival.height,room.arrivalPitch??0);dirty=true;return true;
   },
   visitStair(){
    const stair=communicatingStairForFloor(activeFloor);if(!stair)return;
