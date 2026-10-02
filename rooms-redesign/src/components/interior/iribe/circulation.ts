@@ -1,4 +1,6 @@
-import { ATRIUM_VOID, groundPlan, FLOOR_HEIGHT, GROUND_FOOTPRINT, MAIN_FOOTPRINT, pointInPolygon, plan, type FloorId, type Point, type Polygon } from './layout';
+import { roofTerrainHeight } from './roof-layout';
+import { antonovHeight, gannonHeight } from './auditorium';
+import { footprintForFloor, ATRIUM_VOID, groundPlan, FLOOR_HEIGHT, pointInPolygon, plan, type FloorId, type Point, type Polygon } from './layout';
 
 export type Position = readonly [number, number, number];
 export interface Flight { from:Position; to:Position; width:number; lower:FloorId; upper:FloorId; }
@@ -7,7 +9,7 @@ export const FLOOR_ORDER:FloorId[]=['G','1','2','3','4','5','R'];
 // wayfinding sheet. Metric rise/run is estimated, not a construction drawing.
 export const STAIR_CENTER=plan(536,865);
 const [cx,cz]=STAIR_CENTER;
-export const STAIR_HOLE:Polygon=[[cx-1.65,cz-3.8],[cx+1.65,cz-3.8],[cx+1.65,cz+2.7],[cx-1.65,cz+2.7]];
+export const STAIR_HOLE:Polygon=[[cx-1.65,cz-3.8],[cx+1.65,cz-3.8],[cx+1.65,cz+3.5],[cx-1.65,cz+3.5]];
 export const stairEntry=(floor:FloorId):Point=>floor==='G'?[cx-.77,cz+3.5]:[cx+.77,cz+3.5];
 export const ENCLOSED_FLIGHTS:Flight[]=FLOOR_ORDER.slice(0,-1).flatMap((lower,i)=>{
  const upper=FLOOR_ORDER[i+1],y=FLOOR_HEIGHT[lower],top=FLOOR_HEIGHT[upper],mid=(y+top)/2;
@@ -20,7 +22,18 @@ export const ATRIUM_FLIGHTS:Flight[]=Array.from({length:44},(_,i)=>{
  const a=-Math.PI*.8+i/44*Math.PI*1.5,b=-Math.PI*.8+(i+1)/44*Math.PI*1.5;
  return {from:[core[0]+Math.cos(a)*2.6,i/44*6.5,core[1]+Math.sin(a)*2.6],to:[core[0]+Math.cos(b)*2.6,(i+1)/44*6.5,core[1]+Math.sin(b)*2.6],width:1.8,lower:'G',upper:'1'};
 });
-export const FLIGHTS=[...ENCLOSED_FLIGHTS,...ATRIUM_FLIGHTS];
+// Continue the top tread to the mezzanine using a landing shared with rendering.
+const top = ATRIUM_FLIGHTS[ATRIUM_FLIGHTS.length - 1].to;
+const tangent:Point = [-Math.sin(Math.PI * .7), Math.cos(Math.PI * .7)];
+let landingLength = .1;
+while (landingLength < 20 && pointInPolygon([top[0] + tangent[0] * landingLength, top[2] + tangent[1] * landingLength], ATRIUM_VOID)) landingLength += .1;
+landingLength += .7;
+export const ATRIUM_LANDING:Flight = {
+ from: top,
+ to: [top[0] + tangent[0] * landingLength, top[1], top[2] + tangent[1] * landingLength],
+ width: 1.8, lower: 'G', upper: '1',
+};
+export const FLIGHTS=[...ENCLOSED_FLIGHTS,...ATRIUM_FLIGHTS,ATRIUM_LANDING];
 
 export function flightHeight(point:Point,flight:Flight):number|null {
  const [x,y,z]=flight.from,[bx,by,bz]=flight.to,dx=bx-x,dz=bz-z,len2=dx*dx+dz*dz;
@@ -35,13 +48,20 @@ export function floorAtHeight(y:number):FloorId {
  return FLOOR_ORDER.reduce((best,f)=>Math.abs(FLOOR_HEIGHT[f]-y)<Math.abs(FLOOR_HEIGHT[best]-y)?f:best,'G');
 }
 
+export function floorAtPosition(position:Position):FloorId {
+ const [x,y,z]=position;
+ if(antonovHeight([x,z])!==null)return 'G';
+ return floorAtHeight(y);
+}
 /** Find nearby support, not a free-flight surface. Cap ascent/descent to a step. */
 export function supportHeight(point:Point,current:number):number|null {
  const candidates:number[]=[];
  for(const f of FLOOR_ORDER){
-  const footprint=f==='G'?GROUND_FOOTPRINT:MAIN_FOOTPRINT;
-  if(pointInPolygon(point,footprint) && (f==='G'||!pointInPolygon(point,STAIR_HOLE)) && (f!=='1'||!pointInPolygon(point,ATRIUM_VOID))) candidates.push(FLOOR_HEIGHT[f]);
+  const footprint=footprintForFloor(f);
+  if(pointInPolygon(point,footprint) && (f==='G'||!pointInPolygon(point,STAIR_HOLE)) && (f!=='1'||!pointInPolygon(point,ATRIUM_VOID))) candidates.push(FLOOR_HEIGHT[f]+(f==='R'?roofTerrainHeight(point):0));
  }
+ const gannon=gannonHeight(point);if(gannon!==null)candidates.push(gannon);
+ const auditorium=antonovHeight(point);if(auditorium!==null)candidates.push(auditorium);
  for(const flight of FLIGHTS){const h=flightHeight(point,flight);if(h!==null)candidates.push(h);}
  return candidates.filter(h=>h<=current+.32&&h>=current-.38).sort((a,b)=>b-a)[0]??null;
 }

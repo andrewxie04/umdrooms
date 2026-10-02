@@ -1,4 +1,4 @@
-import { supportHeight, floorAtHeight, type Position } from './circulation';
+import { supportHeight, FLOOR_ORDER, type Position } from './circulation';
 import { FLOOR_HEIGHT, type FloorId } from './layout';
 import * as THREE from 'three';
 import { distanceToSegment, pointInPolygon, type Point, type Polygon } from './layout';
@@ -22,7 +22,13 @@ export function walkStep3(position:Position,delta:Point,barriers:(floor:FloorId)
  for(let i=0;i<n;i++)for(const axis of [0,1]){
   const nx=x+(axis===0?delta[0]/n:0),nz=z+(axis===1?delta[1]/n:0);
   const h=supportHeight([nx,nz],y);
-  if(h!==null&&!barriers(floorAtHeight(h)).some(b=>distanceToSegment([nx,nz],b.a,b.b)<.24)){x=nx;y=h;z=nz;}
+  if(h===null)continue;
+  const blocked=FLOOR_ORDER.some(floor=>{
+   const localHeight=h-FLOOR_HEIGHT[floor],ceiling=floor==='G'?10.5:floor==='R'?1.2:4.2;
+   if(localHeight+1.65<=0||localHeight>=ceiling)return false;
+   return barriers(floor).some(b=>localHeight+.18<(b.maxY??ceiling)&&localHeight+1.65>(b.minY??0)&&distanceToSegment([nx,nz],b.a,b.b)<.24);
+  });
+  if(!blocked){x=nx;y=h;z=nz;}
  }
  return [x,y,z];
 }
@@ -47,7 +53,7 @@ export class WalkControls {
  }
  private orient(){this.camera.rotation.set(this.pitch,this.yaw,0,'YXZ');}
  resetInput(){this.keys.clear();this.touchMove=[0,0];this.dragging=false;}
- setPose(point:Point,yaw=0,floor:FloorId='G'){this.camera.position.set(point[0],FLOOR_HEIGHT[floor]+1.65,point[1]);this.yaw=yaw;this.pitch=0;this.orient();this.resetInput();this.dirty();}
+ setPose(point:Point,yaw=0,floor:FloorId='G',height=FLOOR_HEIGHT[floor]){this.camera.position.set(point[0],height+1.65,point[1]);this.yaw=yaw;this.pitch=0;this.orient();this.resetInput();this.dirty();}
  setMove(x:number,z:number){this.touchMove=[x,z];this.dirty();}
  update(dt:number){
   let x=Number(this.keys.has('KeyD')||this.keys.has('ArrowRight'))-Number(this.keys.has('KeyA')||this.keys.has('ArrowLeft'))+this.touchMove[0];

@@ -55,13 +55,15 @@ export const groundPlan = (x:number,y:number):Point => plan(640 + .832*(y-810) -
 const groundTrace = (p:Polygon):Polygon => p.map(([x,y])=>groundPlan(x,y));
 export const GROUND_FOOTPRINT = groundTrace([[550,240],[390,413],[385,448],[430,547],[535,734],[605,838],[690,907],[802,954],[895,970],[1218,970],[1212,998],[1350,998],[1352,970],[1375,969],[1625,160],[1602,149],[1560,145],[1562,128],[1535,126],[1520,94],[1490,66],[1430,44],[1360,39],[1300,42],[1250,56],[1230,97],[1167,62],[1145,157],[1136,252],[1140,365],[1178,465],[1160,485],[1137,451],[1060,510],[1080,535],[992,605],[921,574],[837,511]]);
 const gRoom=(id:string,name:string,kind:RoomKind,p:Polygon,door:Point):InteriorRoom=>({id,name,kind,floor:'G',polygon:groundTrace(p),door:groundPlan(...door),evidence:'plan'});
+export const ANTONOV_PLAN:Polygon=[[1394,65],[1460,67],[1497,89],[1515,118],[1520,206],[1520,341],[1510,430],[1480,468],[1394,480],[1344,480],[1290,480],[1249,467],[1216,436],[1188,380],[1173,307],[1179,235],[1200,166],[1240,102],[1288,78],[1340,65]];
+export const ANTONOV_FOOTPRINT=groundTrace(ANTONOV_PLAN);
 ROOMS.push(
  gRoom('0116','Robotics Manipulator Lab','lab',[[648,691],[746,775],[661,875],[586,756]],[699,746]),
  gRoom('0110','Immersive Media Design Lab','lab',[[748,779],[852,834],[797,949],[665,882]],[800,807]),
  gRoom('0108','Brin Family Aerial Robotics Lab','lab',[[858,839],[973,884],[949,963],[803,954]],[917,864]),
  gRoom('0102','Small Artifacts Lab','lab',[[977,887],[1104,907],[1091,964],[955,964]],[1035,897]),
- gRoom('0324','Michael Antonov Auditorium','auditorium',[[1394,65],[1394,468],[1344,480],[1290,480],[1249,467],[1216,436],[1188,380],[1173,307],[1179,235],[1200,166],[1240,102],[1288,78],[1340,65]],[1320,477]),
- gRoom('0318','Gannon Auditorium','auditorium',[[1405,66],[1460,67],[1497,89],[1515,118],[1520,206],[1520,341],[1510,373],[1406,373]],[1460,373]),
+ gRoom('0324','Michael Antonov Auditorium','auditorium',ANTONOV_PLAN,[1216,436]),
+ gRoom('0318','Gannon Auditorium','auditorium',[[1405,66],[1460,67],[1497,89],[1515,118],[1520,206],[1520,341],[1510,373],[1406,373]],[1416,373]),
 );
 ROOMS.push(
  room('5','5237','Conference room','conference',[[560,500],[718,500],[724,588],[558,588]],[640,588]),
@@ -77,3 +79,11 @@ ROOMS.push(
 export const ELEVATOR = plan(657,1114);
 export const ENTRY = groundPlan(1305,850);
 export const ATRIUM_VOID = trace([[548,1050],[716,1064],[727,1132],[643,1173],[566,1138]]);
+
+// Align the rooftop spread to the same building frame using the northern
+// exterior corners and western stair. This is a diagram alignment, not a survey.
+export const roofPlan=(x:number,y:number):Point=>plan(.0133811582*x-.940414808*y+1464.36648,-.768577856*x-.0578845247*y+1344.54434);
+export const ROOF_PUBLIC_FOOTPRINT:Polygon=[plan(515,449),plan(740,449),plan(794,940),plan(507,940)];
+export const ROOF_GALLERY:InteriorRoom={floor:'R',id:'6217',name:'Andre Reisse Gallery',kind:'conference',evidence:'plan',polygon:[[635,835],[741,852],[720,930],[626,926]].map(([x,y])=>roofPlan(x,y)),door:roofPlan(650,929)};
+ROOMS.push(ROOF_GALLERY);
+export const footprintForFloor=(floor:FloorId):Polygon=>floor==='G'?GROUND_FOOTPRINT:floor==='R'?ROOF_PUBLIC_FOOTPRINT:MAIN_FOOTPRINT;
