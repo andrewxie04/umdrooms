@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { groundPlan, type Point, type Polygon } from './layout';
+import { groundPlan, ROOMS, ATRIUM_VOID, pointInPolygon, type Point, type Polygon } from './layout';
 import type { RoofBuilder } from './roof';
 
 export const LOBBY_GROUPS=([
@@ -49,6 +49,58 @@ export function buildLobbySeating(b:Builder){
    for(const turn of [Math.PI/4,-Math.PI/4])b.box(p[0],.065,p[1],.025,.035,.66,b.palette.metal,rotation+turn);
    for(let i=0;i<16;i++){const a=i/16*Math.PI*2,end=(i+1)/16*Math.PI*2;b.barriers.push({a:[p[0]+Math.cos(a)*.38,p[1]+Math.sin(a)*.38],b:[p[0]+Math.cos(end)*.38,p[1]+Math.sin(end)*.38],minY:0,maxY:.9});}
    b.contact(p[0],p[1],.58);
+  }
+ }
+}
+
+/** The pale lounge ceiling and pendant tubes are visible in UMD's public lobby
+ * photo. This is a separate finish below the darker circulation soffit. Fixture
+ * spacing is interpreted, not a surveyed lighting/reflected-ceiling plan. */
+export function buildLobbyCeiling(b:RoofBuilder){
+ const room=ROOMS.find(room=>room.id==='lobby-lounge')!;
+ // The lounge is a semantic area, wider than its finished ceiling. Stop at the
+ // atrium opening so this lower finish cannot cap the staircase or its landing.
+ const edge=Math.min(...ATRIUM_VOID.map(p=>p[0]))-.12;
+ const clipped:Point[]=[];
+ room.polygon.forEach((a,i)=>{
+  const end=room.polygon[(i+1)%room.polygon.length];
+  if(a[0]<=edge)clipped.push(a);
+  if((a[0]<=edge)!==(end[0]<=edge)){
+   const t=(edge-a[0])/(end[0]-a[0]);clipped.push([edge,a[1]+(end[1]-a[1])*t]);
+  }
+ });
+ const finish=new THREE.MeshStandardMaterial({color:0xe3e1d9,roughness:.82,side:THREE.DoubleSide});
+ const seam=new THREE.MeshStandardMaterial({color:0xbcbdb6,roughness:.8});
+ b.materials.push(finish,seam);
+ // A positive separation from the main soffit prevents overlapping coplanar faces.
+ b.surface(clipped,6.25,finish);
+ const segment=(a:Point,end:Point,y:number,w:number,m:THREE.Material)=>{
+  let start=groundPlan(...a),finish=groundPlan(...end);
+  if(start[0]>edge&&finish[0]>edge)return;
+  if((start[0]>edge)!==(finish[0]>edge)){
+   const t=(edge-start[0])/(finish[0]-start[0]),cut:Point=[edge,start[1]+(finish[1]-start[1])*t];
+   if(start[0]>edge)start=cut;else finish=cut;
+  }
+  b.wall(start,finish,.012,m,false,y,w);
+ };
+ for(let x=1085;x<1350;x+=22){
+  const start=groundPlan(x,621),finish=groundPlan(x,790);
+  // Only draw full panel joints within this irregular ceiling outline.
+  if(pointInPolygon(start,room.polygon)&&pointInPolygon(finish,room.polygon))segment([x,621],[x,790],6.235,.008,seam);
+ }
+ for(let row=0;row<5;row++){
+  const z=637+row*32;
+  const startX=z>755?1118:1090;
+  // Paired narrow black slots, with a pale central divider.
+  for(const offset of [-.65,.65])segment([startX,z+offset],[1350,z+offset],6.226,.025,b.palette.black);
+  for(let column=0;column<6;column++){
+   const x=1095+column*43+(row%2)*8,p=groundPlan(x,z+12);
+   if(!pointInPolygon(p,clipped))continue;
+   const length=.62+(column%3)*.12,bottom=5.16-(row%2)*.14,top=bottom+length;
+   b.cylinder(p[0],6.225,p[1],.062,.027,b.palette.white);
+   b.cylinder(p[0],(top+6.22)/2,p[1],.009,6.22-top,b.palette.metal);
+   b.cylinder(p[0],top+.025,p[1],.027,.05,b.palette.metal);
+   b.cylinder(p[0],bottom+length/2,p[1],.021,length,b.palette.light);
   }
  }
 }

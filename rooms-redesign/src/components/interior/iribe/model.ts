@@ -1,16 +1,17 @@
 import * as THREE from 'three';
 import { buildRoof } from './roof';
 import { buildCafe } from './cafe';
-import { buildLobbySeating } from './lobby';
+import { buildLobbySeating, buildLobbyCeiling } from './lobby';
 import { buildAtrium } from './atrium';
 import { buildSmallArtifacts, buildDroneLab } from './labs';
 import { buildRoboticsLab } from './robotics';
+import { buildRestroom } from './restrooms';
 import { GANNON_AISLES, GANNON_PLAN, AUD_AISLES, AUD_DEPTH, AUD_WIDTH, AUD_SCALE, ROW_START, ROW_PITCH, ROW_RISE, auditoriumSeats, auditoriumStrip, auditoriumSidePoint } from './auditorium';
 import { clearInside, meetingTable, roomFrame, teachingTables } from './furniture';
 import { ENCLOSED_FLIGHTS, STAIR_CENTER, STAIR_HOLE } from './circulation';
 import { FLOOR_HEIGHT } from './layout';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { footprintForFloor, fourthPlan, roomTitle, ROOF_GALLERY, ANTONOV_FOOTPRINT, ATRIUM_VOID, ROOMS, plan, groundPlan, type FloorId, type Point, type Polygon, type InteriorRoom, distanceToSegment, pointInPolygon } from './layout';
+import { footprintForFloor, fourthPlan, westFourthPlan, roomTitle, ROOF_GALLERY, ANTONOV_FOOTPRINT, ATRIUM_VOID, ROOMS, plan, groundPlan, type FloorId, type Point, type Polygon, type InteriorRoom, distanceToSegment, pointInPolygon } from './layout';
 
 export interface Barrier {a:Point;b:Point;minY?:number;maxY?:number;}
 export interface InteriorModel { group:THREE.Group; barriers:Barrier[]; footprint:Polygon; dispose():void; }
@@ -317,17 +318,24 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  function workroom(room:InteriorRoom){
   const f=roomFrame(room);surface(room.polygon,.01,classroomFloor);surface(room.polygon,3.2,ceilingPanel);
-  // Six work positions around the central bench, as drawn in the HDR plan.
   const cu=(f.minU+f.maxU)/2,cv=(f.minV+f.maxV)/2;
-  const center=f.at(cu,cv);
-  box(center[0],.75,center[1],2.7,.065,1.4,white,f.angle);
-  for(const offset of [-1.1,1.1]){const p=f.at(cu+offset,cv);box(p[0],.36,p[1],.06,.72,1.15,metal,f.angle);}
-  const corners=[[-1.35,-.7],[1.35,-.7],[1.35,.7],[-1.35,.7]].map(([a,b])=>f.at(cu+a,cv+b));corners.forEach((a,i)=>barriers.push({a,b:corners[(i+1)%4]}));
-  for(const side of [-1,1])for(const offset of [-.9,0,.9]){
-   const p=f.at(cu+offset,cv+side*1.1);if(clearInside(room,p,.4)&&Math.hypot(p[0]-room.door[0],p[1]-room.door[1])>1.1)chair(p[0],p[1],f.angle+(side===1?0:Math.PI),black,true);
-   const screenPos=f.at(cu+offset,cv+side*.2);box(screenPos[0],1.02,screenPos[1],.44,.29,.04,black,f.angle);box(screenPos[0],.83,screenPos[1],.04,.16,.04,metal);
+  const banks=room.deskBanks??[{from:f.at(cu-1.35,cv),to:f.at(cu+1.35,cv),seatsPerSide:3}];
+  for(const bank of banks){
+   const {from,to,seatsPerSide}=bank,length=Math.hypot(to[0]-from[0],to[1]-from[1]);
+   const ux=(to[0]-from[0])/length,uz=(to[1]-from[1])/length,vx=-uz,vz=ux,angle=-Math.atan2(uz,ux);
+   const center:Point=[(from[0]+to[0])/2,(from[1]+to[1])/2];
+   const at=(u:number,v:number):Point=>[center[0]+ux*u+vx*v,center[1]+uz*u+vz*v];
+   box(center[0],.75,center[1],length,.065,1.25,white,angle);
+   for(const offset of [-length/2+.18,length/2-.18]){const p=at(offset,0);box(p[0],.36,p[1],.06,.72,1.1,metal,angle);}
+   const corners=[[-length/2,-.625],[length/2,-.625],[length/2,.625],[-length/2,.625]].map(([a,b])=>at(a,b));corners.forEach((a,i)=>barriers.push({a,b:corners[(i+1)%4],minY:0,maxY:.8}));
+   // Paired workstations leave the circulation space between desk banks open.
+   for(const side of [-1,1])for(let i=0;i<seatsPerSide;i++){
+    const offset=((i+.5)/seatsPerSide-.5)*length,p=at(offset,side*1.05);
+    if(clearInside(room,p,.4)&&Math.hypot(p[0]-room.door[0],p[1]-room.door[1])>1.1)chair(p[0],p[1],angle+(side===1?0:Math.PI),black,true);
+    const screenPos=at(offset,side*.18);box(screenPos[0],1.02,screenPos[1],.44,.29,.04,black,angle);box(screenPos[0],.83,screenPos[1],.04,.16,.04,metal);
+   }
+   box(center[0],3.14,center[1],length-.15,.04,.13,light,angle);
   }
-  for(const side of [-1,1]){const p=f.at(cu,cv+side*1.3);box(p[0],3.14,p[1],2.6,.04,.13,light,f.angle);}
  }
  function resetZone(room:InteriorRoom){
   const fitted=meetingTable(room);if(!fitted)return;
@@ -351,6 +359,13 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  function roomShell(room:InteriorRoom){
   if(room.kind==='garden'||room.kind==='cafe'||room.id==='lobby-lounge')return;
   if(room.id==='north-reset-zone'){resetZone(room);return;}
+  if(room.id==='west-reset-zone'){
+   const center=westFourthPlan(270,96);table(center[0],center[1],.6,white);
+   for(let i=0;i<4;i++){const a=i*Math.PI/2,p:Point=[center[0]+Math.sin(a)*.93,center[1]+Math.cos(a)*.93];if(clearInside(room,p,.3))chair(p[0],p[1],a,lime);}
+   const angle=-Math.atan2(westFourthPlan(230,150)[1]-center[1],westFourthPlan(230,150)[0]-center[0]);
+   for(const [x,y] of [[209,179],[186,208]]){const p=westFourthPlan(x,y);if(clearInside(room,p,.45))chair(p[0],p[1],angle,blue);}
+   return;
+  }
   const wallHeight=room.id==='0324'?10.5:room.id==='0318'?3.3:room.kind==='classroom'?3.25:ceiling;
   const defaultWallMaterial=room.kind==='auditorium'?walnut:room.kind==='lab'?glass:white;
   const nearestEdge=(p:Point)=>room.polygon.reduce((best,a,i)=>distanceToSegment(p,a,room.polygon[(i+1)%room.polygon.length])<distanceToSegment(p,room.polygon[best],room.polygon[(best+1)%room.polygon.length])?i:best,0);
@@ -400,6 +415,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   const x=(Math.min(...xs)+Math.max(...xs))/2,z=(Math.min(...zs)+Math.max(...zs))/2;
   if(room.kind==='office')office(room);
   else if(room.kind==='workroom')workroom(room);
+  else if(room.kind==='restroom')buildRestroom(room,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   else if(room.kind==='classroom') classroom(room);
   else if(room.kind==='conference') conference(room);
   else if(room.id==='1231') sandbox(room);
@@ -410,7 +426,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    for(const dx of [-1.7,1.7])for(const dz of [-2.5,0,2.5]){box(x+dx,.84,z+dz,2,.1,1.1,oak);for(const offset of [-.8,.8])box(x+dx+offset,.4,z+dz,.07,.8,.8,metal);box(x+dx,1.2,z+dz, .8,.55,.12,screen);}
   } else if(room.kind==='auditorium') {
    auditorium(room);
-  } else if(room.id!=='4105'&&clearInside(room,[x,z],1.45))tableSet(x,z);
+  } else if(room.id!=='4105'&&!(room.kind==='service'&&room.listed===false)&&clearInside(room,[x,z],1.45))tableSet(x,z);
   if(room.kind==='classroom'||(room.kind==='conference'&&room.id!=='6217')) {
    const candidates=room.polygon.map((a,i)=>({a,b:room.polygon[(i+1)%room.polygon.length],i})).filter(({a,b,i})=>Math.hypot(b[0]-a[0],b[1]-a[1])>(i===nearest?8:4));
    for(const {a,b,i} of candidates.slice(0,room.kind==='classroom'?4:1)){
@@ -430,6 +446,12 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   for(const [start,end] of [
    [fourthPlan(650,801),fourthPlan(1040,852.48)],
    [fourthPlan(620,953),fourthPlan(1040,953)],
+   [westFourthPlan(242,163),westFourthPlan(312,210)],
+   [westFourthPlan(312,210),westFourthPlan(620,480)],
+   [westFourthPlan(620,480),westFourthPlan(692,550)],
+   [westFourthPlan(692,550),westFourthPlan(940,674)],
+   [westFourthPlan(940,674),westFourthPlan(1045,710)],
+   [westFourthPlan(1045,710),fourthPlan(650,801)],
   ]){
    const dx=end[0]-start[0],dz=end[1]-start[1],length=Math.hypot(dx,dz),ux=dx/length,uz=dz/length,angle=-Math.atan2(dz,dx);
    const a=new THREE.Vector3(start[0]-uz*.4,3.88,start[1]+ux*.4),b=new THREE.Vector3(end[0]-uz*.4,3.88,end[1]+ux*.4);
@@ -460,6 +482,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  if(floor==='G'||floor==='1')buildAtrium(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  // Public atrium furniture and material cues from HDR photographs.
  if(floor==='G') {
+  buildLobbyCeiling({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   buildLobbySeating({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers,contact});
   for(const [px,py] of [[950,755],[1000,720],[1040,670]]){const [x,z]=groundPlan(px,py);box(x,1.05,z,2.8,.1,1.05,white);box(x-1.3,.52,z,.14,1.05,1.05,white);box(x+1.3,.52,z,.14,1.05,1.05,white);for(const dx of [-.85,0,.85]){cylinder(x+dx,.73,z+.9,.23,.08,yellow);cylinder(x+dx,.35,z+.9,.035,.7,metal);}}
   buildCafe({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers,chair,table});

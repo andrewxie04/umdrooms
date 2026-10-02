@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildInteriorFloor, type InteriorModel } from './model';
-import { plan, fourthPlan, footprintForFloor, roofPlan, ROOF_GALLERY, ROOF_PUBLIC_FOOTPRINT, type Point, type FloorId } from './layout';
+import { plan, fourthPlan, westFourthPlan, footprintForFloor, roofPlan, ROOF_GALLERY, ROOF_PUBLIC_FOOTPRINT, type Point, type FloorId } from './layout';
 import { ROOF_BEDS, ROOF_LAWN, ROOF_POOL, ROOF_DOORS, ROOF_FACADE, ROOF_FOYER, ROOF_OUTDOOR } from './roof-layout';
 import { ATRIUM_LANDING, ATRIUM_FLIGHTS, ENCLOSED_FLIGHTS, FLOOR_ORDER, type Flight, type Position } from './circulation';
 import { GANNON_AISLES, gannonHeight, AUD_AISLES, AUD_SCALE, ROW_START, ROW_PITCH, auditoriumSeats, antonovHeight } from './auditorium';
@@ -10,6 +10,7 @@ import { labFrame, buildSmallArtifacts, DRONE_CAGE, DRONE_CAGE_AREA, DRONE_CAGE_
 import * as THREE from 'three';
 import { buildRoboticsLab, ROBOT_STATIONS } from './robotics';
 import { buildLobbySeating } from './lobby';
+import { buildRestroom, RESTROOM_PLANS, restroomFrame } from './restrooms';
 import { ROOMS, FLOOR_HEIGHT, ANTONOV_FOOTPRINT, ENTRY, CAFE_LENGTH, cafePoint, groundPlan, pointInPolygon, distanceToSegment } from './layout';
 
 const renderingErrors:string[]=[];
@@ -157,7 +158,18 @@ describe('rooftop circulation',()=>{
 
 
 describe('fourth-floor offices and corridors',()=>{
- const rooms=ROOMS.filter(r=>r.floor==='4'&&(r.kind==='office'||r.kind==='workroom'));
+ for(const reverse of [false,true])it(`walks ${reverse?'back from':'to'} the far-west lounge along the office corridor`,()=>{
+  let route:Point[]=[fourthPlan(650,801),...[[1045,710],[940,674],[692,550],[620,480],[312,210],[242,163]].map(([x,y])=>westFourthPlan(x,y))];
+  if(reverse)route=[...route].reverse();
+  let position:Position=[route[0][0],FLOOR_HEIGHT['4'],route[0][1]];
+  for(const target of route.slice(1)){
+   const start=position;for(let i=0;i<500;i++)position=walkStep3(position,[(target[0]-start[0])/500,(target[1]-start[2])/500],f=>models.get(f)!.barriers);
+   const near=models.get('4')!.barriers.filter(b=>distanceToSegment([position[0],position[2]],b.a,b.b)<.5);
+   expect(position[0],JSON.stringify({target,position,near})).toBeCloseTo(target[0],1);expect(position[2],JSON.stringify({target,position,near})).toBeCloseTo(target[1],1);
+  }
+ });
+
+ const rooms=ROOMS.filter(r=>r.floor==='4'&&(r.kind==='office'||r.kind==='workroom'||r.kind==='restroom'||r.id.startsWith('4-core-room')));
  it('keeps office windows on the building envelope',()=>{
   const footprint=footprintForFloor('4');
   for(const room of rooms)for(const p of room.polygon)expect(pointInPolygon(p,footprint)||footprint.some((a,i)=>distanceToSegment(p,a,footprint[(i+1)%footprint.length])<.01),room.id).toBe(true);
@@ -285,4 +297,101 @@ it('keeps all curved lounge seating and coffee tables inside the ground-floor en
  buildLobbySeating({box(){},cylinder(){},surface(){},wall(){},label(){},put(g){g.dispose();},contact(){},palette:{white:base,oak:base,metal:base,glass:base,black:base,light:base},materials,textures:[],barriers});
  for(const barrier of barriers)for(const p of [barrier.a,barrier.b])expect(pointInPolygon(p,footprintForFloor('G')),`lounge fixture at ${p}`).toBe(true);
  materials.forEach(m=>m.dispose());base.dispose();
+});
+
+
+function walkInteriorTargets(room:typeof ROOMS[number],targets:Point[][]){
+  const step=room.kind==='restroom'?.1:.25,minX=Math.min(...room.polygon.map(p=>p[0])),minZ=Math.min(...room.polygon.map(p=>p[1]));
+  const maxX=Math.max(...room.polygon.map(p=>p[0])),maxZ=Math.max(...room.polygon.map(p=>p[1]));
+  const local=models.get('4')!.barriers.filter(b=>(b.minY??0)<1.65&&(b.maxY??Infinity)>0&&Math.max(b.a[0],b.b[0])>=minX-.5&&Math.min(b.a[0],b.b[0])<=maxX+.5&&Math.max(b.a[1],b.b[1])>=minZ-.5&&Math.min(b.a[1],b.b[1])<=maxZ+.5);
+  const free=new Map<string,Point>();
+  for(let i=0;i*step<=maxX-minX;i++)for(let j=0;j*step<=maxZ-minZ;j++){
+   const p:Point=[minX+i*step,minZ+j*step];
+   if(pointInPolygon(p,room.polygon)&&local.every(b=>distanceToSegment(p,b.a,b.b)>.26))free.set(`${i},${j}`,p);
+  }
+  const start=[...free].sort((a,b)=>Math.hypot(a[1][0]-room.door[0],a[1][1]-room.door[1])-Math.hypot(b[1][0]-room.door[0],b[1][1]-room.door[1]))[0];
+  expect(start).toBeDefined();expect(Math.hypot(start[1][0]-room.door[0],start[1][1]-room.door[1])).toBeLessThan(.55);
+  const parents=new Map<string,string|null>([[start[0],null]]),queue=[start[0]];
+  for(let head=0;head<queue.length;head++){
+   const key=queue[head],[i,j]=key.split(',').map(Number);
+   for(const [di,dj] of [[1,0],[-1,0],[0,1],[0,-1]]){
+    const next=`${i+di},${j+dj}`;
+    if(free.has(next)&&!parents.has(next)){parents.set(next,key);queue.push(next);}
+   }
+  }
+  for(const approaches of targets){
+   const end=queue.find(key=>approaches.some(p=>Math.hypot(p[0]-free.get(key)![0],p[1]-free.get(key)![1])<.4));
+   expect(end,`${room.id}: target group ${targets.indexOf(approaches)} is unreachable; ${JSON.stringify(approaches)}; reached ${queue.length}/${free.size}`).toBeDefined();
+   const path:Point[]=[];let key:string|null=end!;
+   while(key!==null){path.push(free.get(key)!);key=parents.get(key)!;}path.reverse();
+   let position:Position=[path[0][0],FLOOR_HEIGHT['4'],path[0][1]];
+   for(const target of path.slice(1)){
+    position=walkStep3(position,[target[0]-position[0],target[1]-position[2]],f=>models.get(f)!.barriers);
+    expect(position[0]).toBeCloseTo(target[0],2);expect(position[2]).toBeCloseTo(target[1],2);
+   }
+  }
+}
+
+describe('fourth-floor shared workroom furniture',()=>{
+ const rooms=ROOMS.filter(r=>r.floor==='4'&&r.deskBanks);
+ for(const room of rooms)it(`reaches every desk bank from the doorway in ${room.id}`,()=>{
+  walkInteriorTargets(room,room.deskBanks!.map(bank=>{
+   const length=Math.hypot(bank.to[0]-bank.from[0],bank.to[1]-bank.from[1]),ux=(bank.to[0]-bank.from[0])/length,uz=(bank.to[1]-bank.from[1])/length;
+   return [[bank.from[0]-ux*.65,bank.from[1]-uz*.65],[bank.to[0]+ux*.65,bank.to[1]+uz*.65]];
+  }));
+ });
+
+ for(const room of rooms)it(`fits the traced desk banks and seating in ${room.id}`,()=>{
+  const banks=room.deskBanks!.map(bank=>{
+   const length=Math.hypot(bank.to[0]-bank.from[0],bank.to[1]-bank.from[1]),ux=(bank.to[0]-bank.from[0])/length,uz=(bank.to[1]-bank.from[1])/length;
+   const at=(u:number,v:number):Point=>[(bank.from[0]+bank.to[0])/2+ux*u-uz*v,(bank.from[1]+bank.to[1])/2+uz*u+ux*v];
+   return {...bank,length,at,polygon:[at(-length/2,-.625),at(length/2,-.625),at(length/2,.625),at(-length/2,.625)]};
+  });
+  banks.forEach((bank,index)=>{
+   for(const p of bank.polygon)expect(pointInPolygon(p,room.polygon),`${room.id} bank ${index} corner ${p}`).toBe(true);
+   for(const side of [-1,1])for(let i=0;i<bank.seatsPerSide;i++){
+    const p=bank.at(((i+.5)/bank.seatsPerSide-.5)*bank.length,side*1.05);
+    expect(pointInPolygon(p,room.polygon),`${room.id} chair ${index}/${side}/${i}`).toBe(true);
+    expect(Math.min(...room.polygon.map((a,j)=>distanceToSegment(p,a,room.polygon[(j+1)%room.polygon.length]))),`${room.id} chair against wall`).toBeGreaterThan(.4);
+    for(const other of banks.filter(b=>b!==bank)){
+     expect(pointInPolygon(p,other.polygon),`${room.id} chair inside another desk`).toBe(false);
+     for(const otherSide of [-1,1])for(let k=0;k<other.seatsPerSide;k++){
+      const q=other.at(((k+.5)/other.seatsPerSide-.5)*other.length,otherSide*1.05);
+      expect(Math.hypot(p[0]-q[0],p[1]-q[1]),`${room.id} overlapping chairs ${index}/${side}/${i} and ${banks.indexOf(other)}/${otherSide}/${k}`).toBeGreaterThan(.55);
+     }
+     expect(Math.min(...other.polygon.map((a,j)=>distanceToSegment(p,a,other.polygon[(j+1)%other.polygon.length]))),`${room.id} chair overlapping another desk`).toBeGreaterThan(.3);
+    }
+   }
+  });
+ });
+});
+
+
+describe('fourth-floor restroom fixtures',()=>{
+ for(const room of ROOMS.filter(r=>r.kind==='restroom')){
+  it(`keeps all fixtures and partitions inside ${room.id}`,()=>{
+   const barriers:InteriorModel['barriers']=[],materials:THREE.Material[]=[],textures:THREE.Texture[]=[];
+   const base=new THREE.MeshBasicMaterial();
+   buildRestroom(room,{box(){},cylinder(){},surface(){},wall(a,b,h,_m,collision=true,base=0){if(collision)barriers.push({a,b,minY:base,maxY:base+h});},label(){},put(g){g.dispose();},palette:{white:base,oak:base,metal:base,glass:base,black:base,light:base},materials,textures,barriers});
+   for(const wall of barriers)for(const p of [wall.a,wall.b])expect(pointInPolygon(p,room.polygon)||room.polygon.some((a,i)=>distanceToSegment(p,a,room.polygon[(i+1)%room.polygon.length])<.02),`${room.id} fixture ${p}`).toBe(true);
+   materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());base.dispose();
+  });
+  it(`connects the entry to all stalls and sinks in ${room.id}`,()=>{
+   const data=RESTROOM_PLANS[room.id as keyof typeof RESTROOM_PLANS],row=restroomFrame(room,data.back[0],data.back[1]),sinks=restroomFrame(room,data.sinks[0],data.sinks[1]);
+   const targets:Point[][]=Array.from({length:data.stalls},(_,i)=>[row.at((i+.5)*row.length/data.stalls,data.depth-.3)]);
+   for(let i=0;i<data.sinkCount;i++)targets.push([sinks.at((i+.5)*sinks.length/data.sinkCount,.98)]);
+   walkInteriorTargets(room,targets);
+  });
+  it(`walks through every open stall doorway in ${room.id}`,()=>{
+   const data=RESTROOM_PLANS[room.id as keyof typeof RESTROOM_PLANS],f=restroomFrame(room,data.back[0],data.back[1]),width=f.length/data.stalls;
+   for(let i=0;i<data.stalls;i++){
+    const x=(i+.5)*width,start=f.at(x,data.depth+.32),inside=f.at(x,data.depth-.3);
+    let position:Position=[start[0],FLOOR_HEIGHT['4'],start[1]];
+    for(const target of [inside,start]){
+     const from=position;for(let j=0;j<100;j++)position=walkStep3(position,[(target[0]-from[0])/100,(target[1]-from[2])/100],floor=>models.get(floor)!.barriers);
+     expect(position[0],`${room.id} stall ${i}`).toBeCloseTo(target[0],1);expect(position[2],`${room.id} stall ${i}`).toBeCloseTo(target[1],1);
+    }
+   }
+  });
+ }
 });

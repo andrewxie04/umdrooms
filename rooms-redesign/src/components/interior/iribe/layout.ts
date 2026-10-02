@@ -5,8 +5,8 @@
 export type Point = readonly [number, number];
 export type Polygon = readonly Point[];
 export type FloorId = 'G' | '1' | '2' | '3' | '4' | '5' | 'R';
-export type RoomKind = 'classroom' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom';
-export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; doorWidth?: number; additionalDoors?: Point[]; officeMeeting?: boolean; }
+export type RoomKind = 'classroom' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom' | 'restroom';
+export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; doorWidth?: number; additionalDoors?: Point[]; officeMeeting?: boolean; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
 export const PLAN_SCALE = .085;
 export const plan = (x: number, y: number): Point => [(x - 660) * PLAN_SCALE, (y - 1100) * PLAN_SCALE];
 const trace = (points: Polygon): Polygon => points.map(([x,y]) => plan(x,y));
@@ -107,7 +107,25 @@ export const footprintForFloor=(floor:FloorId):Polygon=>floor==='G'?GROUND_FOOTP
 
 // HDR Level 4 sheet, aligned independently by its north corners and north-west
 // stair. The public wayfinding sheets are schematic, so this is not a survey.
-export const fourthPlan=(x:number,y:number):Point=>plan(-.10140141*x+.92056662*y-96.11915764,-.759457617*x-.097689569*y+1374.95531);
+const fourthNorthPlan=(x:number,y:number):Point=>plan(-.10140141*x+.92056662*y-96.11915764,-.759457617*x-.097689569*y+1374.95531);
+// The public diagrams stretch the west wing differently. Two affine triangles
+// align its exterior corners while preserving the north-wing stair connection.
+// This is registration of undimensioned diagrams, not a measured floor survey.
+const fourthSeamA:Point=[650,727],fourthSeamB:Point=[619,1027];
+const fourthWestA:Point=[-137,310],fourthWestB:Point=[-314,497];
+const barycentric=(p:Point,a:Point,b:Point,c:Point):Point=>{
+ const ux=b[0]-a[0],uy=b[1]-a[1],vx=c[0]-a[0],vy=c[1]-a[1],dx=p[0]-a[0],dy=p[1]-a[1],det=ux*vy-uy*vx;
+ return [(dx*vy-dy*vx)/det,(ux*dy-uy*dx)/det];
+};
+const blendTriangle=(u:number,v:number,a:Point,b:Point,c:Point):Point=>[a[0]+u*(b[0]-a[0])+v*(c[0]-a[0]),a[1]+u*(b[1]-a[1])+v*(c[1]-a[1])];
+export function fourthPlan(x:number,y:number):Point{
+ const p:Point=[x,y],[u,v]=barycentric(p,fourthSeamA,fourthSeamB,fourthWestA);
+ if(v<=0)return fourthNorthPlan(x,y);
+ const a=fourthNorthPlan(...fourthSeamA),b=fourthNorthPlan(...fourthSeamB),c=plan(220,1620),d=plan(408,1760);
+ if(u+v<=1)return blendTriangle(u,v,a,b,c);
+ const [w,t]=barycentric(p,fourthSeamB,fourthWestB,fourthWestA);
+ return blendTriangle(w,t,b,d,c);
+}
 const fourthTrace=(p:Polygon):Polygon=>p.map(([x,y])=>fourthPlan(x,y));
 ROOMS.push(
  {floor:'4',id:'4105',name:'Room 4105',kind:'service',evidence:'plan',polygon:fourthTrace([[196,735],[310,765],[273,902],[142,844]]),door:fourthPlan(263,898)},
@@ -143,4 +161,59 @@ for(let i=0;i<eastOfficeBreaks.length-1;i++){
 ROOMS.push(
  {floor:'4',id:'4-north-workroom-west',name:'Shared workroom (west)',kind:'workroom',evidence:'plan',polygon:fourthTrace([[817,834],[903,845],[891,941],[808,941]]),door:fourthPlan(829,835.535),doorWidth:.95},
  {floor:'4',id:'4-north-workroom-east',name:'Shared workroom (east)',kind:'workroom',evidence:'plan',polygon:fourthTrace([[903,845],[992,856],[982,941],[891,941]]),door:fourthPlan(977,854.146),additionalDoors:[fourthPlan(965,941)],doorWidth:.95},
+);
+
+// West-wing partitions traced across HDR's two-page spread. These coordinates
+// use the joined reference crop (left-page origin 820,300, scaled 1.5).
+export const westFourthPlan=(x:number,y:number):Point=>fourthPlan(x/1.5-332,y/1.5+300);
+const onEnvelope=(p:Point):Point=>{
+ let best:Point=p,distance=Infinity;
+ MAIN_FOOTPRINT.forEach((a,i)=>{
+  const b=MAIN_FOOTPRINT[(i+1)%MAIN_FOOTPRINT.length],dx=b[0]-a[0],dz=b[1]-a[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dz)/(dx*dx+dz*dz)));
+  const q:Point=[a[0]+t*dx,a[1]+t*dz],d=Math.hypot(q[0]-p[0],q[1]-p[1]);if(d<distance){best=q;distance=d;}
+ });
+ return best;
+};
+const westUpperFacade:Polygon=[[336,60],[380,101],[421,142],[465,182],[507,221],[551,264],[592,299],[634,340],[675,381],[723,422],[774,463],[828,494],[884,530],[944,549],[1008,580]];
+const westUpperInside:Polygon=[[274,127],[314,166],[357,208],[400,249],[439,288],[485,329],[529,368],[570,408],[611,447],[662,491],[720,536],[785,574],[847,608],[909,633],[978,658]];
+const westLowerFacade:Polygon=[[62,356],[91,408],[120,460],[150,512],[180,566],[210,618]];
+const westLowerInside:Polygon=[[118,320],[170,360],[203,411],[235,463],[269,516],[305,569]];
+for(const [side,facade,inside] of [['upper',westUpperFacade,westUpperInside],['lower',westLowerFacade,westLowerInside]] as const){
+ for(let i=0;i<facade.length-1;i++){
+  const points:Polygon=[onEnvelope(westFourthPlan(...facade[i])),onEnvelope(westFourthPlan(...facade[i+1])),westFourthPlan(...inside[i+1]),westFourthPlan(...inside[i])];
+  const t=i%2?.22:.78,door:Point=[points[3][0]+(points[2][0]-points[3][0])*t,points[3][1]+(points[2][1]-points[3][1])*t];
+  ROOMS.push({floor:'4',id:`4-far-west-${side}-office-${i+1}`,name:'Office',kind:'office',evidence:'plan',listed:false,polygon:points,door,doorWidth:.9,exteriorEdges:[0],officeMeeting:side==='lower'||i===3||i>=8});
+ }
+}
+ROOMS.push({floor:'4',id:'west-reset-zone',name:'West study lounge',kind:'lounge',evidence:'plan',polygon:[[294,22],[331,61],[270,129],[235,177],[161,247],[120,316],[27,298]].map(([x,y])=>westFourthPlan(x,y)),door:westFourthPlan(240,174)});
+
+
+// Shared rooms along the curved west facade. Desk banks follow the symbols on
+// the HDR plan; dimensions and finishes remain interpreted from the diagram.
+const westWorkrooms:readonly {id:string;name:string;outline:Polygon;door:Point;facade?:boolean;banks:readonly [Point,Point,number][]}[]=[
+ {id:'4-west-shared-room',name:'West shared room',outline:[[166,268],[254,179],[374,277],[278,375]],door:[353,256],banks:[[[213,270],[278,334],5],[[260,225],[324,289],5]]},
+ {id:'4-west-workroom-a',name:'West workroom A',outline:[[210,618],[308,775],[402,687],[305,569]],door:[387,672],facade:true,banks:[[[283,628],[319,665],3],[[299,686],[332,720],3]]},
+ {id:'4-west-workroom-b',name:'West workroom B',outline:[[308,775],[368,876],[434,960],[536,803],[402,687]],door:[518,787],facade:true,banks:[[[385,767],[420,804],3],[[441,814],[476,852],3],[[413,866],[448,902],3]]},
+ {id:'4-west-workroom-c',name:'West workroom C',outline:[[434,960],[490,1005],[562,1050],[630,1072],[696,904],[536,803]],door:[676,891],facade:true,banks:[[[532,907],[552,956],3],[[596,926],[616,975],3],[[554,980],[574,1027],3]]},
+ {id:'4-west-workroom-d',name:'West workroom D',outline:[[630,1072],[741,1086],[856,1088],[884,977],[696,904]],door:[862,968],facade:true,banks:[[[732,981],[730,1025],3],[[798,997],[796,1041],3]]},
+ {id:'4-west-workroom-e',name:'West workroom E',outline:[[856,1088],[1068,1090],[1068,979],[884,977]],door:[917,977.36],facade:true,banks:[[[933,1024],[933,1055],2],[[1007,1024],[1007,1055],2]]},
+];
+for(const r of westWorkrooms){
+ const lastExterior=r.outline.length-3;
+ ROOMS.push({floor:'4',id:r.id,name:r.name,kind:'workroom',evidence:'plan',polygon:r.outline.map((p,i)=>r.facade&&i<=lastExterior?onEnvelope(westFourthPlan(...p)):westFourthPlan(...p)),door:westFourthPlan(...r.door),doorWidth:1.05,exteriorEdges:r.facade?Array.from({length:lastExterior},(_,i)=>i):undefined,deskBanks:r.banks.map(([a,b,seatsPerSide])=>({from:westFourthPlan(...a),to:westFourthPlan(...b),seatsPerSide}))});
+}
+
+// Enlarged HDR service-core crop: PDF page 13, x205–405 / y390–480,
+// rendered at 6x. Fixtures use this same registration in restrooms.ts.
+export const fourthCorePlan=(x:number,y:number):Point=>fourthPlan(410+x/3,780+y/3);
+const coreTrace=(p:Polygon):Polygon=>p.map(([x,y])=>fourthCorePlan(x,y));
+ROOMS.push(
+ {floor:'4',id:'4-restroom-west',name:'Restroom (west)',kind:'restroom',evidence:'plan',polygon:coreTrace([[772,99],[846,108],[842,137],[1060,164],[1048,294],[800,278],[809,210],[758,205]]),door:fourthCorePlan(812,104),doorWidth:1.05},
+ {floor:'4',id:'4-restroom-east',name:'Restroom (east)',kind:'restroom',evidence:'plan',polygon:coreTrace([[798,294],[1044,322],[1025,448],[857,428],[859,416],[735,398],[744,343],[791,348]]),door:fourthCorePlan(739,371),doorWidth:1.05},
+ {floor:'4',id:'4-core-room-west',name:'Service room',kind:'service',listed:false,evidence:'plan',polygon:coreTrace([[115,54],[558,111],[511,448],[65,445]]),door:fourthCorePlan(494,448),doorWidth:1.05},
+ {floor:'4',id:'4-core-room-center',name:'Service room',kind:'service',listed:false,evidence:'plan',polygon:coreTrace([[570,112],[702,128],[674,335],[538,322]]),door:fourthCorePlan(699,157),doorWidth:1.05},
+ {floor:'4',id:'4-core-room-southwest',name:'Service room',kind:'service',listed:false,evidence:'plan',polygon:coreTrace([[531,337],[666,355],[650,448],[515,448]]),door:fourthCorePlan(663,375),doorWidth:1.05},
+ {floor:'4',id:'4-core-room-northeast',name:'Service room',kind:'service',listed:false,evidence:'plan',polygon:coreTrace([[1071,151],[1168,153],[1156,278],[1055,267]]),door:fourthCorePlan(1161,242),doorWidth:1.05},
+ {floor:'4',id:'4-core-room-east',name:'Service room',kind:'service',listed:false,evidence:'plan',polygon:coreTrace([[1055,279],[1154,291],[1146,373],[1043,358]]),door:fourthCorePlan(1151,317),doorWidth:1.05},
+ {floor:'4',id:'4-core-room-southeast',name:'Service room',kind:'service',listed:false,evidence:'plan',polygon:coreTrace([[1042,374],[1140,389],[1128,485],[1030,485]]),door:fourthCorePlan(1136,423),doorWidth:1.05},
 );
