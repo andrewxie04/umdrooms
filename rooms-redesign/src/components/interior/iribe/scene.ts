@@ -1,9 +1,10 @@
+import { ATRIUM_CENTER } from './layout';
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { roomArrival } from './arrival';
 import { buildInteriorFloor } from './model';
 import { FLOOR_ORDER, floorAtPosition, stairEntry } from './circulation';
-import { ENTRY, plan, groundPlan, FLOOR_HEIGHT, ROOMS, type FloorId } from './layout';
+import { ENTRY, plan, FLOOR_HEIGHT, ROOMS, type FloorId } from './layout';
 import { WalkControls } from './walk';
 
 export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:number,floor:FloorId)=>void) {
@@ -18,7 +19,7 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
  const sun=new THREE.DirectionalLight(0xffecd5,2.3);sun.position.set(25,40,-18);scene.add(sun);
  const fill=new THREE.DirectionalLight(0xffffff,.7);fill.position.set(-30,10,30);scene.add(fill);
  const models=new Map(FLOOR_ORDER.map(f=>{const m=buildInteriorFloor(f);m.group.position.y=FLOOR_HEIGHT[f];scene.add(m.group);return [f,m] as const;}));
- const atrium = groundPlan(1080,810);
+ const atrium = ATRIUM_CENTER;
  const entranceYaw = Math.atan2(ENTRY[0]-atrium[0],ENTRY[1]-atrium[1]);
  let activeFloor:FloorId='G';
  const showFloor=(f:FloorId)=>{activeFloor=f;const index=FLOOR_ORDER.indexOf(f);models.forEach((m,id)=>{m.group.visible=Math.abs(FLOOR_ORDER.indexOf(id)-index)<=1;});};showFloor('G');
@@ -34,6 +35,7 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
    const arrival=roomArrival(room,models.get(floor)!.barriers);if(!arrival)return false;
    showFloor(floor);controls.setPose(arrival.point,arrival.yaw,floor,arrival.height);dirty=true;return true;
   },
+  setPaused:(paused:boolean)=>controls.setPaused(paused),
   setMove:(x:number,z:number)=>controls.setMove(x,z),
   reset(){showFloor('G');controls.setPose(ENTRY,entranceYaw);dirty=true;},
   dispose(){disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();models.forEach(m=>m.dispose());sky.geometry.dispose();sky.material.dispose();renderer.dispose();renderer.domElement.remove();},

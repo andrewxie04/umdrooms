@@ -58,6 +58,7 @@ const gRoom=(id:string,name:string,kind:RoomKind,p:Polygon,door:Point):InteriorR
 export const ANTONOV_PLAN:Polygon=[[1394,65],[1460,67],[1497,89],[1515,118],[1520,206],[1520,341],[1510,430],[1480,468],[1394,480],[1344,480],[1290,480],[1249,467],[1216,436],[1188,380],[1173,307],[1179,235],[1200,166],[1240,102],[1288,78],[1340,65]];
 export const ANTONOV_FOOTPRINT=groundTrace(ANTONOV_PLAN);
 ROOMS.push(
+ gRoom('lobby-lounge','Lobby lounge','lounge',[[1060,620],[1360,620],[1360,795],[1110,795]],[1360,705]),
  gRoom('0116','Robotics Manipulator Lab','lab',[[648,691],[746,775],[661,875],[586,756]],[699,746]),
  gRoom('0110','Immersive Media Design Lab','lab',[[748,779],[852,834],[797,949],[665,882]],[800,807]),
  gRoom('0108','Brin Family Aerial Robotics Lab','lab',[[858,839],[973,884],[949,963],[803,954]],[917,864]),
@@ -76,9 +77,21 @@ ROOMS.push(
  room('5','5119','Conference & huddle rooms','conference',[[485,1358],[642,1446],[620,1484],[463,1397]],[545,1446]),
  room('5','5137','Conference room','conference',[[350,1537],[484,1638],[436,1697],[300,1600]],[460,1664]),
 );
+// Café front follows the diagonal counter on UMD's ground-floor diagram.
+export const CAFE_ORIGIN=groundPlan(773,729),CAFE_END=groundPlan(902,653);
+export const CAFE_LENGTH=Math.hypot(CAFE_END[0]-CAFE_ORIGIN[0],CAFE_END[1]-CAFE_ORIGIN[1]);
+export const CAFE_U:Point=[(CAFE_END[0]-CAFE_ORIGIN[0])/CAFE_LENGTH,(CAFE_END[1]-CAFE_ORIGIN[1])/CAFE_LENGTH];
+export const CAFE_V:Point=[-CAFE_U[1],CAFE_U[0]];
+export const cafePoint=(x:number,z:number):Point=>[CAFE_ORIGIN[0]+CAFE_U[0]*x+CAFE_V[0]*z,CAFE_ORIGIN[1]+CAFE_U[1]*x+CAFE_V[1]*z];
+export const CAFE_SPACE:InteriorRoom={id:'breakpoint-cafe',name:'Breakpoint Café',floor:'G',kind:'cafe',evidence:'photo',polygon:[[0,.9],[CAFE_LENGTH,.9],[CAFE_LENGTH,4],[0,4]].map(([x,z])=>cafePoint(x,z)),door:cafePoint(CAFE_LENGTH/2,4)};
+ROOMS.push(CAFE_SPACE);
 export const ELEVATOR = plan(657,1114);
 export const ENTRY = groundPlan(1305,850);
-export const ATRIUM_VOID = trace([[548,1050],[716,1064],[727,1132],[643,1173],[566,1138]]);
+// The HDR guide shows the central elevator enclosure and two-flight stair.
+// The opening is fitted to that topology; metric dimensions remain estimated.
+export const ATRIUM_CENTER=plan(665,1120);
+export const atriumPoint=(x:number,z:number):Point=>[ATRIUM_CENTER[0]+x,ATRIUM_CENTER[1]+z];
+export const ATRIUM_VOID:Polygon=[[-4.7,-6.1],[-3.6,-6.4],[4.7,-4.55],[4.7,.4],[4.2,3],[2.7,4.8],[0,5.1],[-2.7,4.8],[-4.7,2]].map(([x,z])=>atriumPoint(x,z));
 
 // Align the rooftop spread to the same building frame using the northern
 // exterior corners and western stair. Preserve handedness: guide +Y is building

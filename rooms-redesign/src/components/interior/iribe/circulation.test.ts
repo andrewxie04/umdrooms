@@ -6,7 +6,11 @@ import { ATRIUM_LANDING, ATRIUM_FLIGHTS, ENCLOSED_FLIGHTS, FLOOR_ORDER, type Fli
 import { GANNON_AISLES, gannonHeight, AUD_AISLES, AUD_SCALE, ROW_START, ROW_PITCH, auditoriumSeats, antonovHeight } from './auditorium';
 import { walkStep3 } from './walk';
 import { roomArrival } from './arrival';
-import { ROOMS, FLOOR_HEIGHT, ANTONOV_FOOTPRINT, groundPlan, pointInPolygon, distanceToSegment } from './layout';
+import { labFrame, buildSmallArtifacts, DRONE_CAGE, DRONE_CAGE_AREA, DRONE_CAGE_HEIGHT, DRONE_CAGE_WIDTH, DRONE_CAGE_DEPTH, DRONE_CAMERAS, DRONE_GATE } from './labs';
+import * as THREE from 'three';
+import { buildRoboticsLab, ROBOT_STATIONS } from './robotics';
+import { buildLobbySeating } from './lobby';
+import { ROOMS, FLOOR_HEIGHT, ANTONOV_FOOTPRINT, ENTRY, CAFE_LENGTH, cafePoint, groundPlan, pointInPolygon, distanceToSegment } from './layout';
 
 const renderingErrors:string[]=[];
 const models = new Map<FloorId, InteriorModel>();
@@ -36,6 +40,13 @@ describe('continuous stair navigation', () => {
  }
  it('walks up the atrium stair', () => follow([...ATRIUM_FLIGHTS, ATRIUM_LANDING]));
  it('walks down the atrium stair', () => follow([...ATRIUM_FLIGHTS, ATRIUM_LANDING], true));
+ it('connects the entrance through the atrium to the mezzanine corridor',()=>{
+  const first=ATRIUM_FLIGHTS[0].from,end=ATRIUM_LANDING.to;
+  const approach:Flight={from:[ENTRY[0],0,ENTRY[1]],to:first,width:1.8,lower:'G',upper:'G'};
+  const exit:Flight={from:end,to:[end[0]-.8,end[1],end[2]],width:1.8,lower:'1',upper:'1'};
+  follow([approach,...ATRIUM_FLIGHTS,ATRIUM_LANDING,exit]);
+  follow([approach,...ATRIUM_FLIGHTS,ATRIUM_LANDING,exit],true);
+ });
 });
 
 describe('rendered interior integrity',()=>{
@@ -172,4 +183,106 @@ describe('fourth-floor offices and corridors',()=>{
   for(let i=0;i<1000;i++)position=walkStep3(position,[(b[0]-a[0])/1000,(b[1]-a[1])/1000],f=>models.get(f)!.barriers);
   expect(position[0]).toBeCloseTo(b[0],1);expect(position[2]).toBeCloseTo(b[1],1);
  });
+});
+
+
+describe('Small Artifacts Lab circulation',()=>{
+ const room=ROOMS.find(r=>r.id==='0102')!,f=labFrame(room);
+ it('keeps every equipment footprint inside the traced room',()=>{
+  const barriers:InteriorModel['barriers']=[],materials:THREE.Material[]=[];
+  const base=new THREE.MeshBasicMaterial();
+  buildSmallArtifacts(room,{box(){},cylinder(){},put(g){g.dispose();},palette:{white:base,oak:base,metal:base,glass:base,black:base,light:base},materials,barriers});
+  for(const barrier of barriers)for(const p of [barrier.a,barrier.b])expect(pointInPolygon(p,room.polygon),`equipment at ${p}`).toBe(true);
+  materials.forEach(m=>m.dispose());base.dispose();
+ });
+ for(const reverse of [false,true])it(`walks ${reverse?'out of':'into'} the lab and across its central aisle`,()=>{
+  const route=[[4.1,-1],[4.1,2.4],[7.1,2.4],[4.1,2.4],[1.5,2.4]].map(([x,z])=>f.at(x,z));
+  if(reverse)route.reverse();
+  let position:Position=[route[0][0],0,route[0][1]];
+  for(let j=1;j<route.length;j++){
+   const a=route[j-1],end=route[j],count=Math.ceil(Math.hypot(end[0]-a[0],end[1]-a[1])/.04);
+   for(let i=0;i<count;i++)position=walkStep3(position,[(end[0]-a[0])/count,(end[1]-a[1])/count],floor=>models.get(floor)!.barriers);
+   expect(position[0]).toBeCloseTo(end[0],2);expect(position[2]).toBeCloseTo(end[1],2);expect(position[1]).toBe(0);
+  }
+ });
+});
+
+
+describe('Brin aerial robotics lab',()=>{
+ const room=ROOMS.find(r=>r.id==='0108')!,f=labFrame(room);
+ it('fits the published flight area and height into the room outline',()=>{
+  const area=Math.abs(DRONE_CAGE.reduce((sum,a,i)=>{const b=DRONE_CAGE[(i+1)%DRONE_CAGE.length];return sum+a[0]*b[1]-b[0]*a[1];},0))/2;
+  expect(area).toBeCloseTo(DRONE_CAGE_AREA,6);
+  expect(DRONE_CAGE_WIDTH/.3048).toBeCloseTo(24,6);expect(DRONE_CAGE_DEPTH/.3048).toBeCloseTo(18,6);expect(DRONE_CAMERAS).toHaveLength(12);
+  expect(DRONE_CAGE_HEIGHT).toBeCloseTo(4.572,6);
+  for(const p of DRONE_CAGE)expect(pointInPolygon(f.at(...p),room.polygon)).toBe(true);
+ });
+ for(const reverse of [false,true])it(`walks ${reverse?'out of':'into'} the cage through the net opening`,()=>{
+  const gate=(DRONE_GATE[0]+DRONE_GATE[1])/2;
+  const doorU=(room.door[0]-room.polygon[0][0])*f.u[0]+(room.door[1]-room.polygon[0][1])*f.u[1];
+  const route=[[doorU,-.8],[doorU,1.45],[gate,1.45],[gate,4]].map(([x,z])=>f.at(x,z));if(reverse)route.reverse();
+  let position:Position=[route[0][0],0,route[0][1]];
+  for(let j=1;j<route.length;j++){
+   const a=route[j-1],end=route[j],count=Math.ceil(Math.hypot(end[0]-a[0],end[1]-a[1])/.04);
+   for(let i=0;i<count;i++)position=walkStep3(position,[(end[0]-a[0])/count,(end[1]-a[1])/count],floor=>models.get(floor)!.barriers);
+   expect(position[0]).toBeCloseTo(end[0],2);expect(position[2]).toBeCloseTo(end[1],2);
+  }
+ });
+ it('leaves the side aisle to the repair bench clear',()=>{
+  const route=[[4.6,.38],[7.75,.38],[7.75,4.9]].map(([x,z])=>f.at(x,z));let position:Position=[route[0][0],0,route[0][1]];
+  for(let j=1;j<route.length;j++){
+   const a=route[j-1],end=route[j],count=Math.ceil(Math.hypot(end[0]-a[0],end[1]-a[1])/.04);
+   for(let i=0;i<count;i++)position=walkStep3(position,[(end[0]-a[0])/count,(end[1]-a[1])/count],floor=>models.get(floor)!.barriers);
+   expect(position[0]).toBeCloseTo(end[0],2);expect(position[2]).toBeCloseTo(end[1],2);
+  }
+ });
+ it('stops a walker at the closed portion of the net',()=>{
+  const a=f.at(3.5,DRONE_CAGE[0][1]-.5),end=f.at(3.5,DRONE_CAGE[0][1]+.5);let position:Position=[a[0],0,a[1]];
+  for(let i=0;i<100;i++)position=walkStep3(position,[(end[0]-a[0])/100,(end[1]-a[1])/100],floor=>models.get(floor)!.barriers);
+  expect(Math.hypot(position[0]-end[0],position[2]-end[1])).toBeGreaterThan(.65);
+ });
+});
+
+
+describe('Robotics Manipulator Lab',()=>{
+ const room=ROOMS.find(r=>r.id==='0116')!,f=labFrame(room);
+ it('includes the documented inventory with all station footprints inside the room',()=>{
+  expect(ROBOT_STATIONS.map(s=>s.kind).sort()).toEqual(['baxter','kuka','kuka','sawyer','ur3e','ur3e','ur5e']);
+  const barriers:InteriorModel['barriers']=[],materials:THREE.Material[]=[];const base=new THREE.MeshBasicMaterial();
+  buildRoboticsLab(room,{box(){},cylinder(){},put(g){g.dispose();},palette:{white:base,oak:base,metal:base,glass:base,black:base,light:base},materials,barriers});
+  for(const barrier of barriers)for(const p of [barrier.a,barrier.b])expect(pointInPolygon(p,room.polygon),`station at ${p}`).toBe(true);
+  materials.forEach(m=>m.dispose());base.dispose();
+ });
+ for(const reverse of [false,true])it(`walks ${reverse?'out of':'into'} the lab and between the robot stations`,()=>{
+  const doorU=(room.door[0]-room.polygon[0][0])*f.u[0]+(room.door[1]-room.polygon[0][1])*f.u[1];
+  const route=[[doorU,-1],[doorU,1.6],[4.3,2.5],[4.3,4.4],[5.9,4.4],[5.9,7.3]].map(([x,z])=>f.at(x,z));if(reverse)route.reverse();
+  let position:Position=[route[0][0],0,route[0][1]];
+  for(let j=1;j<route.length;j++){
+   const a=route[j-1],end=route[j],count=Math.ceil(Math.hypot(end[0]-a[0],end[1]-a[1])/.04);
+   for(let i=0;i<count;i++)position=walkStep3(position,[(end[0]-a[0])/count,(end[1]-a[1])/count],floor=>models.get(floor)!.barriers);
+   expect(position[0]).toBeCloseTo(end[0],2);expect(position[2]).toBeCloseTo(end[1],2);expect(position[1]).toBe(0);
+  }
+ });
+});
+
+
+describe('Breakpoint Café access',()=>{
+ for(const reverse of [false,true])it(`walks ${reverse?'back':'along'} the full public counter aisle`,()=>{
+  const a=cafePoint(reverse?CAFE_LENGTH-.4:.4,1.1),end=cafePoint(reverse?.4:CAFE_LENGTH-.4,1.1);let position:Position=[a[0],0,a[1]];
+  for(let i=0;i<400;i++)position=walkStep3(position,[(end[0]-a[0])/400,(end[1]-a[1])/400],floor=>models.get(floor)!.barriers);
+  expect(position[0]).toBeCloseTo(end[0],2);expect(position[2]).toBeCloseTo(end[1],2);expect(position[1]).toBe(0);
+ });
+ it('blocks walking through the counter and display glass',()=>{
+  const a=cafePoint(3,.7),end=cafePoint(3,-.7);let position:Position=[a[0],0,a[1]];
+  for(let i=0;i<100;i++)position=walkStep3(position,[(end[0]-a[0])/100,(end[1]-a[1])/100],floor=>models.get(floor)!.barriers);
+  expect(Math.hypot(position[0]-end[0],position[2]-end[1])).toBeGreaterThan(.85);
+ });
+});
+
+
+it('keeps all curved lounge seating and coffee tables inside the ground-floor envelope',()=>{
+ const barriers:InteriorModel['barriers']=[],materials:THREE.Material[]=[];const base=new THREE.MeshBasicMaterial();
+ buildLobbySeating({box(){},cylinder(){},surface(){},wall(){},label(){},put(g){g.dispose();},contact(){},palette:{white:base,oak:base,metal:base,glass:base,black:base,light:base},materials,textures:[],barriers});
+ for(const barrier of barriers)for(const p of [barrier.a,barrier.b])expect(pointInPolygon(p,footprintForFloor('G')),`lounge fixture at ${p}`).toBe(true);
+ materials.forEach(m=>m.dispose());base.dispose();
 });

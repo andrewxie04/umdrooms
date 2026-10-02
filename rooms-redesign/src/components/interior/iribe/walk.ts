@@ -36,17 +36,18 @@ export class WalkControls {
  private keys=new Set<string>(); private yaw=0;private pitch=0;private dragging=false;private lastX=0;private lastY=0;
  private abort=new AbortController();
  private touchMove:Point=[0,0];
+ private paused=false;
  private camera:THREE.PerspectiveCamera;
  private geometry:(floor:FloorId)=>Barrier[];
  private dirty:()=>void;
  constructor(camera:THREE.PerspectiveCamera,canvas:HTMLCanvasElement,geometry:(floor:FloorId)=>Barrier[],dirty:()=>void){
   this.camera=camera;this.geometry=geometry;this.dirty=dirty;
   const opts={signal:this.abort.signal};
-  window.addEventListener('keydown',e=>{if(e.target instanceof HTMLElement && e.target.closest('input,select,textarea,button'))return;if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)){e.preventDefault();this.keys.add(e.code);this.dirty();}},opts);
+  window.addEventListener('keydown',e=>{if(this.paused)return;if(e.target instanceof HTMLElement && e.target.closest('input,select,textarea,button,a,[contenteditable=true],[role=dialog],dialog'))return;if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)){e.preventDefault();this.keys.add(e.code);this.dirty();}},opts);
   window.addEventListener('keyup',e=>this.keys.delete(e.code),opts);
   window.addEventListener('blur',()=>this.resetInput(),opts);
   document.addEventListener('visibilitychange',()=>this.resetInput(),opts);
-  canvas.addEventListener('pointerdown',e=>{if(e.button!==0)return;this.dragging=true;this.lastX=e.clientX;this.lastY=e.clientY;canvas.setPointerCapture(e.pointerId);canvas.focus();},opts);
+  canvas.addEventListener('pointerdown',e=>{if(this.paused||e.button!==0)return;this.dragging=true;this.lastX=e.clientX;this.lastY=e.clientY;canvas.setPointerCapture(e.pointerId);canvas.focus();},opts);
   canvas.addEventListener('pointermove',e=>{if(!this.dragging)return;this.yaw-=(e.clientX-this.lastX)*.003;this.pitch=THREE.MathUtils.clamp(this.pitch-(e.clientY-this.lastY)*.003,-1.35,1.35);this.lastX=e.clientX;this.lastY=e.clientY;this.orient();this.dirty();},opts);
   canvas.addEventListener('pointerup',()=>{this.dragging=false;},opts);
   canvas.addEventListener('pointercancel',()=>{this.dragging=false;},opts);
@@ -54,8 +55,10 @@ export class WalkControls {
  private orient(){this.camera.rotation.set(this.pitch,this.yaw,0,'YXZ');}
  resetInput(){this.keys.clear();this.touchMove=[0,0];this.dragging=false;}
  setPose(point:Point,yaw=0,floor:FloorId='G',height=FLOOR_HEIGHT[floor]){this.camera.position.set(point[0],height+1.65,point[1]);this.yaw=yaw;this.pitch=0;this.orient();this.resetInput();this.dirty();}
- setMove(x:number,z:number){this.touchMove=[x,z];this.dirty();}
+ setPaused(paused:boolean){this.paused=paused;this.resetInput();}
+ setMove(x:number,z:number){if(this.paused)return;this.touchMove=[x,z];this.dirty();}
  update(dt:number){
+  if(this.paused)return false;
   let x=Number(this.keys.has('KeyD')||this.keys.has('ArrowRight'))-Number(this.keys.has('KeyA')||this.keys.has('ArrowLeft'))+this.touchMove[0];
   let z=Number(this.keys.has('KeyS')||this.keys.has('ArrowDown'))-Number(this.keys.has('KeyW')||this.keys.has('ArrowUp'))+this.touchMove[1];
   if(!x&&!z)return false;

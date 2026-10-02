@@ -1,6 +1,6 @@
 import { roofTerrainHeight } from './roof-layout';
 import { antonovHeight, gannonHeight } from './auditorium';
-import { footprintForFloor, ATRIUM_VOID, groundPlan, FLOOR_HEIGHT, pointInPolygon, plan, type FloorId, type Point, type Polygon } from './layout';
+import { footprintForFloor, ATRIUM_VOID, atriumPoint, FLOOR_HEIGHT, pointInPolygon, plan, type FloorId, type Point, type Polygon } from './layout';
 
 export type Position = readonly [number, number, number];
 export interface Flight { from:Position; to:Position; width:number; lower:FloorId; upper:FloorId; }
@@ -17,22 +17,18 @@ export const ENCLOSED_FLIGHTS:Flight[]=FLOOR_ORDER.slice(0,-1).flatMap((lower,i)
  return path.slice(0,-1).map((from,j)=>({from,to:path[j+1],width:1.35,lower,upper}));
 });
 
-const core=groundPlan(1080,810);
-export const ATRIUM_FLIGHTS:Flight[]=Array.from({length:44},(_,i)=>{
- const a=-Math.PI*.8+i/44*Math.PI*1.5,b=-Math.PI*.8+(i+1)/44*Math.PI*1.5;
- return {from:[core[0]+Math.cos(a)*2.6,i/44*6.5,core[1]+Math.sin(a)*2.6],to:[core[0]+Math.cos(b)*2.6,(i+1)/44*6.5,core[1]+Math.sin(b)*2.6],width:1.8,lower:'G',upper:'1'};
-});
-// Continue the top tread to the mezzanine using a landing shared with rendering.
-const top = ATRIUM_FLIGHTS[ATRIUM_FLIGHTS.length - 1].to;
-const tangent:Point = [-Math.sin(Math.PI * .7), Math.cos(Math.PI * .7)];
-let landingLength = .1;
-while (landingLength < 20 && pointInPolygon([top[0] + tangent[0] * landingLength, top[2] + tangent[1] * landingLength], ATRIUM_VOID)) landingLength += .1;
-landingLength += .7;
-export const ATRIUM_LANDING:Flight = {
- from: top,
- to: [top[0] + tangent[0] * landingLength, top[1], top[2] + tangent[1] * landingLength],
- width: 1.8, lower: 'G', upper: '1',
-};
+// Two straight flights flank a curved intermediate landing. The former
+// continuous helix did not match the stairs drawn in HDR's ground/Level 1 plans.
+const atriumPosition=(x:number,y:number,z:number):Position=>{const p=atriumPoint(x,z);return [p[0],y,p[1]];};
+const intermediate=FLOOR_HEIGHT['1']/2;
+const atriumPath:Position[]=[atriumPosition(-3.7,0,-5.1),atriumPosition(-3.7,intermediate,.3)];
+for(let i=1;i<=24;i++){
+ const a=Math.PI-i/24*Math.PI;
+ atriumPath.push(atriumPosition(Math.cos(a)*3.7,intermediate,.3+Math.sin(a)*3.7));
+}
+atriumPath.push(atriumPosition(3.7,intermediate,-3.4),atriumPosition(3,intermediate,-3.4),atriumPosition(-2.2,FLOOR_HEIGHT['1'],-3.4));
+export const ATRIUM_FLIGHTS:Flight[]=atriumPath.slice(0,-1).map((from,i)=>({from,to:atriumPath[i+1],width:1.8,lower:'G',upper:'1'}));
+export const ATRIUM_LANDING:Flight={from:atriumPath[atriumPath.length-1],to:atriumPosition(-5.5,FLOOR_HEIGHT['1'],-3.4),width:1.8,lower:'G',upper:'1'};
 export const FLIGHTS=[...ENCLOSED_FLIGHTS,...ATRIUM_FLIGHTS,ATRIUM_LANDING];
 
 export function flightHeight(point:Point,flight:Flight):number|null {

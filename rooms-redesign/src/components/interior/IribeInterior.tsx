@@ -8,9 +8,16 @@ import { IRIBE_REFERENCES } from './iribe/reference';
 
 export default function IribeInterior(){
  const host=useRef<HTMLDivElement>(null),scene=useRef<ReturnType<typeof createIribeScene>|null>(null);
+ const sourcesDialog=useRef<HTMLDialogElement>(null);
  const exit=useInteriorStore(s=>s.exit);
  const [floor,setFloor]=useState<FloorId>('G');const [location,setLocation]=useState([0,0]);const [sources,setSources]=useState(false);const [error,setError]=useState<string|null>(null);
  useEffect(()=>{if(!host.current)return;try{scene.current=createIribeScene(host.current,(x,z,f)=>{setLocation([x,z]);setFloor(f);});}catch(e){queueMicrotask(()=>setError(e instanceof Error?e.message:'Unable to start the interior.'));}return()=>{scene.current?.dispose();scene.current=null;};},[]);
+ useEffect(()=>{
+  if(!sources)return;
+  const dialog=sourcesDialog.current;if(!dialog)return;
+  scene.current?.setPaused(true);dialog.showModal();
+  return ()=>{if(dialog.open)dialog.close();scene.current?.setPaused(false);};
+ },[sources]);
  const changeFloor=(value:FloorId)=>{scene.current?.setFloor(value);setFloor(value);};
  const footprint=footprintForFloor(floor);
  return <div className="fixed inset-0 z-50 bg-[#d5dedc] text-[#282b29]">
@@ -36,7 +43,7 @@ export default function IribeInterior(){
   <div className="absolute bottom-5 right-3 grid grid-cols-3 gap-1 rounded-xl bg-[#faf7ee] p-2 shadow-sm sm:right-5" aria-label="Walking controls">
    {([[0,-1,ArrowUp,'Walk forward'],[-1,0,ArrowLeft,'Step left'],[0,1,ArrowDown,'Walk backward'],[1,0,ArrowRight,'Step right']] as const).map(([x,z,Icon,label],i)=><button key={label} aria-label={label} className={`flex size-11 touch-none items-center justify-center rounded-lg bg-black/5 active:bg-black/15 ${i===0?'col-start-2':''} ${i===1?'col-start-1':''}`} onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);scene.current?.setMove(x,z);}} onPointerUp={()=>scene.current?.setMove(0,0)} onPointerCancel={()=>scene.current?.setMove(0,0)} onLostPointerCapture={()=>scene.current?.setMove(0,0)}><Icon className="size-4"/></button>)}
   </div>
-  {sources&&<section role="dialog" aria-modal="true" aria-label="Interior references" className="absolute inset-0 flex items-center justify-center bg-black/40 p-5"><div className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-xl bg-[#faf7ee] p-5"><button onClick={()=>setSources(false)} className="float-right p-2" aria-label="Close references"><X/></button><h2 className="font-serif text-2xl">Built from references</h2><p className="my-3 text-sm">A recreation in progress from public UMD plans and HDR photographs. Dimensions and unphotographed details are estimates.</p>{IRIBE_REFERENCES.map(s=><a key={s.url} href={s.url} target="_blank" rel="noreferrer" className="mt-4 block text-sm underline">{s.title}</a>)}</div></section>}
+  {sources&&<dialog ref={sourcesDialog} onCancel={()=>setSources(false)} onClose={()=>setSources(false)} aria-label="Interior references" className="m-auto rounded-xl border-0 bg-[#faf7ee] p-0 text-[#282b29] shadow-xl backdrop:bg-black/40" style={{width:"min(32rem, calc(100vw - 2.5rem))"}}><div className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-xl bg-[#faf7ee] p-5"><button onClick={()=>setSources(false)} className="float-right p-2" aria-label="Close references"><X/></button><h2 className="font-serif text-2xl">Built from references</h2><p className="my-3 text-sm">A recreation in progress from public UMD plans and HDR photographs. Dimensions and unphotographed details are estimates.</p>{IRIBE_REFERENCES.map(s=><a key={s.title} href={s.url} target="_blank" rel="noreferrer" className="mt-4 block text-sm underline">{s.title}</a>)}</div></dialog>}
   {error&&<div role="alert" className="absolute inset-0 flex items-center justify-center bg-[#faf7ee] p-8"><div><p>The interior could not load: {error}</p><button onClick={exit} className="mt-4 underline">Return to campus</button></div></div>}
  </div>;
 }

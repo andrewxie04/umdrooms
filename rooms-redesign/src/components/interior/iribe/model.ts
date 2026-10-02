@@ -1,8 +1,13 @@
 import * as THREE from 'three';
 import { buildRoof } from './roof';
+import { buildCafe } from './cafe';
+import { buildLobbySeating } from './lobby';
+import { buildAtrium } from './atrium';
+import { buildSmallArtifacts, buildDroneLab } from './labs';
+import { buildRoboticsLab } from './robotics';
 import { GANNON_AISLES, GANNON_PLAN, AUD_AISLES, AUD_DEPTH, AUD_WIDTH, AUD_SCALE, ROW_START, ROW_PITCH, ROW_RISE, auditoriumSeats, auditoriumStrip, auditoriumSidePoint } from './auditorium';
 import { clearInside, meetingTable, roomFrame, teachingTables } from './furniture';
-import { ATRIUM_LANDING, ENCLOSED_FLIGHTS, STAIR_CENTER, STAIR_HOLE } from './circulation';
+import { ENCLOSED_FLIGHTS, STAIR_CENTER, STAIR_HOLE } from './circulation';
 import { FLOOR_HEIGHT } from './layout';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { footprintForFloor, fourthPlan, roomTitle, ROOF_GALLERY, ANTONOV_FOOTPRINT, ATRIUM_VOID, ROOMS, plan, groundPlan, type FloorId, type Point, type Polygon, type InteriorRoom, distanceToSegment, pointInPolygon } from './layout';
@@ -28,6 +33,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  const light=new THREE.MeshBasicMaterial({color:0xfff9e5});
  const screen=new THREE.MeshBasicMaterial({color:0xc4cbd0});
  const walnut=mat(0x71533b,.65);walnut.map=woodMap;const warmLight=new THREE.MeshBasicMaterial({color:0xffd8a0});
+ const lobbySoffit=mat(0x9c9f9c,.5);lobbySoffit.side=THREE.DoubleSide;
  const galleryFabric=mat(0x283d47,.95),galleryCeiling=mat(0x737773);galleryCeiling.side=THREE.DoubleSide;
  const classroomFloor=mat(0x444b4c,.42), ceilingPanel=mat(0xd3d5d1);ceilingPanel.side=THREE.DoubleSide;
  const shadowPixels=new Uint8Array(64*64*4);
@@ -37,7 +43,15 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  const shadowMap=new THREE.DataTexture(shadowPixels,64,64);shadowMap.needsUpdate=true;shadowMap.magFilter=THREE.LinearFilter;textures.push(shadowMap);
  const contactShadow=new THREE.MeshBasicMaterial({map:shadowMap,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
- const materials=[white,concrete,black,oak,metal,blue,yellow,lime,red,glass,light,screen,classroomFloor,ceilingPanel,contactShadow,walnut,warmLight,galleryFabric,galleryCeiling];
+ const materials=[white,concrete,black,oak,metal,blue,yellow,lime,red,glass,light,screen,classroomFloor,ceilingPanel,contactShadow,walnut,warmLight,galleryFabric,galleryCeiling,lobbySoffit];
+ const brick=mat(0xffffff,.87);brick.side=THREE.DoubleSide;materials.push(brick);
+ const brickPixels=new Uint8Array(128*64*4);
+ for(let y=0;y<64;y++)for(let x=0;x<128;x++){
+  const row=Math.floor(y/32),column=(x+(row%2)*32)%64,mortar=y%32<2||column<2,i=(y*128+x)*4;
+  const noise=Math.sin(x*23+y*17)*5,shade=(Math.floor((x+(row%2)*32)/64)+row)%3*8;
+  brickPixels[i]=mortar?161:125+noise+shade;brickPixels[i+1]=mortar?154:65+noise+shade;brickPixels[i+2]=mortar?137:42+noise+shade;brickPixels[i+3]=255;
+ }
+ const brickMap=new THREE.DataTexture(brickPixels,128,64);brickMap.colorSpace=THREE.SRGBColorSpace;brickMap.wrapS=brickMap.wrapT=THREE.RepeatWrapping;brickMap.generateMipmaps=true;brickMap.minFilter=THREE.LinearMipmapLinearFilter;brickMap.magFilter=THREE.LinearFilter;brickMap.anisotropy=4;brickMap.needsUpdate=true;brick.map=brickMap;textures.push(brickMap);
  const put=(geo:THREE.BufferGeometry,m:THREE.Material)=>{const list=batches.get(m)||[];const indexed=geo.index?geo:mergeVertices(geo);if(indexed!==geo)geo.dispose();list.push(indexed);batches.set(m,list);};
  const box=(x:number,y:number,z:number,w:number,h:number,d:number,m:THREE.Material,angle=0)=>{const g=new THREE.BoxGeometry(w,h,d);g.rotateY(angle);g.translate(x,y,z);put(g,m);};
  const cylinder=(x:number,y:number,z:number,r:number,h:number,m:THREE.Material)=>{const g=new THREE.CylinderGeometry(r,r,h,32);g.translate(x,y,z);put(g,m);};
@@ -59,7 +73,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  const footprint=footprintForFloor(floor);
  const ceiling=floor==='G'?6.3:floor==='R'?3.45:4.2;
  surface(footprint,0,concrete,floor==='G'?[]:floor==='1'?[STAIR_HOLE,ATRIUM_VOID]:[STAIR_HOLE]);
- if(floor!=='R') surface(footprint,ceiling,black,floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT]:[STAIR_HOLE]);
+ if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:black,floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT]:[STAIR_HOLE]);
 
  // Solid stairwell walls enclose the switchback flights; the corridor entry
  // stays open across both the ascending and descending landings.
@@ -85,18 +99,6 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    for(let i=0;i<=steps;i+=Math.max(1,Math.floor(steps/7))){const t=i/steps;box(ax+(bx-ax)*t+ox,ay-FLOOR_HEIGHT[floor]+rise*t+.52,az+(bz-az)*t+oz,.035,1.04,.035,metal);}
    const start=new THREE.Vector3(ax+ox,ay-FLOOR_HEIGHT[floor]+1.06,az+oz),end=new THREE.Vector3(bx+ox,by-FLOOR_HEIGHT[floor]+1.06,bz+oz);
    const rail=new THREE.CylinderGeometry(.03,.03,start.distanceTo(end),8);rail.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),end.clone().sub(start).normalize()));rail.translate(...start.add(end).multiplyScalar(.5).toArray());put(rail,metal);
-  }
- }
- // The top landing joins the sculptural stair to the mezzanine floor.
- if (floor === 'G' || floor === '1') {
-  const { from: a, to: b, width } = ATRIUM_LANDING;
-  const length = Math.hypot(b[0]-a[0], b[2]-a[2]);
-  const dx = (b[0]-a[0])/length, dz = (b[2]-a[2])/length;
-  if (floor === 'G') box((a[0]+b[0])/2, a[1]-.1, (a[2]+b[2])/2, length, .2, width, white, -Math.atan2(dz,dx));
-  for (const side of [-1,1]) {
-   const start:Point = [a[0]-dz*width/2*side,a[2]+dx*width/2*side];
-   const end:Point = [b[0]-dz*width/2*side,b[2]+dx*width/2*side];
-   if (floor === '1') wall(start,end,1.1,white,true,0,.07);
   }
  }
  // Curtain wall with individual panels and mullions, not opaque painted walls.
@@ -347,30 +349,52 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   }
  }
  function roomShell(room:InteriorRoom){
-  if(room.kind==='garden')return;
+  if(room.kind==='garden'||room.kind==='cafe'||room.id==='lobby-lounge')return;
   if(room.id==='north-reset-zone'){resetZone(room);return;}
   const wallHeight=room.id==='0324'?10.5:room.id==='0318'?3.3:room.kind==='classroom'?3.25:ceiling;
-  const wallMaterial=room.kind==='auditorium'?walnut:room.kind==='lab'?glass:white;
+  const defaultWallMaterial=room.kind==='auditorium'?walnut:room.kind==='lab'?glass:white;
   const nearestEdge=(p:Point)=>room.polygon.reduce((best,a,i)=>distanceToSegment(p,a,room.polygon[(i+1)%room.polygon.length])<distanceToSegment(p,room.polygon[best],room.polygon[(best+1)%room.polygon.length])?i:best,0);
   const nearest=nearestEdge(room.door),doors=[room.door,...(room.additionalDoors??[])];
   room.polygon.forEach((a,i)=>{
    if(room.exteriorEdges?.includes(i))return;
+   const wallMaterial=['0102','0108','0116'].includes(room.id)&&(i===1||i===3)?white:defaultWallMaterial;
+   const shellWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
+    wall(start,end,height,material,collision,base);
+    if(room.id!=='0324')return;
+    const length=Math.hypot(end[0]-start[0],end[1]-start[1]);if(length<.01)return;
+    let nx=-(end[1]-start[1])/length,nz=(end[0]-start[0])/length;
+    const mx=(start[0]+end[0])/2,mz=(start[1]+end[1])/2;
+    if(pointInPolygon([mx+nx*.2,mz+nz*.2],room.polygon)){nx=-nx;nz=-nz;}
+    const g=new THREE.PlaneGeometry(length,height),uv=g.getAttribute('uv');
+    for(let v=0;v<uv.count;v++)uv.setXY(v,uv.getX(v)*length/.48,uv.getY(v)*height/.15+base/.15);
+    g.rotateY(-Math.atan2(end[1]-start[1],end[0]-start[0]));g.translate(mx+nx*.078,base+height/2,mz+nz*.078);put(g,brick);
+   };
    const b=room.polygon[(i+1)%room.polygon.length];
    const len=Math.hypot(b[0]-a[0],b[1]-a[1]),dx=(b[0]-a[0])/len,dz=(b[1]-a[1])/len,half=(room.doorWidth??1.6)/2;
    const openings=doors.filter(p=>nearestEdge(p)===i).map(p=>Math.max(half+.1,Math.min(len-half-.1,(p[0]-a[0])*dx+(p[1]-a[1])*dz))).sort((a,b)=>a-b);
-   if(!openings.length){wall(a,b,wallHeight,room.id==='6217'&&i===1?glass:wallMaterial);return;}
+   if(['0102','0108','0116'].includes(room.id)&&i===0){
+    // The photographed lobby glass has tall metal frames above its doors.
+    const count=Math.ceil(len/1.35);
+    for(let j=0;j<=count;j++){
+     const t=len*j/count,insideDoor=openings.some(center=>Math.abs(t-center)<half+.06);
+     const height=insideDoor?wallHeight-2.5:wallHeight,base=insideDoor?2.5:0;
+     box(a[0]+dx*t,base+height/2,a[1]+dz*t,.065,height,.065,metal);
+    }
+    for(const y of [2.5,5.15])wall(a,b,.08,metal,false,y,.075);
+   }
+   if(!openings.length){shellWall(a,b,wallHeight,room.id==='6217'&&i===1?glass:wallMaterial);return;}
    let cursor=a;
    for(const t of openings){
     const l:Point=[a[0]+dx*(t-half),a[1]+dz*(t-half)],r:Point=[a[0]+dx*(t+half),a[1]+dz*(t+half)];
-    wall(cursor,l,wallHeight,wallMaterial);wall(l,r,wallHeight-2.5,wallMaterial,false,2.5);cursor=r;
-    if(room.kind==='office'||room.kind==='workroom'){
+    shellWall(cursor,l,wallHeight,wallMaterial);shellWall(l,r,wallHeight-2.5,wallMaterial,false,2.5);cursor=r;
+    if(room.kind==='office'||room.kind==='workroom'||['0102','0108','0116'].includes(room.id)){
      for(const jamb of [l,r])box(jamb[0],1.25,jamb[1],.035,2.5,.18,metal,-Math.atan2(dz,dx));
      wall(l,r,.035,metal,false,2.48,.18);
     }
 
     if(room.listed!==false)for(const side of [-1,1])label(roomTitle(room),(l[0]+r[0])/2-dz*.085*side,2.85,(l[1]+r[1])/2+dx*.085*side,-Math.atan2(dz,dx)+(side===1?0:Math.PI),3.4);
    }
-   wall(cursor,b,wallHeight,wallMaterial);
+   shellWall(cursor,b,wallHeight,wallMaterial);
   });
   const xs=room.polygon.map(p=>p[0]),zs=room.polygon.map(p=>p[1]);
   const x=(Math.min(...xs)+Math.max(...xs))/2,z=(Math.min(...zs)+Math.max(...zs))/2;
@@ -379,6 +403,9 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   else if(room.kind==='classroom') classroom(room);
   else if(room.kind==='conference') conference(room);
   else if(room.id==='1231') sandbox(room);
+  else if(room.id==='0116')buildRoboticsLab(room,{box,cylinder,put,palette:{white,oak,metal,glass,black,light},materials,barriers});
+  else if(room.id==='0108')buildDroneLab(room,{box,cylinder,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  else if(room.id==='0102')buildSmallArtifacts(room,{box,cylinder,put,palette:{white,oak,metal,glass,black,light},materials,barriers});
   else if(room.kind==='lab') {
    for(const dx of [-1.7,1.7])for(const dz of [-2.5,0,2.5]){box(x+dx,.84,z+dz,2,.1,1.1,oak);for(const offset of [-.8,.8])box(x+dx+offset,.4,z+dz,.07,.8,.8,metal);box(x+dx,1.2,z+dz, .8,.55,.12,screen);}
   } else if(room.kind==='auditorium') {
@@ -430,30 +457,16 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    barriers.push({a:[x+Math.cos(a)*.3,z+Math.sin(a)*.3],b:[x+Math.cos(b)*.3,z+Math.sin(b)*.3]});
   }
  }
- // Wood-slatted elevator core and the wrapping white stair are the atrium's
- // defining form in HDR's photographed view.
- if(floor==='G'||floor==='1') {
-  const [cx,cz]=groundPlan(1080,810);const h=floor==='G'?6.3:4.15;
-  cylinder(cx,h/2,cz,1.6,h,oak);
-  for(let i=0;i<96;i++){const a=i/96*Math.PI*2;box(cx+Math.cos(a)*1.61,h/2,cz+Math.sin(a)*1.61,.035,h,.07,black,a);}
-  for(let i=0;i<44;i++) {
-   const a=-Math.PI*.8 + i/44*Math.PI*1.5;
-   const y=(i+1)/44*6.5;
-   if(floor==='G'){box(cx+Math.cos(a)*2.6,y-.09,cz+Math.sin(a)*2.6,1.8,.18,.34,white,-a);box(cx+Math.cos(a)*3.5,y+.5,cz+Math.sin(a)*3.5,.065,1,.36,white,-a);}
-  }
-  for(let i=0;i<32;i++){const a=i/32*Math.PI*2,b=(i+1)/32*Math.PI*2;barriers.push({a:[cx+Math.cos(a)*1.65,cz+Math.sin(a)*1.65],b:[cx+Math.cos(b)*1.65,cz+Math.sin(b)*1.65]});}
- }
+ if(floor==='G'||floor==='1')buildAtrium(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  // Public atrium furniture and material cues from HDR photographs.
  if(floor==='G') {
-  for(const [px,py] of [[1100,680],[1180,650],[1230,735],[1140,760]]){
-   const [x,z]=groundPlan(px,py);box(x,.35,z,2.7,.55,.85,yellow);box(x,.75,z+.28,2.7,.5,.27,yellow);table(x,z-1,.65,white);
-  }
+  buildLobbySeating({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers,contact});
   for(const [px,py] of [[950,755],[1000,720],[1040,670]]){const [x,z]=groundPlan(px,py);box(x,1.05,z,2.8,.1,1.05,white);box(x-1.3,.52,z,.14,1.05,1.05,white);box(x+1.3,.52,z,.14,1.05,1.05,white);for(const dx of [-.85,0,.85]){cylinder(x+dx,.73,z+.9,.23,.08,yellow);cylinder(x+dx,.35,z+.9,.035,.7,metal);}}
-  const [cx,cz]=groundPlan(851,687);box(cx,.7,cz,6,1.4,1.2,oak);label('BREAKPOINT',cx,2.3,cz,0,4);
+  buildCafe({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers,chair,table});
  }
  // Irregular suspended luminous strips, spaced along the curved building spine.
  const spine:Point[]=[plan(633,580),plan(640,900),plan(642,1130),plan(630,1310),plan(470,1510),plan(379,1660)];
- for(let i=0;floor!=='R'&&i<spine.length-1;i++){const a=spine[i],b=spine[i+1],len=Math.hypot(b[0]-a[0],b[1]-a[1]);for(let j=0;j<len;j+=3){const t=j/len,x=a[0]+(b[0]-a[0])*t,z=a[1]+(b[1]-a[1])*t;if(pointInPolygon([x,z],footprint))box(x,ceiling-.4,z,3.3,.055,.09,light,(j%2?1:-1)*.7);}}
+ for(let i=0;floor!=='R'&&i<spine.length-1;i++){const a=spine[i],b=spine[i+1],len=Math.hypot(b[0]-a[0],b[1]-a[1]);for(let j=0;j<len;j+=3){const t=j/len,x=a[0]+(b[0]-a[0])*t,z=a[1]+(b[1]-a[1])*t;if(pointInPolygon([x,z],footprint)){if(floor==='G'){if(!pointInPolygon([x,z],ATRIUM_VOID))cylinder(x,ceiling-.012,z,.105,.025,light);}else box(x,ceiling-.4,z,3.3,.055,.09,light,(j%2?1:-1)*.7);}}}
  chairBackTemplate.dispose();
  for(const [m,geometries] of batches){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(!merged)continue;const mesh=new THREE.Mesh(merged,m);mesh.castShadow=false;mesh.receiveShadow=true;group.add(mesh);}
  return {group,barriers,footprint,dispose(){group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}};
