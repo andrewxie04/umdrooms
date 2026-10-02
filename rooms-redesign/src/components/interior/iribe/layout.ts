@@ -5,8 +5,8 @@
 export type Point = readonly [number, number];
 export type Polygon = readonly Point[];
 export type FloorId = 'G' | '1' | '2' | '3' | '4' | '5' | 'R';
-export type RoomKind = 'classroom' | 'seminar' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom' | 'restroom';
-export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; glazedEdges?: readonly number[]; timberEdges?: readonly number[]; doorWidth?: number; arrivalFocus?:Point; additionalDoors?: Point[]; officeMeeting?: boolean; officeMeetingRadius?:number; officeMeetingSeats?:2|4; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
+export type RoomKind = 'classroom' | 'huddle' | 'seminar' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom' | 'restroom';
+export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; glazedEdges?: readonly number[]; timberEdges?: readonly number[]; doorWidth?: number; arrivalFocus?:Point; additionalDoors?: Point[]; officeMeeting?: boolean; officeMeetingRadius?:number; officeMeetingAlongDepth?:boolean; officeMeetingSeats?:2|4; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
 export const PLAN_SCALE = .085;
 export const plan = (x: number, y: number): Point => [(x - 660) * PLAN_SCALE, (y - 1100) * PLAN_SCALE];
 const trace = (points: Polygon): Polygon => points.map(([x,y]) => plan(x,y));
@@ -200,6 +200,82 @@ for(const r of westWorkrooms){
  const lastExterior=r.outline.length-3;
  ROOMS.push({floor:'4',id:r.id,name:r.name,kind:'workroom',evidence:'plan',polygon:r.outline.map((p,i)=>r.facade&&i<=lastExterior?onEnvelope(westFourthPlan(...p)):westFourthPlan(...p)),door:westFourthPlan(...r.door),doorWidth:1.05,exteriorEdges:r.facade?Array.from({length:lastExterior},(_,i)=>i):undefined,deskBanks:r.banks.map(([a,b,seatsPerSide])=>({from:westFourthPlan(...a),to:westFourthPlan(...b),seatsPerSide}))});
 }
+
+// Unnumbered rooms adjoining the west stair, traced from the HDR Level 4
+// spread. Their function is not labeled, so no invented equipment is added.
+export const WEST_SUPPORT_ROOMS:InteriorRoom[]=[
+ {id:'4-west-support-north',outline:[[397,427],[449,379],[522,449],[484,490]],door:[466,395.30]},
+ {id:'4-west-support-east',outline:[[484,490],[542,432],[580,466],[528,524]],door:[561,449]},
+ {id:'4-west-support-southeast',outline:[[528,524],[580,466],[619,499],[576,551]],door:[602,484.615]},
+].map(r=>({floor:'4',id:r.id,name:'Support room',kind:'service',listed:false,evidence:'plan',polygon:r.outline.map(([x,y])=>westFourthPlan(x,y)),door:westFourthPlan(...r.door as [number,number]),doorWidth:1.05}));
+ROOMS.push(...WEST_SUPPORT_ROOMS);
+
+// The public Level 5 wayfinding image retains faint architectural linework
+// under its annotations. Contrast inspection reveals this four-office island
+// below 5237. Room numbers are unreadable; door widths and positions are estimated.
+export const FIFTH_NORTH_OFFICE_ENTRY=plan(610,597);
+export const FIFTH_NORTH_OFFICES:InteriorRoom[]=[
+ {id:'5-north-inner-west-1',outline:[[632,648],[590,648],[590,605],[632,605]],door:[624,605],meeting:false},
+ {id:'5-north-inner-east-1',outline:[[690,648],[632,648],[632,605],[686,605]],door:[648,605],meeting:false},
+ {id:'5-north-inner-west-2',outline:[[590,648],[636,648],[636,711],[590,711]],door:[602,711],meeting:true},
+ {id:'5-north-inner-east-2',outline:[[636,648],[690,648],[690,711],[636,711]],door:[679,711],meeting:true},
+].map(r=>({floor:'5',id:r.id,name:'Office',kind:'office',listed:false,evidence:'plan',polygon:r.outline.map(([x,y])=>plan(x,y)),door:plan(...r.door as [number,number]),doorWidth:.95,officeMeeting:r.meeting}));
+ROOMS.push(...FIFTH_NORTH_OFFICES);
+
+// Visible perimeter partitions on the same Level 5 drawing, below the 5237
+// annotation. Covered walls above this range are not extrapolated.
+export const FIFTH_PERIMETER_OFFICES:InteriorRoom[]=[];
+for(const [side,ys] of [['west',[595,628,663,698,733,770]],['east',[608,636,671,706,740,774,809,843,871]]] as const){
+ const inside=(y:number)=>plan(side==='west'?574-(y-595)*.018:698+(y-608)*.115,y);
+ for(let i=0;i<ys.length-1;i++){
+  const top=ys[i],bottom=ys[i+1],a=upperWindow(inside(top),side),b=upperWindow(inside(bottom),side);
+  const points:Polygon=[a,b,inside(bottom),inside(top)],t=i%2?.24:.76;
+  const door:Point=[points[3][0]+(points[2][0]-points[3][0])*t,points[3][1]+(points[2][1]-points[3][1])*t];
+  FIFTH_PERIMETER_OFFICES.push({floor:'5',id:`5-north-${side}-office-${i+1}`,name:'Office',kind:'office',listed:false,evidence:'plan',polygon:points,door,doorWidth:.95,exteriorEdges:[0],officeMeeting:true,officeMeetingRadius:side==='west'?.36:undefined,officeMeetingAlongDepth:side==='west'});
+ }
+}
+ROOMS.push(...FIFTH_PERIMETER_OFFICES);
+
+// Visible service enclosures between the north stair and central lift on the
+// Level 5 wayfinding underlay. Unreadable room numbers are not assigned.
+export const FIFTH_SERVICE_SHAFT:Polygon=trace([[600,883],[702,872],[706,911],[600,911]]);
+export const FIFTH_SERVICE_ROOMS:InteriorRoom[]=[
+ {id:'5-central-control',name:'Control room',outline:[[600,912],[678,912],[684,956],[601,956]],door:[600.66,941]},
+ {id:'5-central-server',name:'Server room',outline:[[678,912],[705,912],[709,953],[684,956]],door:[696.5,954.5]},
+].map(r=>({floor:'5',id:r.id,name:r.name,kind:'service',listed:false,evidence:'plan',polygon:r.outline.map(([x,y])=>plan(x,y)),door:plan(...r.door as [number,number]),doorWidth:1.05}));
+ROOMS.push(...FIFTH_SERVICE_ROOMS);
+
+// Four fully visible middle-wing offices. The east row interrupted by the
+// large YOU ARE HERE arrow is intentionally left untraced between these rooms.
+export const FIFTH_MIDDLE_OFFICES:InteriorRoom[]=[
+ {id:'5-middle-west-office-1',side:'west' as const,top:979,bottom:1046,innerTop:568,innerBottom:568,meeting:true},
+ {id:'5-middle-west-office-2',side:'west' as const,top:1046,bottom:1083,innerTop:568,innerBottom:568,meeting:false},
+ {id:'5-middle-east-office-1',side:'east' as const,top:982,bottom:1018,innerTop:742,innerBottom:744,meeting:true},
+ {id:'5-middle-east-office-2',side:'east' as const,top:1049,bottom:1086,innerTop:746,innerBottom:748,meeting:true},
+].map(r=>{
+ const a=upperWindow(plan(r.innerTop,r.top),r.side),b=upperWindow(plan(r.innerBottom,r.bottom),r.side),c=plan(r.innerBottom,r.bottom),d=plan(r.innerTop,r.top);
+ return {floor:'5',id:r.id,name:'Office',kind:'office',listed:false,evidence:'plan',polygon:[a,b,c,d],door:[d[0]+(c[0]-d[0])*.78,d[1]+(c[1]-d[1])*.78],doorWidth:.95,exteriorEdges:[0],officeMeeting:r.meeting,officeMeetingSeats:r.id==='5-middle-west-office-1'?4:2};
+});
+ROOMS.push(...FIFTH_MIDDLE_OFFICES);
+
+// Shared spaces flanking the central lift. Their outlines remain visible on
+// the wayfinding underlay; the small furniture symbols do not establish a
+// reliable desk count or equipment inventory, so they remain unfurnished.
+export const FIFTH_SHARED_OFFICES:InteriorRoom[]=[
+ {id:'5-west-shared-office',name:'West shared office',side:'west' as const,outline:[[506,1085],[502,1145],[494,1158],[553,1164],[564,1085]],door:[563.05,1091.8],exterior:[0,1]},
+ {id:'5-east-shared-office',name:'East shared office',side:'east' as const,outline:[[810,1087],[823,1206],[741,1191],[747,1087]],door:[746.13,1102],exterior:[0]},
+].map(r=>({floor:'5',id:r.id,name:r.name,kind:'workroom',listed:false,evidence:'plan',polygon:r.outline.map(([x,y],i)=>r.exterior.includes(i)||i===r.exterior.at(-1)!+1?onEnvelope(plan(x,y)):plan(x,y)),door:plan(...r.door as [number,number]),doorWidth:1.1,exteriorEdges:r.exterior,deskBanks:[]}));
+ROOMS.push(...FIFTH_SHARED_OFFICES);
+
+// Three small round-table rooms on the east side of the west stair core.
+// The HDR plan shows three chairs in each; room numbers are not legible.
+// A/B/C are descriptive navigation names, not official room identifiers.
+export const WEST_HUDDLE_ROOMS:InteriorRoom[]=[
+ {id:'4-west-huddle-1',outline:[[604,558],[635,514],[669,540],[640,584]],door:[659,555.17]},
+ {id:'4-west-huddle-2',outline:[[574,597],[604,558],[640,584],[612,626]],door:[632,596]},
+ {id:'4-west-huddle-3',outline:[[543,642],[574,597],[612,626],[582,668]],door:[602,640]},
+].map((r,i)=>({floor:'4',id:r.id,name:`West meeting room ${String.fromCharCode(65+i)}`,kind:'huddle',evidence:'plan',polygon:r.outline.map(([x,y])=>westFourthPlan(x,y)),door:westFourthPlan(...r.door as [number,number]),doorWidth:1.0}));
+ROOMS.push(...WEST_HUDDLE_ROOMS);
 
 // Enlarged HDR service-core crop: PDF page 13, x205–405 / y390–480,
 // rendered at 6x. Fixtures use this same registration in restrooms.ts.

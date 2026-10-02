@@ -1,3 +1,4 @@
+import { WEST_STAIR } from './iribe/west-stair-layout';
 import { communicatingStairForFloor } from './iribe/communicating-layout';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUp, ArrowDown, ArrowRight, BookOpen, X } from 'lucide-react';
@@ -22,7 +23,7 @@ export default function IribeInterior(){
   return ()=>{if(dialog.open)dialog.close();scene.current?.setPaused(false);};
  },[sources]);
  const changeFloor=(value:FloorId)=>{scene.current?.setFloor(value);setFloor(value);};
- const footprint=footprintForFloor(floor),communicating=communicatingStairForFloor(floor);
+ const footprint=footprintForFloor(floor),communicating=communicatingStairForFloor(floor),westStair=floor===WEST_STAIR.lower||floor===WEST_STAIR.upper;
  return <div className="fixed inset-0 z-50 bg-[#d5dedc] text-[#282b29]">
   <div ref={host} className="absolute inset-0" />
   <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-3 sm:p-5">
@@ -35,13 +36,14 @@ export default function IribeInterior(){
   </header>
   <div className="absolute bottom-5 left-3 rounded-xl bg-[#faf7ee] p-3 shadow-sm sm:left-5">
    <label className="text-xs">Explore a floor<select value={floor} onChange={e=>changeFloor(e.target.value as FloorId)} className="mt-2 block min-h-10 rounded-lg border border-black/15 bg-transparent px-3 text-sm">{Object.entries(FLOOR_LABEL).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
-   {(communicating||ROOMS.some(r=>r.floor===floor&&r.listed!==false))&&<label className="mt-3 block text-xs">Visit a space<select value="" onChange={e=>e.target.value==='communicating-stair'?scene.current?.visitStair():scene.current?.visitRoom(floor,e.target.value)} className="mt-2 block min-h-10 w-44 rounded-lg border border-black/15 bg-transparent px-2 text-sm"><option value="" disabled>Choose a space</option>{communicating&&<option value="communicating-stair">Stairs to Level {floor===communicating.lower?communicating.upper:communicating.lower}</option>}{ROOMS.filter(r=>r.floor===floor&&r.listed!==false).map(r=><option key={r.id} value={r.id}>{roomTitle(r)}</option>)}</select></label>}
+   {(westStair||communicating||ROOMS.some(r=>r.floor===floor&&r.listed!==false))&&<label className="mt-3 block text-xs">Visit a space<select value="" onChange={e=>e.target.value==='north-offices'?scene.current?.visitNorthOffices():e.target.value==='west-stair'?scene.current?.visitWestStair():e.target.value==='communicating-stair'?scene.current?.visitStair():scene.current?.visitRoom(floor,e.target.value)} className="mt-2 block min-h-10 w-44 rounded-lg border border-black/15 bg-transparent px-2 text-sm"><option value="" disabled>Choose a space</option>{communicating&&<option value="communicating-stair">Stairs to Level {floor===communicating.lower?communicating.upper:communicating.lower}</option>}{floor==='5'&&<option value="north-offices">North office corridor</option>}{westStair&&<option value="west-stair">West stair to Level {floor===WEST_STAIR.lower?WEST_STAIR.upper:WEST_STAIR.lower}</option>}{ROOMS.filter(r=>r.floor===floor&&r.listed!==false).map(r=><option key={r.id} value={r.id}>{roomTitle(r)}</option>)}</select></label>}
    <svg viewBox="-50 -75 105 145" className="mt-2 hidden h-36 w-32 sm:block" aria-label="Interior position">
     {floor==='1'&&<><polygon points={FAMILY_TERRACE.map(p=>p.join(',')).join(' ')} fill="#d7cbb7" stroke="#858982" strokeWidth=".4"/>{FAMILY_BEDS.map((bed,i)=><polygon key={i} points={bed.map(p=>p.join(',')).join(' ')} fill="#77935c"/>)}</>}
     <polygon points={footprint.map(p=>p.join(',')).join(' ')} fill="#e2ded2" stroke="#858982" strokeWidth=".4"/>
     {floor==='R'&&<>{[ROOF_LAWN,...ROOF_BEDS].map((p,i)=><polygon key={i} points={p.map(p=>p.join(',')).join(' ')} fill="#77935c"/>)}<polygon points={ROOF_POOL.map(p=>p.join(',')).join(' ')} fill="#587b87"/></>}
     {ROOMS.filter(r=>r.floor===floor&&r.kind!=='garden').map(r=><polygon key={r.id} points={r.polygon.map(p=>p.join(',')).join(' ')} fill="#b9bfb6" stroke="#faf7ee" strokeWidth=".35"/>)}
     {communicating&&<><polygon points={communicating.void.map(p=>p.join(',')).join(' ')} fill="#faf7ee" stroke="#858982" strokeWidth=".3"/><polygon points={communicating.core.map(p=>p.join(',')).join(' ')} fill="#b9bfb6"/><polyline points={communicating.path.map(p=>p.join(',')).join(' ')} fill="none" stroke="#858982" strokeWidth=".6"/></>}
+    {westStair&&<><polygon points={WEST_STAIR.shaft.map(p=>p.join(',')).join(' ')} fill="#faf7ee" stroke="#858982" strokeWidth=".3"/><polyline points={[WEST_STAIR.flights[0].from,...WEST_STAIR.flights.map(f=>f.to)].map(p=>`${p[0]},${p[2]}`).join(' ')} fill="none" stroke="#858982" strokeWidth=".5"/></>}
     <circle cx={location[0]} cy={location[1]} r="1.8" fill="#b51c32" stroke="white" strokeWidth=".5"/>
    </svg>
   </div>

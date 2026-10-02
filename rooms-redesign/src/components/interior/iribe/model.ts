@@ -1,3 +1,6 @@
+import { buildWestHuddle } from './west-huddles';
+import { FIFTH_SERVICE_SHAFT } from './layout';
+import { buildWestLift } from './west-core';
 import { WEST_STAIR } from './west-stair-layout';
 import { buildWestStair } from './west-stairs';
 import { buildSeminarAV } from './seminar-av';
@@ -321,7 +324,8 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    const radius=room.officeMeetingRadius??.43,offset=room.officeMeetingRadius===undefined?.73:radius+.2;
    table(meeting[0],meeting[1],radius,white);
    for(const side of [-1,1]){
-    chair(meeting[0]+ux*offset*side,meeting[1]+uz*offset*side,Math.atan2(ux*side,uz*side),blue);
+    const cx=room.officeMeetingAlongDepth?nx:ux,cz=room.officeMeetingAlongDepth?nz:uz;
+    chair(meeting[0]+cx*offset*side,meeting[1]+cz*offset*side,Math.atan2(cx*side,cz*side),blue);
     if(room.officeMeetingSeats===4)chair(meeting[0]+nx*offset*side,meeting[1]+nz*offset*side,Math.atan2(nx*side,nz*side),blue);
    }
   }
@@ -448,6 +452,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   else if(room.id==='1213'||room.id==='1209')buildSupportStorage(room,sandboxBuilder());
   else if(room.id==='2237'||room.id==='hatchery-west-workroom')buildHatchery(room.id,sandboxBuilder());
   else if(FIRST_OFFICE_TYPES[room.id]){surface(room.polygon,.01,classroomFloor);buildFirstOffice(room,{...sandboxBuilder(),chair});}
+  else if(room.kind==='huddle')buildWestHuddle(room,{...sandboxBuilder(),chair});
   else if(room.kind==='office')office(room);
   else if(room.kind==='workroom')workroom(room);
   else if(room.kind==='restroom')buildRestroom(room,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
@@ -477,7 +482,11 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  const conferenceAV=createConferenceAVBuilder({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  ROOMS.filter(r=>r.floor===floor).forEach(roomShell);
+ batches=shellBatches;
+ if(floor==='5')FIFTH_SERVICE_SHAFT.forEach((a,i)=>wall(a,FIFTH_SERVICE_SHAFT[(i+1)%FIFTH_SERVICE_SHAFT.length],4.2,white));
+ if(floor==='4')buildWestLift({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  buildWestStair(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+ batches=detailBatches;
  if(floor==='4'){
   // The public upper-floor photos show exposed services over the corridors.
   // Their exact routing is estimated; these runs follow the traced circulation.

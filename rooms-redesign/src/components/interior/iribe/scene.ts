@@ -1,3 +1,4 @@
+import { WEST_STAIR } from './west-stair-layout';
 import { communicatingStairForFloor } from './communicating-layout';
 import { loadSurroundings } from './surroundings';
 import { amphitheaterHeight } from './amphitheater';
@@ -7,7 +8,7 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { roomArrival } from './arrival';
 import { buildInteriorFloor } from './model';
 import { FLOOR_ORDER, floorAtPosition, stairEntry } from './circulation';
-import { ENTRY, plan, FLOOR_HEIGHT, ROOMS, type FloorId } from './layout';
+import { ENTRY, FIFTH_NORTH_OFFICE_ENTRY, plan, FLOOR_HEIGHT, ROOMS, type FloorId } from './layout';
 import { WalkControls } from './walk';
 
 export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:number,floor:FloorId)=>void,onSurroundings?:(status:'ready'|'unavailable')=>void) {
@@ -44,6 +45,15 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
    const stair=communicatingStairForFloor(activeFloor);if(!stair)return;
    const point=activeFloor===stair.lower?stair.entry:stair.exit,target=activeFloor===stair.lower?stair.path[0]:stair.path.at(-1)!;
    controls.setPose(point,Math.atan2(point[0]-target[0],point[1]-target[1]),activeFloor);dirty=true;
+  },
+  visitNorthOffices(){
+   if(activeFloor!=='5')return;
+   const p=FIFTH_NORTH_OFFICE_ENTRY,target=plan(624,605);
+   controls.setPose(p,Math.atan2(p[0]-target[0],p[1]-target[1]),'5');dirty=true;
+  },
+  visitWestStair(){
+   const s=WEST_STAIR;if(activeFloor!==s.lower&&activeFloor!==s.upper)return;
+   controls.setPose(s.entry,Math.atan2(s.entry[0]-s.door[0],s.entry[1]-s.door[1]),activeFloor);dirty=true;
   },
   setPaused:(paused:boolean)=>controls.setPaused(paused),
   setMove:(x:number,z:number)=>controls.setMove(x,z),

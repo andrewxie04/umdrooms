@@ -1,3 +1,12 @@
+import { WEST_HUDDLE_ROOMS } from './layout';
+import { westHuddleFurniture } from './west-huddles';
+import { FIFTH_SHARED_OFFICES } from './layout';
+import { FIFTH_MIDDLE_OFFICES } from './layout';
+import { FIFTH_SERVICE_SHAFT, FIFTH_SERVICE_ROOMS } from './layout';
+import { FIFTH_PERIMETER_OFFICES, FIFTH_NORTH_OFFICE_ENTRY, FIFTH_NORTH_OFFICES } from './layout';
+import { WEST_LIFT, WEST_LIFT_FRONT } from './west-core';
+import { WEST_SUPPORT_ROOMS } from './layout';
+import { WEST_STAIR } from './west-stair-layout';
 import { seminarAVLayout, buildSeminarAV } from './seminar-av';
 import { HATCHERY_COMMON, HATCHERY_ROOMS } from './layout';
 import { HATCHERY_ITEMS, hatcheryItemFrame, hatcheryItemFootprint, buildHatchery } from './hatchery';
@@ -12,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildInteriorFloor, type InteriorModel } from './model';
 import { plan, fourthPlan, westFourthPlan, footprintForFloor, roofPlan, ROOF_GALLERY, ROOF_PUBLIC_FOOTPRINT, type Point, type FloorId } from './layout';
 import { ROOF_BEDS, ROOF_LAWN, ROOF_POOL, ROOF_DOORS, ROOF_FACADE, ROOF_FOYER, ROOF_OUTDOOR } from './roof-layout';
-import { ATRIUM_LANDING, ATRIUM_FLIGHTS, ENCLOSED_FLIGHTS, FLOOR_ORDER, STAIR_CENTER, STAIR_HOLE, type Flight, type Position } from './circulation';
+import { ATRIUM_LANDING, ATRIUM_FLIGHTS, ENCLOSED_FLIGHTS, stairEntry, FLOOR_ORDER, STAIR_CENTER, STAIR_HOLE, type Flight, type Position } from './circulation';
 import { GANNON_AISLES, gannonHeight, AUD_AISLES, AUD_SCALE, ROW_START, ROW_PITCH, auditoriumSeats, antonovHeight } from './auditorium';
 import { walkStep3 } from './walk';
 import { roomArrival } from './arrival';
@@ -24,7 +33,7 @@ import { buildRestroom, RESTROOM_PLANS, restroomFrame, restroomStalls } from './
 import { MEETING_CAPACITIES, meetingTable, meetingSeats } from './furniture';
 import { FIRST_CLASSROOM, FIRST_CLASSROOM_TABLES, SANDBOX_SUPPORT, FIRST_OFFICES, firstNorthPlan, ELEVATOR, firstCorePlan, secondCorePoint } from './layout';
 import { supportCabinetFrame } from './support-rooms';
-import { firstOfficeFurniture } from './first-offices';
+import { firstOfficeFrame, firstOfficeFurniture } from './first-offices';
 import { ROOMS, FLOOR_HEIGHT, ANTONOV_FOOTPRINT, ENTRY, CAFE_LENGTH, cafePoint, groundPlan, pointInPolygon, distanceToSegment } from './layout';
 
 const renderingErrors:string[]=[];
@@ -42,7 +51,7 @@ function follow(flights: Flight[], reverse = false) {
   const length = Math.hypot(flight.to[0] - flight.from[0], flight.to[2] - flight.from[2]);
   const count = Math.ceil(length / .04);
   for (let i = 0; i < count; i++) position = walkStep3(position, [(flight.to[0] - flight.from[0]) / count, (flight.to[2] - flight.from[2]) / count], floor => models.get(floor)!.barriers);
-  expect(position[0]).toBeCloseTo(flight.to[0], 1);
+  expect(position[0],JSON.stringify({flight,position})).toBeCloseTo(flight.to[0], 1);
   expect(position[2]).toBeCloseTo(flight.to[2], 1);
   expect(position[1]).toBeCloseTo(flight.to[1], 1);
  }
@@ -703,4 +712,194 @@ describe('4105 large seminar presentation system',()=>{
   expect(roomArrival(room,models.get('4')!.barriers)).not.toBeNull();
   materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());base.dispose();
  });
+});
+
+
+describe('west enclosed stair',()=>{
+ const s=WEST_STAIR;
+ const pos=(p:Point,f:FloorId):Position=>[p[0],FLOOR_HEIGHT[f],p[1]];
+ const edge=(from:Position,to:Position):Flight=>({from,to,width:s.flightWidth,lower:s.lower,upper:s.upper});
+ const bottom=pos(s.at(s.width*.75,s.doorZ),s.lower),top=pos(s.landing,s.upper);
+ const route=[edge(pos(s.entry,s.lower),bottom),edge(bottom,s.flights[0].from),...s.flights,edge(s.flights.at(-1)!.to,top),edge(top,pos(s.entry,s.upper))];
+ it('walks from the Level 4 corridor through both flights to Level 5',()=>follow(route));
+ it('walks back from Level 5 to the Level 4 corridor',()=>follow(route,true));
+ it('fits between rooms inside the building',()=>{
+  for(const floor of [s.lower,s.upper])for(const p of [...s.shaft,s.entry,s.door]){
+   expect(pointInPolygon(p,footprintForFloor(floor))).toBe(true);
+   expect(ROOMS.filter(r=>r.floor===floor&&pointInPolygon(p,r.polygon)).map(r=>r.id),`room overlap ${floor}/${p}`).toEqual([]);
+  }
+ });
+ it('provides headroom through the upper slab and lower ceiling',()=>{
+  const meshes:THREE.Object3D[]=[];
+  for(const floor of [s.lower,s.upper]){const m=models.get(floor)!;m.group.position.y=FLOOR_HEIGHT[floor];m.group.updateMatrixWorld(true);m.group.traverse(o=>{if(o instanceof THREE.Mesh)meshes.push(o);});}
+  try{
+   for(const f of s.flights)for(const t of [.1,.5,.9]){
+    const p=f.from.map((v,i)=>v+(f.to[i]-v)*t);
+    const ray=new THREE.Raycaster(new THREE.Vector3(p[0],p[1]+.2,p[2]),new THREE.Vector3(0,1,0),0,1.7);
+    expect(ray.intersectObjects(meshes,false),`headroom at ${p}`).toHaveLength(0);
+   }
+  }finally{for(const floor of [s.lower,s.upper]){const m=models.get(floor)!;m.group.position.y=0;m.group.updateMatrixWorld(true);}}
+ });
+});
+
+
+describe('west stair support rooms',()=>{
+ for(const room of WEST_SUPPORT_ROOMS){
+  it(`${room.id} is inside the floor and separate from neighboring rooms`,()=>{
+   for(const p of room.polygon){
+    expect(pointInPolygon(p,footprintForFloor('4'))).toBe(true);
+    expect(ROOMS.filter(r=>r.floor==='4'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
+   }
+  });
+  it(`walks through ${room.id} to the center`,()=>{
+   const center:Point=[room.polygon.reduce((s,p)=>s+p[0],0)/room.polygon.length,room.polygon.reduce((s,p)=>s+p[1],0)/room.polygon.length];
+   walkInteriorTargets(room,[[center]]);
+  });
+ }
+});
+
+
+it('connects the west stair, support rooms, and shared workroom through the corridor',()=>{
+ const corridor={...WEST_SUPPORT_ROOMS[0],id:'west-core-corridor',kind:'garden' as const,door:WEST_STAIR.entry,polygon:[[120,160],[730,160],[730,750],[120,750]].map(([x,y])=>westFourthPlan(x,y))};
+ const targets=[...WEST_SUPPORT_ROOMS.map(r=>r.door),...WEST_HUDDLE_ROOMS.map(r=>r.door),ROOMS.find(r=>r.id==='4-west-shared-room')!.door];
+ walkInteriorTargets(corridor,targets.map(p=>[p]));
+},15000);
+
+
+it('keeps the closed west lift solid and clear of the stair entrance',()=>{
+ const f=WEST_LIFT_FRONT;
+ for(const p of WEST_LIFT){expect(pointInPolygon(p,footprintForFloor('4'))).toBe(true);expect(pointInPolygon(p,WEST_STAIR.shaft)).toBe(false);}
+ expect(models.get('4')!.barriers.some(b=>distanceToSegment(f.center,b.a,b.b)<.01&&(b.maxY??4.2)>1.65)).toBe(true);
+ expect(Math.min(...WEST_LIFT.map((p,i)=>distanceToSegment(WEST_STAIR.entry,p,WEST_LIFT[(i+1)%4])))).toBeGreaterThan(.4);
+});
+
+
+describe('Level 5 north office island',()=>{
+ for(const room of FIFTH_NORTH_OFFICES){
+  it(`keeps ${room.id} clear of other rooms`,()=>{
+   for(const p of room.polygon){
+    expect(pointInPolygon(p,footprintForFloor('5'))).toBe(true);
+    expect(ROOMS.filter(r=>r.floor==='5'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
+   }
+  });
+  it(`provides a clear doorway and usable interior in ${room.id}`,()=>{
+   const arrival=roomArrival(room,models.get('5')!.barriers);expect(arrival).not.toBeNull();
+   const f=firstOfficeFrame(room);
+   walkInteriorTargets(room,[[f.at(-1.45,1.65)],[f.at(1.45,1.65)]]);
+  });
+ }
+});
+
+
+it('connects all four Level 5 north offices to room 5237',()=>{
+ const corridor={...FIFTH_NORTH_OFFICES[0],id:'5-north-office-corridor',kind:'garden' as const,door:ROOMS.find(r=>r.id==='5237')!.door,polygon:[[530,583],[750,583],[750,728],[530,728]].map(([x,y])=>plan(x,y))};
+ walkInteriorTargets(corridor,FIFTH_NORTH_OFFICES.map(r=>[r.door]));
+},15000);
+
+
+it('places the north office shortcut on clear corridor floor',()=>{
+ expect(pointInPolygon(FIFTH_NORTH_OFFICE_ENTRY,footprintForFloor('5'))).toBe(true);
+ expect(models.get('5')!.barriers.every(b=>(b.minY??0)>=1.65||(b.maxY??4.2)<=0||distanceToSegment(FIFTH_NORTH_OFFICE_ENTRY,b.a,b.b)>.42)).toBe(true);
+});
+
+
+describe('Level 5 perimeter office corridors',()=>{
+ it('reaches every new office from the north corridor',()=>{
+  const corridor={...FIFTH_NORTH_OFFICES[0],id:'5-perimeter-corridor',kind:'garden' as const,door:FIFTH_NORTH_OFFICE_ENTRY,polygon:[[520,590],[800,590],[800,890],[520,890]].map(([x,y])=>plan(x,y))};
+  walkInteriorTargets(corridor,FIFTH_PERIMETER_OFFICES.map(r=>[r.door]),.2);
+ },20000);
+ for(const room of FIFTH_PERIMETER_OFFICES)it(`${room.id} has a clear entrance without overlapping other rooms`,()=>{
+  expect(roomArrival(room,models.get('5')!.barriers)).not.toBeNull();
+  for(const p of room.polygon){
+   expect(ROOMS.filter(r=>r.floor==='5'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
+  }
+ });
+});
+
+
+for(const room of FIFTH_PERIMETER_OFFICES)it(`walks from the corridor into the working aisle in ${room.id}`,()=>{
+ const f=firstOfficeFrame(room);
+ walkInteriorTargets(room,[[f.at(-.9,2.55)],[f.at(.9,2.55)]]);
+});
+
+
+describe('Level 5 central service enclosures',()=>{
+ for(const room of FIFTH_SERVICE_ROOMS)it(`enters ${room.id} without crossing furniture or walls`,()=>{
+  const center:Point=[room.polygon.reduce((s,p)=>s+p[0],0)/4,room.polygon.reduce((s,p)=>s+p[1],0)/4];
+  walkInteriorTargets(room,[[center]]);
+  for(const p of room.polygon){
+   expect(pointInPolygon(p,FIFTH_SERVICE_SHAFT)).toBe(false);
+   expect(ROOMS.filter(r=>r.floor==='5'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
+  }
+ });
+ it('encloses the service shaft on all sides',()=>{
+  const barriers=models.get('5')!.barriers;
+  FIFTH_SERVICE_SHAFT.forEach((p,i)=>{const q=FIFTH_SERVICE_SHAFT[(i+1)%FIFTH_SERVICE_SHAFT.length],mid:Point=[(p[0]+q[0])/2,(p[1]+q[1])/2];expect(barriers.some(b=>distanceToSegment(mid,b.a,b.b)<.01)).toBe(true);});
+ });
+ it('connects the north stair approach and both service-room entrances',()=>{
+  const corridor={...FIFTH_SERVICE_ROOMS[0],id:'5-service-corridor',kind:'garden' as const,door:plan(560,920),polygon:[[550,855],[749,855],[749,980],[550,980]].map(([x,y])=>plan(x,y))};
+  walkInteriorTargets(corridor,[[plan(580,860)],...FIFTH_SERVICE_ROOMS.map(r=>[r.door])]);
+ });
+});
+
+
+it('keeps the Level 5 service shaft visible with distant details hidden',()=>{
+ const model=models.get('5')!,meshes:THREE.Object3D[]=[];
+ try{
+  model.setDetailsVisible(false);model.group.updateMatrixWorld(true);model.group.traverseVisible(o=>{if(o instanceof THREE.Mesh)meshes.push(o);});
+  FIFTH_SERVICE_SHAFT.forEach((a,i)=>{
+   const b=FIFTH_SERVICE_SHAFT[(i+1)%4],mid:Point=[(a[0]+b[0])/2,(a[1]+b[1])/2],len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+   let n:Point=[-(b[1]-a[1])/len,(b[0]-a[0])/len];if(pointInPolygon([mid[0]+n[0]*.3,mid[1]+n[1]*.3],FIFTH_SERVICE_SHAFT))n=[-n[0],-n[1]];
+   const ray=new THREE.Raycaster(new THREE.Vector3(mid[0]+n[0]*.4,1.5,mid[1]+n[1]*.4),new THREE.Vector3(-n[0],0,-n[1]),0,.6);
+   expect(ray.intersectObjects(meshes,false).length).toBeGreaterThan(0);
+  });
+ }finally{model.setDetailsVisible(true);}
+});
+
+
+it('walks out of the Level 5 north stair to the service corridor and back',()=>{
+ const p=stairEntry('5'),q=plan(560,920),height=FLOOR_HEIGHT['5'];
+ const points:Position[]=[[p[0],height,p[1]],[p[0],height,p[1]+1.1],[q[0],height,q[1]]];
+ const route:Flight[]=points.slice(0,-1).map((from,i)=>({from,to:points[i+1],width:1.2,lower:'5',upper:'5'}));
+ follow(route);follow(route,true);
+});
+
+
+describe('Level 5 middle-wing offices',()=>{
+ for(const room of FIFTH_MIDDLE_OFFICES)it(`enters and reaches both desk approaches in ${room.id}`,()=>{
+  const f=firstOfficeFrame(room);walkInteriorTargets(room,[[f.at(-.9,2.5)],[f.at(.9,2.5)]]);
+  for(const p of room.polygon)expect(ROOMS.filter(r=>r.floor==='5'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
+ });
+ it('connects the service corridor to all four doors',()=>{
+  const corridor={...FIFTH_MIDDLE_OFFICES[0],id:'5-middle-office-corridor',kind:'garden' as const,door:plan(580,970),polygon:[[555,960],[790,960],[790,1095],[555,1095]].map(([x,y])=>plan(x,y))};
+  walkInteriorTargets(corridor,FIFTH_MIDDLE_OFFICES.map(r=>[r.door]));
+ });
+});
+
+
+describe('Level 5 shared-office enclosures',()=>{
+ for(const room of FIFTH_SHARED_OFFICES)it(`reaches the interior of ${room.id} without overlapping adjacent rooms`,()=>{
+  const center:Point=[room.polygon.reduce((s,p)=>s+p[0],0)/room.polygon.length,room.polygon.reduce((s,p)=>s+p[1],0)/room.polygon.length];
+  walkInteriorTargets(room,[[center]]);
+  for(const p of room.polygon)expect(ROOMS.filter(r=>r.floor==='5'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
+ });
+ it('keeps the central stair exit connected to both shared offices',()=>{
+  const stair=COMMUNICATING_STAIRS.find(s=>s.upper==='5')!;
+  const corridor={...FIFTH_SHARED_OFFICES[0],id:'5-shared-office-corridor',kind:'garden' as const,door:stair.exit,polygon:[[535,1065],[762,1065],[762,1205],[535,1205]].map(([x,y])=>plan(x,y))};
+  walkInteriorTargets(corridor,FIFTH_SHARED_OFFICES.map(r=>[r.door]));
+ });
+});
+
+
+describe('Level 4 west small meeting rooms',()=>{
+ for(const room of WEST_HUDDLE_ROOMS){
+  it(`keeps ${room.id} separate from neighboring rooms`,()=>{
+   for(const p of room.polygon)expect(ROOMS.filter(r=>r.floor==='4'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
+  });
+  it(`allows entry and access to all three seats in ${room.id}`,()=>{
+   const furniture=westHuddleFurniture(room);
+   for(const p of [furniture.table,...furniture.chairs])expect(pointInPolygon(p,room.polygon)).toBe(true);
+   walkInteriorTargets(room,furniture.chairs.map(p=>Array.from({length:12},(_,i)=>[p[0]+Math.cos(i*Math.PI/6)*.55,p[1]+Math.sin(i*Math.PI/6)*.55] as Point)),.1);
+  });
+ }
 });
