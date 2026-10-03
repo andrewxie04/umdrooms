@@ -1,3 +1,4 @@
+import { buildFirstWestMeeting } from './first-west-meetings';
 import { buildImdLab } from './imd-lab';
 import { buildWestSupport } from './west-support';
 import { buildWestHuddle } from './west-huddles';
@@ -313,7 +314,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   const len=Math.hypot(b[0]-a[0],b[1]-a[1]),ux=(b[0]-a[0])/len,uz=(b[1]-a[1])/len;
   const mx=(a[0]+b[0])/2,mz=(a[1]+b[1])/2;let nx=-uz,nz=ux;
   if(!pointInPolygon([mx+nx*.3,mz+nz*.3],room.polygon)){nx=-nx;nz=-nz;}
-  const angle=-Math.atan2(uz,ux),x=mx+nx*.95,z=mz+nz*.95,width=Math.min(1.5,len-.65);
+  const angle=-Math.atan2(uz,ux),inset=room.officeDeskInset??.95,x=mx+nx*inset,z=mz+nz*inset,width=Math.min(1.5,len-.65);
   surface(room.polygon,.01,classroomFloor);surface(room.polygon,3.15,ceilingPanel);
   box(x,.75,z,width,.065,.7,white,angle);
   for(const side of [-1,1])box(x+ux*side*(width/2-.1),.36,z+uz*side*(width/2-.1),.05,.72,.55,metal,angle);
@@ -455,6 +456,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   else if(room.id==='2237'||room.id==='hatchery-west-workroom')buildHatchery(room.id,sandboxBuilder());
   else if(FIRST_OFFICE_TYPES[room.id]){surface(room.polygon,.01,classroomFloor);buildFirstOffice(room,{...sandboxBuilder(),chair});}
   else if(room.id==='4-west-support-counter'||room.id==='4-west-support-long')buildWestSupport(room.id,sandboxBuilder());
+  else if(room.id==='1127'||room.id.startsWith('1-west-meeting-')){surface(room.polygon,.01,classroomFloor);buildFirstWestMeeting(room,{...sandboxBuilder(),chair});}
   else if(room.kind==='huddle')buildWestHuddle(room,{...sandboxBuilder(),chair});
   else if(room.kind==='office')office(room);
   else if(room.kind==='workroom')workroom(room);
@@ -473,7 +475,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   } else if(!(room.kind==='service'&&room.listed===false)&&clearInside(room,[x,z],1.45))tableSet(x,z);
   const hasDocumentedAV=room.kind==='conference'&&conferenceAV(room);
   if(room.kind==='classroom'||(room.kind==='conference'&&room.id!=='6217'&&!hasDocumentedAV)) {
-   const candidates=room.polygon.map((a,i)=>({a,b:room.polygon[(i+1)%room.polygon.length],i})).filter(({a,b,i})=>Math.hypot(b[0]-a[0],b[1]-a[1])>(i===nearest?8:4));
+   const candidates=room.polygon.map((a,i)=>({a,b:room.polygon[(i+1)%room.polygon.length],i})).filter(({a,b,i})=>!room.exteriorEdges?.includes(i)&&!room.glazedEdges?.includes(i)&&Math.hypot(b[0]-a[0],b[1]-a[1])>(i===nearest?8:4));
    for(const {a,b,i} of candidates.slice(0,room.kind==='classroom'?4:1)){
     const len=Math.hypot(b[0]-a[0],b[1]-a[1]),dx=(b[0]-a[0])/len,dz=(b[1]-a[1])/len;
     const t=i===nearest?(Math.hypot(room.door[0]-a[0],room.door[1]-a[1])<len/2?.75:.25):.5;

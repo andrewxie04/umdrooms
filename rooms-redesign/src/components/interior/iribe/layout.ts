@@ -6,7 +6,7 @@ export type Point = readonly [number, number];
 export type Polygon = readonly Point[];
 export type FloorId = 'G' | '1' | '2' | '3' | '4' | '5' | 'R';
 export type RoomKind = 'classroom' | 'huddle' | 'seminar' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom' | 'restroom';
-export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; glazedEdges?: readonly number[]; timberEdges?: readonly number[]; doorWidth?: number; arrivalFocus?:Point; arrivalPitch?:number; additionalDoors?: Point[]; officeMeeting?: boolean; officeMeetingRadius?:number; officeMeetingAlongDepth?:boolean; officeMeetingSeats?:2|4; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
+export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; glazedEdges?: readonly number[]; timberEdges?: readonly number[]; doorWidth?: number; arrivalFocus?:Point; arrivalPitch?:number; additionalDoors?: Point[]; officeMeeting?: boolean; officeDeskInset?:number; officeMeetingRadius?:number; officeMeetingAlongDepth?:boolean; officeMeetingSeats?:2|4; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
 export const PLAN_SCALE = .085;
 export const plan = (x: number, y: number): Point => [(x - 660) * PLAN_SCALE, (y - 1100) * PLAN_SCALE];
 const trace = (points: Polygon): Polygon => points.map(([x,y]) => plan(x,y));
@@ -126,7 +126,7 @@ export function fourthPlan(x:number,y:number):Point{
 }
 const fourthTrace=(p:Polygon):Polygon=>p.map(([x,y])=>fourthPlan(x,y));
 ROOMS.push(
- {floor:'4',id:'4105',name:'Feng Peng and Xin Lei Classroom',kind:'seminar',evidence:'plan',polygon:fourthTrace([[196,735],[310,765],[273,902],[142,844]]),door:fourthPlan(263,898)},
+ {floor:'4',id:'4105',name:'Feng Peng and Xin Lei Classroom',kind:'seminar',evidence:'plan',polygon:fourthTrace([[198,726.25],[316.333333,773],[278.666667,901.333333],[137.5,844.5]]),door:fourthPlan(257,892.604093),additionalDoors:[fourthPlan(298.333333,765.888732)],glazedEdges:[1]},
  {floor:'4',id:'north-reset-zone',name:'North study lounge',kind:'lounge',evidence:'plan',polygon:fourthTrace([[998,840],[1104,852],[1085,1021],[1040,1021],[1040,957],[981,951]]),door:fourthPlan(1022,953)},
 );
 export const roomTitle=(room:InteriorRoom)=>/^\d+$/.test(room.id)&&room.name!==`Room ${room.id}`?`${room.id} · ${room.name}`:room.name;
@@ -218,6 +218,13 @@ export const WEST_STAIR_FRAME=(()=>{
 // Unnumbered rooms adjoining the west stair, traced from the HDR Level 4
 // spread. Their function is not labeled, so no invented equipment is added.
 export const WEST_SUPPORT_ROOMS:InteriorRoom[]=[
+ // Two unlabelled rooms west of 4105 share an internal doorway and each has
+ // a corridor entrance. Their common boundary is traced once for both shells.
+ {id:'4-west-support-central-north',outline:[[688.5,574.5],[795,639.375],[764.25,698.25],[650.25,629.625]],door:[709.5,589.5],additionalDoors:[[675.5625,644.8125]]},
+ {id:'4-west-support-central-south',outline:[[650.25,629.625],[764.25,698.25],[704.25,816.75],[574.125,740.25]],door:[597.375,755.0625],additionalDoors:[[675.5625,644.8125]]},
+ // The small room below the shared workspace wraps a structural projection.
+ // HDR page 12, enlarged crop: the southwest wall contains its inward swing.
+ {id:'4-west-support-small',outline:[[231.3,336.6],[276,378.3],[237.6,410.7],[228,395.7],[218.1,370.2],[227.1,359.4],[218.4,350.7]],door:[232.8,403.2]},
  {id:'4-west-support-stair-side-north',stairSide:[1,2],stairDoorEdge:0,outline:[[306,508.5],[336.75,476.25],[382.875,518.25],[344.625,556.125]],door:[321.375,492.375]},
  {id:'4-west-support-stair-side-south',stairSide:[1,2],stairDoorEdge:2,outline:[[344.625,556.125],[382.875,518.25],[426.75,560.25],[388.125,603]],door:[407.4375,581.625]},
  {id:'4-west-support-counter',name:'West counter room',focus:[405,310],outline:[[345,315],[378,278],[431,327],[398,363]],door:[415,344.455]},
@@ -486,3 +493,46 @@ for(let i=0;i<6;i++){
 }
 export const HATCHERY_COMMON:InteriorRoom={floor:'2',id:'north-collaboration',name:'North collaboration area',kind:'lounge',evidence:'plan',polygon:hatcheryTrace([[125,355],[1005,458],[1037,227],[1190,235],[1072,1150],[919,1150],[919,906],[25,906],[25,844],[699,844],[735,504],[125,437]]),door:hatcheryPlan(750,870),arrivalFocus:hatcheryPlan(1020,690)};
 ROOMS.push(HATCHERY_COMMON,...HATCHERY_ROOMS);
+
+// HDR Level 1 west wing, page 8. Crop coordinates use PDF (433,165) at 4x.
+// The two facade corners and west stair register this separate wing; scale and
+// door widths remain estimates from the undimensioned architectural drawing.
+export function firstWestPlan(x:number,y:number):Point {
+ const [u,v]=barycentric([-286+x/2,330+y/2],[-92,337],[-263,515],[3,632]);
+ return blendTriangle(u,v,plan(220,1620),plan(408,1760),WEST_STAIR_FRAME.at(WEST_STAIR_FRAME.width/2,WEST_STAIR_FRAME.length/2));
+}
+const firstWestOfficeOutlines:{id:string;outline:number[][];door:number[];exterior?:number[];meeting?:boolean}[]=[
+ {id:'1-west-inner-office-1',outline:[[365,218],[430,279],[380,331],[322,274]],door:[341,249.26]},
+ {id:'1-west-inner-office-2',outline:[[322,274],[380,331],[335,386],[271,328]],door:[288,310]},
+ ...[
+  {outline:[[445,68],[501,119],[435,185],[380,137]],door:[419,171.036]},
+  {outline:[[501,119],[551,173],[490,239],[435,185]],door:[475,224.273]},
+ ].map((r,i)=>({...r,id:`1-west-upper-office-${i+1}`,exterior:[0]})),
+ ...[
+  [[86,447],[122,513],[231,456],[194,386]],
+  [[122,513],[159,576],[271,524],[231,456]],
+  [[159,576],[199,649],[311,590],[271,524]],
+  [[199,649],[239,718],[359,652],[311,590]],
+  [[239,718],[283,784],[408,717],[359,652]],
+ ].map((outline,i)=>{const a=outline[3],b=outline[2];return {id:`1-west-lower-office-${i+1}`,outline,door:[a[0]+(b[0]-a[0])*.78,a[1]+(b[1]-a[1])*.78],exterior:[0],meeting:i!==1};}),
+];
+export const FIRST_WEST_OFFICES:InteriorRoom[]=firstWestOfficeOutlines.map(r=>({floor:'1',id:r.id,name:'Office',kind:'office',listed:false,evidence:'plan',polygon:r.outline.map(([x,y],i)=>r.exterior?.includes(i)||r.exterior?.includes(i-1)?onEnvelope(firstWestPlan(x,y)):firstWestPlan(x,y)),door:firstWestPlan(...r.door as [number,number]),doorWidth:.95,exteriorEdges:r.exterior,officeMeeting:r.meeting??false,officeDeskInset:r.id.startsWith('1-west-inner-')?.65:undefined}));
+ROOMS.push(...FIRST_WEST_OFFICES);
+
+// The west-tip conference room's architectural outline replaces the oversized
+// wayfinding block, which had crossed the neighboring perimeter office.
+const firstWestConference=ROOMS.find(r=>r.id==='1134')!;
+firstWestConference.polygon=[[46,370],[134,279],[194,386],[86,447]].map(([x,y],i)=>i<2||i===3?onEnvelope(firstWestPlan(x,y)):firstWestPlan(x,y));
+firstWestConference.door=firstWestPlan(187,373.516667);
+firstWestConference.exteriorEdges=[0,3];firstWestConference.glazedEdges=[1];
+
+// Three meeting spaces in the HDR west-wing Level 1 plan. A/B are
+// descriptive navigation names; no unreadable room numbers are invented.
+export const FIRST_WEST_MEETINGS:InteriorRoom[]=[
+ {id:'1-west-meeting-a',outline:[[271,328],[335,386],[276,442],[233,360]],door:[242.5,352]},
+ {id:'1-west-meeting-b',outline:[[430,279],[566,407],[468,510],[335,386]],door:[550,423.8163]},
+ {id:'1127',outline:[[335,386],[468,510],[378,605],[276,442]],door:[390,592.3333],glazed:[1]},
+].map((r,i)=>({floor:'1',id:r.id,name:i===2?'Conference room':`West meeting room ${String.fromCharCode(65+i)}`,kind:i===2?'conference':'huddle',evidence:'plan',polygon:r.outline.map(([x,y])=>firstWestPlan(x,y)),door:firstWestPlan(...r.door as [number,number]),doorWidth:1.0,glazedEdges:r.glazed,arrivalPitch:-.25}));
+Object.assign(ROOMS.find(r=>r.id==='1127')!,FIRST_WEST_MEETINGS[2]);
+FIRST_WEST_MEETINGS[2]=ROOMS.find(r=>r.id==='1127')!;
+ROOMS.push(...FIRST_WEST_MEETINGS.slice(0,2));

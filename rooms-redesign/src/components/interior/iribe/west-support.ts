@@ -13,8 +13,8 @@ export function westSupportCounter(id:string){
  const u:Point=[(b[0]-a[0])/length,(b[1]-a[1])/length];
  return {a,b,u,length,sink:run.sink,center:[(a[0]+b[0])/2,(a[1]+b[1])/2] as Point,angle:-Math.atan2(u[1],u[0]),depth:.5};
 }
-export function buildWestSupport(id:string,b:RoofBuilder){
- const run=westSupportCounter(id);if(!run)return;
+export function buildWestSupport(id:string,b:RoofBuilder,run=westSupportCounter(id)){
+ if(!run)return;
  const {a,center:[x,z],u,length,angle,depth,sink}=run,m=b.palette;
  b.box(x,.43,z,length,.8,depth,m.white,angle);
  if(!sink)b.box(x,.855,z,length+.03,.05,depth+.04,m.metal,angle);

@@ -1,3 +1,4 @@
+import { firstWestMeetingCounter, firstWestMeetingFurniture } from './first-west-meetings';
 import { imdLabLayout } from './imd-lab';
 import { westSupportCounter } from './west-support';
 import { WEST_HUDDLE_ROOMS } from './layout';
@@ -7,7 +8,7 @@ import { FIFTH_MIDDLE_OFFICES } from './layout';
 import { FIFTH_SERVICE_SHAFT, FIFTH_SERVICE_ROOMS } from './layout';
 import { FIFTH_PERIMETER_OFFICES, FIFTH_NORTH_OFFICE_ENTRY, FIFTH_NORTH_OFFICES } from './layout';
 import { WEST_LIFT, WEST_LIFT_FRONT } from './west-core';
-import { WEST_SUPPORT_ROOMS } from './layout';
+import { FIRST_WEST_MEETINGS, FIRST_WEST_OFFICES, WEST_SUPPORT_ROOMS } from './layout';
 import { WEST_STAIR } from './west-stair-layout';
 import { seminarAVLayout, buildSeminarAV } from './seminar-av';
 import { HATCHERY_COMMON, HATCHERY_ROOMS } from './layout';
@@ -700,9 +701,9 @@ describe('4105 large seminar presentation system',()=>{
   const points=[...f.lecternFootprint,f.projector,f.presenter,f.audience,...[-1.65,1.65].map(x=>f.front.at(x,.27)),...[-.96,.96].map(x=>f.rear.at(x,.28)),f.front.at(2.15,.38)];
   for(const p of points){expect(pointInPolygon(p,room.polygon)).toBe(true);expect(Math.hypot(p[0]-room.door[0],p[1]-room.door[1])).toBeGreaterThan(1);}
  });
- it('connects the doorway to the presentation area and both sides of the lectern',()=>{
+ it('connects both corridor doorways to the presentation area and both sides of the lectern',()=>{
   const f=seminarAVLayout(room);
-  walkInteriorTargets(room,[[f.presenter],[f.audience],...[-1,1].map(side=>[f.front.at(f.lecternX+side*.95,f.lecternZ)])],.1);
+  walkInteriorTargets(room,[[f.presenter],[f.audience],...(room.additionalDoors??[]).map(p=>[p]),...[-1,1].map(side=>[f.front.at(f.lecternX+side*.95,f.lecternZ)])],.1);
  });
  it('models AV barriers at equipment height and a finite static control surface',()=>{
   const barriers:InteriorModel['barriers']=[],materials:THREE.Material[]=[],textures:THREE.Texture[]=[],base=new THREE.MeshBasicMaterial();
@@ -771,7 +772,7 @@ describe('west stair support rooms',()=>{
 
 
 it('connects the west stair, support rooms, and shared workroom through the corridor',()=>{
- const corridor={...WEST_SUPPORT_ROOMS[0],id:'west-core-corridor',kind:'garden' as const,door:WEST_STAIR.entry,polygon:[[120,160],[730,160],[730,750],[120,750]].map(([x,y])=>westFourthPlan(x,y))};
+ const corridor={...WEST_SUPPORT_ROOMS[0],id:'west-core-corridor',kind:'garden' as const,door:WEST_STAIR.entry,polygon:[[120,160],[850,160],[850,900],[120,900]].map(([x,y])=>westFourthPlan(x,y))};
  const targets=[...WEST_SUPPORT_ROOMS.flatMap(r=>[r.door,...r.additionalDoors??[]]),...WEST_HUDDLE_ROOMS.map(r=>r.door),ROOMS.find(r=>r.id==='4-west-shared-room')!.door];
  walkInteriorTargets(corridor,targets.map(p=>[p]));
 },15000);
@@ -950,4 +951,50 @@ describe('Immersive Media Design lab',()=>{
  it('keeps the counter, both display aisles and demonstration space reachable',()=>{
   walkInteriorTargets(room,layout.approaches.map(p=>[p]),.15);
  });
+});
+
+
+describe('Level 1 west offices',()=>{
+ for(const room of FIRST_WEST_OFFICES){
+  it(`${room.id} stays inside the building and separate from other rooms`,()=>{
+   for(const p of room.polygon){
+    expect(pointInPolygon(p,footprintForFloor('1'))||Math.min(...footprintForFloor('1').map((a,i)=>distanceToSegment(p,a,footprintForFloor('1')[(i+1)%footprintForFloor('1').length])))<.01).toBe(true);
+    expect(ROOMS.filter(r=>r.floor==='1'&&r!==room&&pointInPolygon(p,r.polygon)&&Math.min(...r.polygon.map((a,i)=>distanceToSegment(p,a,r.polygon[(i+1)%r.polygon.length])))>.02).map(r=>r.id)).toEqual([]);
+   }
+  });
+  it(`reaches both desk approaches in ${room.id}`,()=>{
+   const [a,b]=room.polygon,len=Math.hypot(b[0]-a[0],b[1]-a[1]),u:Point=[(b[0]-a[0])/len,(b[1]-a[1])/len],m:Point=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+   const sign=pointInPolygon([m[0]-u[1]*.3,m[1]+u[0]*.3],room.polygon)?1:-1;
+   const depth=(room.officeDeskInset??.95)+.45,targets=[-1,1].map(side=>[m[0]+u[0]*1.15*side-u[1]*depth*sign,m[1]+u[1]*1.15*side+u[0]*depth*sign] as Point);
+   for(const p of targets)expect(pointInPolygon(p,room.polygon)).toBe(true);
+   walkInteriorTargets(room,targets.map(p=>[p]),.15);
+  });
+ }
+});
+it('connects the Level 1 west office and meeting entrances to the west-tip conference room',()=>{
+ const conference=ROOMS.find(r=>r.id==='1134')!;
+ const corridor={...conference,id:'1-west-office-corridor',kind:'garden' as const,polygon:footprintForFloor('1')};
+ walkInteriorTargets(corridor,[...FIRST_WEST_OFFICES,...FIRST_WEST_MEETINGS].map(r=>[r.door]));
+},30000);
+
+
+describe('Level 1 west meeting rooms',()=>{
+ for(const [index,room] of FIRST_WEST_MEETINGS.entries()){
+  it(`${room.id} preserves the drawn seats and keeps furniture inside`,()=>{
+   const f=firstWestMeetingFurniture(room),counter=firstWestMeetingCounter(room);
+   if(counter)for(const p of [counter.a,counter.b])expect(pointInPolygon(p,room.polygon)).toBe(true);
+   expect(f.chairPoints).toHaveLength([3,6,12][index]);
+   for(const p of [...f.outline,...f.chairPoints])expect(pointInPolygon(p,room.polygon)).toBe(true);
+   for(const other of ROOMS.filter(r=>r.floor==='1'&&r!==room)){
+    for(const [a,b] of [[room,other],[other,room]])for(const p of a.polygon){
+     expect(pointInPolygon(p,b.polygon)&&Math.min(...b.polygon.map((v,i)=>distanceToSegment(p,v,b.polygon[(i+1)%b.polygon.length])))>.02,`${a.id} overlaps ${b.id}`).toBe(false);
+    }
+   }
+  });
+  it(`walks from ${room.id}'s entrance to every chair`,()=>{
+   const f=firstWestMeetingFurniture(room),counter=firstWestMeetingCounter(room);
+   if(counter){const p:Point=[counter.center[0]-counter.u[1]*.65,counter.center[1]+counter.u[0]*.65];expect(pointInPolygon(p,room.polygon)).toBe(true);walkInteriorTargets(room,[[p]],.1);}
+   walkInteriorTargets(room,f.chairPoints.map(p=>Array.from({length:12},(_,i)=>[p[0]+Math.cos(i*Math.PI/6)*.55,p[1]+Math.sin(i*Math.PI/6)*.55] as Point)),.1);
+  });
+ }
 });

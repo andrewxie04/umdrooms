@@ -1,3 +1,4 @@
+import { firstWestMeetingFurniture } from './first-west-meetings';
 import { distanceToSegment, pointInPolygon, FIRST_CLASSROOM_TABLES, type InteriorRoom, type Point } from './layout';
 import { structuralColumns } from './structure';
 
@@ -49,6 +50,7 @@ export function teachingTables(room: InteriorRoom): Point[] {
 export interface MeetingTable { center:Point; length:number; width:number; angle:number; u:Point; v:Point; }
 export interface MeetingSeat {point:Point;angle:number;}
 export function meetingSeats(room:InteriorRoom,table:MeetingTable):MeetingSeat[]{
+ if(room.id==='1127'){const f=firstWestMeetingFurniture(room);return f.chairPoints.map((point,i)=>({point,angle:f.angles[i]}));}
  const capacity=MEETING_CAPACITIES[room.id],ends=capacity!==undefined;
  const count=ends?(capacity-2)/2:room.id==='6217'?5:Math.max(2,Math.floor(table.length/.85));
  const pitch=ends?Math.min(.78,(table.length-.5)/(count-1||1)):.85;
@@ -59,6 +61,7 @@ export function meetingSeats(room:InteriorRoom,table:MeetingTable):MeetingSeat[]
  return seats;
 }
 export function meetingTable(room: InteriorRoom):MeetingTable|null {
+ if(room.id==='1127'){const f=firstWestMeetingFurniture(room);return {center:f.center,length:f.length,width:f.width,angle:f.angle,u:f.u,v:[-f.u[1],f.u[0]]};}
  const f=roomFrame(room);
  const capacity=MEETING_CAPACITIES[room.id];
  const preferred=capacity?Math.max(1.9,((capacity-2)/2-1)*.7+.6):6;

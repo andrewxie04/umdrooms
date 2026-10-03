@@ -32,7 +32,7 @@ export function buildImdLab(room:InteriorRoom,b:RoofBuilder){
  // Freestanding display, matching the photographed dark central column.
  box(0,1.61,2,1.6,.94,.08,m.black);
  box(0,1.61,2.052,1.51,.85,.012,m.glass);
- box(0,.81,2,.13,1.48,.14,m.black);box(0,.12,2,1.16,.055,.65,m.black);
+ box(0,.81,1.88,.13,1.48,.14,m.black);box(0,.12,2,1.16,.055,.65,m.black);
  for(const x of [-.5,.5])for(const z of [1.73,2.27])cylinder(x,.065,z,.055,.07,m.black);
  // Clear worktable in front of the screen, leaving both side aisles open.
  box(0,.79,3.15,2.1,.065,.85,m.oak);
