@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FAMILY_GARDEN_DOOR, FAMILY_TERRACE, MAIN_FOOTPRINT, distanceToSegment, pointInPolygon, type Point, type Polygon } from './layout';
+import { FAMILY_GARDEN_DOOR, FAMILY_GARDEN_GUARD_EDGES, FAMILY_TERRACE, MAIN_FOOTPRINT, distanceToSegment, pointInPolygon, type Point, type Polygon } from './layout';
 import { FAMILY_BEDS, FAMILY_MAPLES } from './family-garden-layout';
 import type { RoofBuilder } from './roof';
 
@@ -16,8 +16,8 @@ export function buildFamilyGarden(b:RoofBuilder){
  FAMILY_TERRACE.forEach((a,i)=>wall(a,FAMILY_TERRACE[(i+1)%FAMILY_TERRACE.length],.19,cream,false,-.19,.025));
  // The glass guard encloses the outer edge, not the auditorium wall or the
  // curtain-wall connection back to the building.
- for(const i of [0,9,10]){
-  const a=FAMILY_TERRACE[i],end=FAMILY_TERRACE[(i+1)%FAMILY_TERRACE.length],length=Math.hypot(end[0]-a[0],end[1]-a[1]),count=Math.ceil(length/1.35);
+ for(const {a,b:end} of FAMILY_GARDEN_GUARD_EDGES){
+  const length=Math.hypot(end[0]-a[0],end[1]-a[1]),count=Math.ceil(length/1.35);
   wall(a,end,1.23,b.palette.glass,true,0,.028);wall(a,end,.075,metal,false,1.23,.08);wall(a,end,.11,metal,false,.06,.1);
   for(let j=0;j<=count;j++){const t=j/count;box(a[0]+(end[0]-a[0])*t,.65,a[1]+(end[1]-a[1])*t,.065,1.3,.065,metal);}
  }

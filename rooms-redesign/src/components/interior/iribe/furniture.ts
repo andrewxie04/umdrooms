@@ -14,6 +14,33 @@ export const MEETING_CAPACITIES:Readonly<Record<string,number>>={1119:6,1127:12,
 export function clearInside(room: InteriorRoom, point: Point, radius: number) {
  return pointInPolygon(point, room.polygon) && room.polygon.every((a,i) => distanceToSegment(point,a,room.polygon[(i+1)%room.polygon.length]) >= radius);
 }
+/** The existing provisional office fit, shared with route verification.
+ * This does not assert a room-specific manufactured furniture arrangement. */
+export function officeFurniture(room:InteriorRoom){
+ const edge=room.exteriorEdges?.[0]??0,a=room.polygon[edge],b=room.polygon[(edge+1)%room.polygon.length];
+ const length=Math.hypot(b[0]-a[0],b[1]-a[1]),u:Point=[(b[0]-a[0])/length,(b[1]-a[1])/length];
+ const mid:Point=[(a[0]+b[0])/2,(a[1]+b[1])/2];let n:Point=[-u[1],u[0]];
+ if(!pointInPolygon([mid[0]+n[0]*.3,mid[1]+n[1]*.3],room.polygon))n=[-n[0],-n[1]];
+ const at=(along:number,inward:number):Point=>[mid[0]+u[0]*along+n[0]*inward,mid[1]+u[1]*along+n[1]*inward];
+ const inset=room.officeDeskInset??.95,width=Math.min(1.5,length-.65),desk=at(0,inset);
+ const chairs:{point:Point;angle:number;swivel:boolean}[]=[{point:at(0,inset+.78),angle:Math.atan2(n[0],n[1]),swivel:true}];
+ const meetingPoint=at(0,3.4),radius=room.officeMeetingRadius??.43;
+ const meeting=room.officeMeeting&&clearInside(room,meetingPoint,.93)&&Math.hypot(meetingPoint[0]-room.door[0],meetingPoint[1]-room.door[1])>1.5?{point:meetingPoint,radius}:null;
+ if(meeting){
+  const offset=room.officeMeetingRadius===undefined?.73:radius+.2;
+  if(room.officeMeetingSeats===3)for(let i=0;i<3;i++){
+   const a=Math.PI+i*Math.PI*2/3,direction:Point=[u[0]*Math.sin(a)+n[0]*Math.cos(a),u[1]*Math.sin(a)+n[1]*Math.cos(a)];
+   chairs.push({point:[meetingPoint[0]+direction[0]*offset,meetingPoint[1]+direction[1]*offset],angle:Math.atan2(direction[0],direction[1]),swivel:false});
+  }
+  else
+  for(const side of [-1,1]){
+   const direction=room.officeMeetingAlongDepth?n:u;
+   chairs.push({point:[meetingPoint[0]+direction[0]*offset*side,meetingPoint[1]+direction[1]*offset*side],angle:Math.atan2(direction[0]*side,direction[1]*side),swivel:false});
+   if(room.officeMeetingSeats===4)chairs.push({point:[meetingPoint[0]+n[0]*offset*side,meetingPoint[1]+n[1]*offset*side],angle:Math.atan2(n[0]*side,n[1]*side),swivel:false});
+  }
+ }
+ return {u,n,at,inset,width,desk,chairs,meeting,angle:-Math.atan2(u[1],u[0])};
+}
 export function roomFrame(room: InteriorRoom,rotation=0) {
  const edge=room.polygon.reduce((best,a,i)=>{
   const b=room.polygon[(i+1)%room.polygon.length], c=room.polygon[best],d=room.polygon[(best+1)%room.polygon.length];

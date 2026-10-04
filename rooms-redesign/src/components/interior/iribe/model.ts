@@ -1,15 +1,39 @@
+import { buildGroundAuditoriumEnclosure } from './ground-auditorium-enclosure';
+import { GROUND_AUDITORIUM_ENCLOSURE_SOLIDS } from './ground-auditorium-enclosure-layout';
+import { buildNorthStair } from './north-stairs';
+import { ANTONOV_EXTERIOR_ENVELOPE } from './antonov-exterior-layout';
+import { buildAntonovShell } from './antonov-shell';
+import { buildSouthStair } from './lobby-south-stair';
+import { SOUTH_STAIR_OPENING } from './lobby-south-stair-layout';
+import { GROUND_LOBBY_SLAB } from './layout';
+import { buildCanopyEntrance } from './lobby-canopy';
+import { buildCanopyStructure } from './canopy-structure';
+import { buildCanopyBenches } from './canopy-benches';
+import { buildSouthEntrance } from './lobby-south';
+import { buildGroundNorthCorner } from './ground-north-corner';
+import { northCornerShellEdge } from './ground-north-corner-layout';
+import { southShellEdge } from './lobby-south-layout';
+import { canopyShellEdge } from './lobby-canopy-layout';
+import { concreteFinish, soffitFinish } from './finishes';
+import { buildCourtyardEntrance } from './lobby-entrance';
+import { courtyardShellEdge } from './lobby-entrance-layout';
+import { buildLiftLanding, type LiftLandingModel } from './lifts';
+import { buildAntonovExterior } from './antonov-exterior';
+import { buildAuditoriumChairs, buildAntonovCeiling } from './auditorium-details';
+import { buildFirstWestOffice, firstWestOfficeDesk } from './first-west-offices';
 import { buildFirstWestMeeting } from './first-west-meetings';
 import { buildImdLab } from './imd-lab';
 import { buildWestSupport } from './west-support';
 import { buildWestHuddle } from './west-huddles';
+import { FOURTH_LOUNGE_TABLE, FOURTH_LOUNGE_COUNTER, FOURTH_LOUNGE_ROUND_TABLES } from './fourth-lounge-layout';
 import { FIFTH_SERVICE_SHAFT } from './layout';
 import { buildWestLift } from './west-core';
-import { WEST_STAIR } from './west-stair-layout';
+import { westStairForFloor } from './west-stair-layout';
 import { buildWestStair } from './west-stairs';
 import { buildSeminarAV } from './seminar-av';
 import { buildHatchery } from './hatchery';
 import { createConferenceAVBuilder } from './conference-av';
-import { structuralColumns } from './structure';
+import { structuralColumnLayout } from './structure';
 import { buildSupportStorage } from './support-rooms';
 import { buildFirstOffice, FIRST_OFFICE_TYPES } from './first-offices';
 import { buildSandbox } from './sandbox';
@@ -26,17 +50,19 @@ import { buildAtrium } from './atrium';
 import { buildSmallArtifacts, buildDroneLab } from './labs';
 import { buildRoboticsLab } from './robotics';
 import { buildRestroom } from './restrooms';
-import { buildAmphitheater } from './amphitheater';
-import { AMPH_LOWER } from './layout';
-import { GANNON_AISLES, GANNON_PLAN, AUD_AISLES, AUD_DEPTH, AUD_WIDTH, AUD_SCALE, ROW_START, ROW_PITCH, ROW_RISE, auditoriumSeats, auditoriumStrip, auditoriumSidePoint } from './auditorium';
-import { clearInside, meetingTable, meetingSeats, roomFrame, teachingTables } from './furniture';
-import { ENCLOSED_FLIGHTS, STAIR_CENTER, STAIR_HOLE } from './circulation';
-import { FLOOR_HEIGHT } from './layout';
+import { buildAmphitheater, amphitheaterHeight } from './amphitheater';
+import { audCoordinates, antonovWayfinding, ANTONOV_TABLES, antonovHeight, antonovFloorPieces, GANNON_FRONT_HEIGHT, AUD_DEPTH, AUD_WIDTH, AUD_SCALE, auditoriumSeats, auditoriumSidePoint } from './auditorium';
+import { GANNON_WORLD_FOOTPRINT, GANNON_DOOR_LEAVES, GANNON_PAIR_THRESHOLDS } from './gannon-ground-layout';
+import { GANNON_FLOOR_PIECES, GANNON_TABLES } from './gannon-seating-layout';
+import { GANNON_CEILING_PIECES, gannonWallSections, gannonCeilingHeight } from './gannon-section';
+import { groundGuidePlan } from './ground-guide-layout';
+import { officeFurniture, clearInside, meetingTable, meetingSeats, roomFrame, teachingTables } from './furniture';
+import { STAIR_HOLE } from './circulation';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { footprintForFloor, fourthPlan, westFourthPlan, roomTitle, ROOF_GALLERY, ANTONOV_FOOTPRINT, ATRIUM_VOID, ROOMS, plan, groundPlan, type FloorId, type Point, type Polygon, type InteriorRoom, distanceToSegment, pointInPolygon } from './layout';
 
 export interface Barrier {a:Point;b:Point;minY?:number;maxY?:number;}
-export interface InteriorModel { group:THREE.Group; barriers:Barrier[]; footprint:Polygon; setDetailsVisible(visible:boolean):void; dispose():void; }
+export interface InteriorModel { group:THREE.Group; barriers:Barrier[]; footprint:Polygon; lift:LiftLandingModel|null; setDetailsVisible(visible:boolean):void; dispose():void; }
 
 /** Keep the building shell visible from terraces/windows; cull distant furnishings.
  * Both sets share materials and retain per-material geometry batches. */
@@ -47,20 +73,26 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  let batches=shellBatches;
  const textures:THREE.Texture[]=[];
  const mat=(color:number,roughness=.75)=>new THREE.MeshStandardMaterial({color,roughness});
- const white=mat(0xeeeae1), concrete=mat(0xaaa99f), black=mat(0x20262a), oak=mat(0x946333), metal=mat(0x858f92,.35), blue=mat(0x26869b), yellow=mat(0xe1b924), lime=mat(0x86a544), red=mat(0xb93731);
+ const white=mat(0xe9e9e4), concrete=mat(0xffffff,floor==='G'?.72:.56), black=mat(0x171a1c), oak=mat(0x946333), metal=mat(0x939b9d,.32), blue=mat(0x24576b), yellow=mat(0xd9ae1a), lime=mat(0x789746), red=mat(0xa83c35);
+ metal.metalness=.7;
  black.side=THREE.DoubleSide;
  const woodPixels=new Uint8Array(256*64*4);
  for(let y=0;y<64;y++)for(let x=0;x<256;x++){
   const i=(y*256+x)*4,grain=Math.sin(y*1.8+Math.sin(x*.035)*.7)*5+Math.sin(y*.6+x*.004)*7;
-  woodPixels[i]=180+grain;woodPixels[i+1]=137+grain;woodPixels[i+2]=88+grain;woodPixels[i+3]=255;
+  woodPixels[i]=164+grain*.65;woodPixels[i+1]=123+grain*.65;woodPixels[i+2]=82+grain*.65;woodPixels[i+3]=255;
  }
- const woodMap=new THREE.DataTexture(woodPixels,256,64);woodMap.colorSpace=THREE.SRGBColorSpace;woodMap.needsUpdate=true;woodMap.magFilter=THREE.LinearFilter;textures.push(woodMap);oak.map=woodMap;oak.color.setHex(0xffffff);oak.roughness=.56;
- const glass=new THREE.MeshStandardMaterial({color:0xb9dbe0,transparent:true,opacity:.18,roughness:.2,depthWrite:false,side:THREE.DoubleSide});
+ const woodMap=new THREE.DataTexture(woodPixels,256,64);woodMap.colorSpace=THREE.SRGBColorSpace;woodMap.needsUpdate=true;woodMap.magFilter=THREE.LinearFilter;woodMap.generateMipmaps=true;woodMap.minFilter=THREE.LinearMipmapLinearFilter;woodMap.anisotropy=4;textures.push(woodMap);oak.map=woodMap;oak.color.setHex(0xffffff);oak.roughness=.62;
+ const glass=new THREE.MeshStandardMaterial({color:0xd1dddb,transparent:true,opacity:.12,roughness:.14,depthWrite:false,side:THREE.DoubleSide});
  const gardenGlazing=glass.clone();gardenGlazing.color.setHex(0x66818a);gardenGlazing.opacity=.35;gardenGlazing.name='Auditorium garden glazing';
  const light=new THREE.MeshBasicMaterial({color:0xfff9e5});
  const screen=new THREE.MeshBasicMaterial({color:0xc4cbd0});
  const walnut=mat(0x71533b,.65);walnut.map=woodMap;const warmLight=new THREE.MeshBasicMaterial({color:0xffd8a0});
- const lobbySoffit=mat(0x9c9f9c,.5);lobbySoffit.side=THREE.DoubleSide;
+ const auditoriumTimber=walnut.clone();auditoriumTimber.color.setHex(0xbda084);auditoriumTimber.name='Antonov acoustic timber';
+ const lobbySoffit=mat(0xa8b0b2,.42);lobbySoffit.metalness=.32;lobbySoffit.side=THREE.DoubleSide;
+ if(floor==='G'){
+  const finish=soffitFinish(true);textures.push(finish.map,finish.bumpMap);
+  lobbySoffit.color.setHex(0xffffff);lobbySoffit.map=finish.map;lobbySoffit.bumpMap=finish.bumpMap;lobbySoffit.bumpScale=.002;
+ }
  const galleryFabric=mat(0x283d47,.95),galleryCeiling=mat(0x737773);galleryCeiling.side=THREE.DoubleSide;
  const classroomFloor=mat(0x444b4c,.42), ceilingPanel=mat(0xd3d5d1);ceilingPanel.side=THREE.DoubleSide;
  const shadowPixels=new Uint8Array(64*64*4);
@@ -70,15 +102,21 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  const shadowMap=new THREE.DataTexture(shadowPixels,64,64);shadowMap.needsUpdate=true;shadowMap.magFilter=THREE.LinearFilter;textures.push(shadowMap);
  const contactShadow=new THREE.MeshBasicMaterial({map:shadowMap,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
- const materials=[white,concrete,black,oak,metal,blue,yellow,lime,red,glass,gardenGlazing,light,screen,classroomFloor,ceilingPanel,contactShadow,walnut,warmLight,galleryFabric,galleryCeiling,lobbySoffit];
- const brick=mat(0xffffff,.87);brick.side=THREE.DoubleSide;materials.push(brick);
- const brickPixels=new Uint8Array(128*64*4);
+ const materials=[white,concrete,black,oak,metal,blue,yellow,lime,red,glass,gardenGlazing,light,screen,classroomFloor,ceilingPanel,contactShadow,walnut,auditoriumTimber,warmLight,galleryFabric,galleryCeiling,lobbySoffit];
+ const brick=mat(0xffffff,.87);brick.side=THREE.DoubleSide;brick.name='Iribe brick masonry';materials.push(brick);
+ const brickPixels=new Uint8Array(128*64*4),brickHeight=new Uint8Array(brickPixels.length);
  for(let y=0;y<64;y++)for(let x=0;x<128;x++){
   const row=Math.floor(y/32),column=(x+(row%2)*32)%64,mortar=y%32<2||column<2,i=(y*128+x)*4;
-  const noise=Math.sin(x*23+y*17)*5,shade=(Math.floor((x+(row%2)*32)/64)+row)%3*8;
-  brickPixels[i]=mortar?161:125+noise+shade;brickPixels[i+1]=mortar?154:65+noise+shade;brickPixels[i+2]=mortar?137:42+noise+shade;brickPixels[i+3]=255;
+  // UMD's lounge photograph has earth-brown masonry with subdued joints.
+  // These colors are photo-informed estimates, not calibrated material data.
+  const noise=Math.sin(x*23+y*17)*6,shade=(Math.floor((x+(row%2)*32)/64)+row)%3*6;
+  brickPixels[i]=mortar?109:133+noise+shade;brickPixels[i+1]=mortar?104:82+noise*.6+shade*.6;brickPixels[i+2]=mortar?93:53+noise*.5+shade*.4;brickPixels[i+3]=255;
+  brickHeight[i]=brickHeight[i+1]=brickHeight[i+2]=mortar?70:202+noise;brickHeight[i+3]=255;
  }
  const brickMap=new THREE.DataTexture(brickPixels,128,64);brickMap.colorSpace=THREE.SRGBColorSpace;brickMap.wrapS=brickMap.wrapT=THREE.RepeatWrapping;brickMap.generateMipmaps=true;brickMap.minFilter=THREE.LinearMipmapLinearFilter;brickMap.magFilter=THREE.LinearFilter;brickMap.anisotropy=4;brickMap.needsUpdate=true;brick.map=brickMap;textures.push(brickMap);
+ // Texture.clone shares its Source. Replacing the clone's image would also
+ // replace the color pixels with gray height data on every masonry surface.
+ const brickBump=new THREE.DataTexture(brickHeight,128,64);brickBump.wrapS=brickBump.wrapT=THREE.RepeatWrapping;brickBump.generateMipmaps=true;brickBump.minFilter=THREE.LinearMipmapLinearFilter;brickBump.magFilter=THREE.LinearFilter;brickBump.anisotropy=4;brickBump.needsUpdate=true;brick.bumpMap=brickBump;brick.bumpScale=.004;textures.push(brickBump);
  const put=(geo:THREE.BufferGeometry,m:THREE.Material)=>{const list=batches.get(m)||[];const indexed=geo.index?geo:mergeVertices(geo);if(indexed!==geo)geo.dispose();list.push(indexed);batches.set(m,list);};
  const box=(x:number,y:number,z:number,w:number,h:number,d:number,m:THREE.Material,angle=0)=>{const g=new THREE.BoxGeometry(w,h,d);g.rotateY(angle);g.translate(x,y,z);put(g,m);};
  const cylinder=(x:number,y:number,z:number,r:number,h:number,m:THREE.Material)=>{const g=new THREE.CylinderGeometry(r,r,h,32);g.translate(x,y,z);put(g,m);};
@@ -91,18 +129,16 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   const material=new THREE.MeshBasicMaterial({map:texture});materials.push(material);
   const g=new THREE.PlaneGeometry(width,width/6);g.rotateY(angle);g.translate(x,y,z);const previous=batches;batches=detailBatches;put(g,material);batches=previous;
  };
- // Subtle poured-concrete grain and joints, generated locally (no photo downloads).
- const floorCanvas=document.createElement('canvas');floorCanvas.width=256;floorCanvas.height=256;
- const floorCtx=floorCanvas.getContext('2d')!;floorCtx.fillStyle='#b7b6ad';floorCtx.fillRect(0,0,256,256);
- let seed=41;for(let i=0;i<6000;i++){seed=(seed*1664525+1013904223)>>>0;const x=seed%256;seed=(seed*1664525+1013904223)>>>0;const z=seed%256;floorCtx.fillStyle=i%2?'rgba(255,255,255,.05)':'rgba(35,35,30,.035)';floorCtx.fillRect(x,z,1,1);}
- floorCtx.strokeStyle='rgba(70,70,60,.19)';floorCtx.lineWidth=1;floorCtx.strokeRect(0,0,256,256);
- const floorMap=new THREE.CanvasTexture(floorCanvas);floorMap.wrapS=floorMap.wrapT=THREE.RepeatWrapping;floorMap.repeat.set(.5,.5);floorMap.colorSpace=THREE.SRGBColorSpace;textures.push(floorMap);concrete.map=floorMap;concrete.color.setHex(0xffffff);
+ const floorFinish=concreteFinish(floor==='G');textures.push(floorFinish.map,floorFinish.bumpMap);
+ concrete.map=floorFinish.map;concrete.bumpMap=floorFinish.bumpMap;concrete.bumpScale=.003;
+ if(floorFinish.roughnessMap){textures.push(floorFinish.roughnessMap);concrete.roughnessMap=floorFinish.roughnessMap;}
  const footprint=footprintForFloor(floor);
  const ceiling=floor==='G'?6.3:floor==='R'?3.45:4.2;
  const communicating=communicatingStairForFloor(floor);
- const slabHoles=floor==='G'?[AMPH_LOWER]:floor==='1'?[STAIR_HOLE,ATRIUM_VOID]:communicating?.upper===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE];
- if(floor===WEST_STAIR.upper)slabHoles.push(WEST_STAIR.opening);
- surface(footprint,0,concrete,slabHoles);
+ const westStair=westStairForFloor(floor);
+ const slabHoles=floor==='G'?[GANNON_WORLD_FOOTPRINT]:floor==='1'?[STAIR_HOLE,ATRIUM_VOID,SOUTH_STAIR_OPENING]:communicating?.upper===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE];
+ if(westStair&&floor!=='G')slabHoles.push(westStair.opening);
+ surface(floor==='G'?GROUND_LOBBY_SLAB:footprint,0,concrete,slabHoles);
  // A top-only floor disappears when seen through a lower window. Give upper
  // slabs an underside and edge thickness so furnishings cannot appear to float
  // outside the building. Keep 10 mm clear of the lower ceiling to avoid z-fighting.
@@ -112,41 +148,28 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   for(const ring of [footprint,...slabHoles])ring.forEach((a,i)=>wall(a,ring[(i+1)%ring.length],.19,concrete,false,-.19,.025));
  }
 
- const ceilingHoles=floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT]:communicating?.lower===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE];
- if(floor===WEST_STAIR.lower)ceilingHoles.push(WEST_STAIR.opening);
+ const ceilingHoles=floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT,ANTONOV_EXTERIOR_ENVELOPE,SOUTH_STAIR_OPENING]:communicating?.lower===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE];
+ if(westStair&&floor===westStair.lower)ceilingHoles.push(westStair.opening);
  if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:black,ceilingHoles);
 
- // Solid stairwell walls enclose the switchback flights; the corridor entry
- // stays open across both the ascending and descending landings.
- {
-  const [sx,sz] = STAIR_CENTER;
-  wall([sx-1.85,sz+4.3],[sx-1.85,sz-3.8],ceiling,white);
-  wall([sx-1.85,sz-3.8],[sx+1.85,sz-3.8],ceiling,white);
-  wall([sx+1.85,sz-3.8],[sx+1.85,sz+4.3],ceiling,white);
- }
+ // The native Ground curve closes the auditorium below its upper volume.
+ // Without it, lounge sightlines pass through the exposed seating tiers.
+ if(floor==='G')buildGroundAuditoriumEnclosure({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},brick,GROUND_AUDITORIUM_ENCLOSURE_SOLIDS);
+
  batches=detailBatches;
- // Enclosed stair flights are modeled with individual treads and handrails.
- for(const flight of ENCLOSED_FLIGHTS.filter(f=>f.lower===floor)) {
-  const [ax,ay,az]=flight.from,[bx,by,bz]=flight.to;
-  const length=Math.hypot(bx-ax,bz-az),rise=by-ay;
-  const steps=Math.max(1,Math.ceil(rise/.17));
-  const angle=-Math.atan2(bz-az,bx-ax);
-  for(let i=0;i<steps;i++){
-   const t=(i+.5)/steps;
-   box(ax+(bx-ax)*t,ay-FLOOR_HEIGHT[floor]+rise*(i+1)/steps-.07,az+(bz-az)*t,length/steps+.015,.14,flight.width,concrete,angle);
-  }
-  const dx=(bx-ax)/length,dz=(bz-az)/length;
-  for(const side of [-1,1]){
-   const ox=-dz*flight.width*.5*side,oz=dx*flight.width*.5*side;
-   for(let i=0;i<=steps;i+=Math.max(1,Math.floor(steps/7))){const t=i/steps;box(ax+(bx-ax)*t+ox,ay-FLOOR_HEIGHT[floor]+rise*t+.52,az+(bz-az)*t+oz,.035,1.04,.035,metal);}
-   const start=new THREE.Vector3(ax+ox,ay-FLOOR_HEIGHT[floor]+1.06,az+oz),end=new THREE.Vector3(bx+ox,by-FLOOR_HEIGHT[floor]+1.06,bz+oz);
-   const rail=new THREE.CylinderGeometry(.03,.03,start.distanceTo(end),8);rail.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),end.clone().sub(start).normalize()));rail.translate(...start.add(end).multiplyScalar(.5).toArray());put(rail,metal);
-  }
- }
+ buildNorthStair(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},brick);
  batches=shellBatches;
  // Curtain wall with individual panels and mullions, not opaque painted walls.
  for(let i=0;floor!=='R'&&i<footprint.length;i++) {
   const a=footprint[i],b=footprint[(i+1)%footprint.length];
+  if(floor==='G'){
+   if(courtyardShellEdge(a,b)||canopyShellEdge(a,b)||southShellEdge(a,b)||northCornerShellEdge(a,b))continue;
+   const [ax,ay]=audCoordinates(a),[bx,by]=audCoordinates(b);
+   // The standalone auditorium's curved front is masonry beside an outdoor
+   // stair, as the plan and exterior photographs show. A curtain wall around
+   // this part of the schematic ground outline would enclose the stair.
+   if(Math.min(ax,bx)>1130&&Math.max(ay,by)<500)continue;
+  }
   const count=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/1.5);
   const gardenDoor=floor==='1'&&distanceToSegment(FAMILY_GARDEN_DOOR,a,b)<.01;
   let parts:readonly (readonly [Point,Point])[]=[[a,b]];
@@ -234,105 +257,82 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  function auditorium(room:InteriorRoom){
   const antonov=room.id==='0324',top=antonov?10.5:3.3;
-  batches=shellBatches;surface(room.polygon,top,walnut);walnut.side=THREE.DoubleSide;
+  batches=shellBatches;
+  if(antonov){surface(room.polygon,top,walnut);buildAntonovShell({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},auditoriumTimber,brick,gardenGlazing);}
+  else for(const piece of GANNON_CEILING_PIECES)surface(piece.polygon,piece.height,walnut);
+  walnut.side=THREE.DoubleSide;
   const floorMaterial=classroomFloor;
   if(antonov){
-   surface(auditoriumStrip(1100,ROW_START),.01,floorMaterial);
-   const breaks=[-Infinity,...AUD_AISLES.flatMap(v=>[274+(v-.6)/AUD_SCALE,274+(v+.6)/AUD_SCALE]),Infinity];
-   for(let step=0;step<40;step++)for(let band=0;band<breaks.length-1;band++){
-    const lo=ROW_START+step*ROW_PITCH/4,hi=lo+ROW_PITCH/4;
-    const poly=auditoriumStrip(lo,hi,breaks[band],breaks[band+1]);if(poly.length<3)continue;
-    const height=(band===1||band===3)?(step+1)*ROW_RISE/4:(Math.floor(step/4)+1)*ROW_RISE;
-    surface(poly,height,floorMaterial);
-    const riser=(band===1||band===3)?ROW_RISE/4:ROW_RISE;
-    poly.forEach((a,i)=>wall(a,poly[(i+1)%poly.length],riser,floorMaterial,true,height-riser,.025));
+   for(const {polygon,height,riser} of antonovFloorPieces()){
+    surface(polygon,height||.01,floorMaterial);
+    if(riser)polygon.forEach((a,i)=>wall(a,polygon[(i+1)%polygon.length],riser,floorMaterial,true,height-riser,.025));
    }
-   surface(auditoriumStrip(ROW_START+10*ROW_PITCH,1600),10*ROW_RISE,floorMaterial);
   }else {
-   surface(auditoriumStrip(1300,1422,-Infinity,Infinity,GANNON_PLAN),.01,floorMaterial);
-   const breaks=[-Infinity,...GANNON_AISLES.flatMap(v=>[225+(v-.6)/AUD_SCALE,225+(v+.6)/AUD_SCALE]),Infinity];
-   for(let step=0;step<6;step++)for(let band=0;band<5;band++){
-    const poly=auditoriumStrip(1422+step*12,1434+step*12,breaks[band],breaks[band+1],GANNON_PLAN);if(poly.length<3)continue;
-    const stairs=band===1||band===3,height=stairs?(step+1)*.15:(Math.floor(step/2)+1)*.3,riser=stairs?.15:.3;
-    surface(poly,height,floorMaterial);poly.forEach((a,i)=>wall(a,poly[(i+1)%poly.length],riser,floorMaterial,true,height-riser,.025));
+   for(const {polygon,height,riser} of GANNON_FLOOR_PIECES){
+    surface(polygon,height+.005,floorMaterial);
+    if(riser)polygon.forEach((a,i)=>wall(a,polygon[(i+1)%polygon.length],riser,floorMaterial,true,height-riser,.025));
    }
-   surface(auditoriumStrip(1494,1600,-Infinity,Infinity,GANNON_PLAN),.9,floorMaterial);
-   for(const x of [1435,1460,1485])for(const y of [140,225,310]){const p=groundPlan(x,y);cylinder(p[0],top-.03,p[1],.13,.025,light);}
+   // Estimated downlight layout; attach to the provisional lower ceiling,
+   // rather than leaving fixtures inside the upper auditorium standing space.
+   for(const x of [354,373,397])for(const y of [112,154,192]){const p=groundGuidePlan(x,y);cylinder(p[0],gannonCeilingHeight(p)-.03,p[1],.13,.025,light);}
+   // Native east doors are drawn open into the public corridor. Their plan
+   // outlines are verified; panel height, finish and hardware are estimates.
+   for(const leaf of GANNON_DOOR_LEAVES){
+    surface(leaf.outline,2.5,walnut);
+    leaf.outline.forEach((a,i)=>wall(a,leaf.outline[(i+1)%leaf.outline.length],2.5,walnut,true,0,.025));
+   }
+   for(const {a,b,center} of GANNON_PAIR_THRESHOLDS){
+    wall(a,b,top-2.5,walnut,true,2.5);
+    for(const jamb of [a,b])box(jamb[0],1.25,jamb[1],.035,2.5,.035,metal);
+    label(roomTitle(room),center[0],2.86,center[1],-Math.atan2(b[1]-a[1],b[0]-a[0]),1.6);
+   }
   }
   batches=detailBatches;
   const seats=auditoriumSeats(room.id),tableAngle=-Math.atan2(AUD_WIDTH[1],AUD_WIDTH[0]);
+  buildAuditoriumChairs(seats,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   for(const seat of seats){
-   const [x,z]=seat.point,y=seat.height,depth=seat.depth,width=seat.width,seatAngle=Math.atan2(depth[0],depth[1]);
-   box(x,y+.48,z,.49,.09,.47,black,seatAngle);
-   box(x+depth[0]*.22,y+.85,z+depth[1]*.22,.48,.62,.065,black,seatAngle);
-   cylinder(x,y+.23,z,.04,.46,metal);box(x,y+.03,z,.4,.05,.3,metal,seatAngle);
-   for(const side of [-1,1])box(x+width[0]*side*.29,y+.69,z+width[1]*side*.29,.04,.055,.4,black,seatAngle);
-   circleBarrier(x,z,.29,y,1.18);
+   circleBarrier(seat.point[0],seat.point[1],.29,seat.height,1.18);
   }
-  // Continuous shared desks, separated by two generous aisles.
-  for(const row of [...new Set(seats.map(s=>s.row))].filter(r=>r>=0)){
-   const line=seats.filter(s=>s.row===row);let group:typeof line=[];
-   const flush=()=>{
-    if(!group.length)return;
-    const first=group[0],last=group[group.length-1],width=Math.hypot(last.point[0]-first.point[0],last.point[1]-first.point[1])+.67;
-    const w=first.width,d=first.depth,tableAngle=-Math.atan2(w[1],w[0]);
-    const x=(first.point[0]+last.point[0])/2-d[0]*.5,z=(first.point[1]+last.point[1])/2-d[1]*.5,y=first.height;
-    box(x,y+.75,z,width,.065,.5,white,tableAngle);
-    for(const offset of [-width*.43,width*.43])box(x+w[0]*offset,y+.36,z+w[1]*offset,.055,.72,.37,metal,tableAngle);
-    const corners:Point[]=[[-width/2,-.25],[width/2,-.25],[width/2,.25],[-width/2,.25]].map(([a,b])=>[x+w[0]*a+d[0]*b,z+w[1]*a+d[1]*b]);
-    corners.forEach((a,i)=>barriers.push({a,b:corners[(i+1)%4],minY:y,maxY:y+.8}));group=[];
-   };
-   for(const seat of line){if(group.length&&Math.hypot(seat.point[0]-group[group.length-1].point[0],seat.point[1]-group[group.length-1].point[1])>1.1)flush();group.push(seat);}flush();
+  for(const table of (antonov?ANTONOV_TABLES:GANNON_TABLES)){
+   const [a,b,c]=table.polygon,u:Point=[b[0]-a[0],b[1]-a[1]],v:Point=[c[0]-b[0],c[1]-b[1]];
+   const width=Math.hypot(...u),depth=Math.hypot(...v),angle=-Math.atan2(u[1],u[0]);
+   box(table.center[0],table.height+.75,table.center[1],width,.065,depth,white,angle);
+   for(const offset of [-.38,.38])box(table.center[0]+u[0]*offset,table.height+.36,table.center[1]+u[1]*offset,.055,.72,depth*.7,metal,angle);
+   table.polygon.forEach((p,i)=>barriers.push({a:p,b:table.polygon[(i+1)%4],minY:table.height,maxY:table.height+.8}));
   }
-  const screenX=antonov?1218:1410,screenCenter=antonov?274:225;
+  const screenX=1218,screenCenter=274;
   for(const offset of (antonov?[-5.5,0,5.5]:[-4,4])){
-   const p=groundPlan(screenX,screenCenter+offset/AUD_SCALE);
-   box(p[0],antonov?4:2.1,p[1],antonov?4.8:3.2,antonov?2.7:1.7,.09,black,tableAngle);
-   box(p[0]+AUD_DEPTH[0]*.055,antonov?4:2.1,p[1]+AUD_DEPTH[1]*.055,antonov?4.65:3.05,antonov?2.55:1.55,.025,screen,tableAngle);
+   const p=antonov?antonovWayfinding(screenX,screenCenter+offset/AUD_SCALE):groundGuidePlan(333,154+offset/.1536484);
+   box(p[0],antonov?4:GANNON_FRONT_HEIGHT+2.1,p[1],antonov?4.8:3.2,antonov?2.7:1.7,.09,black,tableAngle);
+   box(p[0]+AUD_DEPTH[0]*.055,antonov?4:GANNON_FRONT_HEIGHT+2.1,p[1]+AUD_DEPTH[1]*.055,antonov?4.65:3.05,antonov?2.55:1.55,.025,screen,tableAngle);
   }
-  const podium=groundPlan(antonov?1216:1417,screenCenter);
-  box(podium[0],.58,podium[1],.9,1.16,.65,walnut,tableAngle);
-  box(podium[0],1.25,podium[1],.65,.35,.055,black,tableAngle);
   // Warm angular lighting follows the folded acoustic panels in the Antonov photo.
   if(antonov)for(let x=1240;x<1480;x+=32){
    for(const side of [-1,1]){
     const p=auditoriumSidePoint(x,side,2),q=auditoriumSidePoint(x+13,side,10),r=p,end=auditoriumSidePoint(x+26,side,2);
-    const low=(Math.floor((x-ROW_START)/ROW_PITCH)+1)*ROW_RISE+.7;
+    const low=(antonovHeight(p)??0)+.7;
     const corners=[[p[0],low-.3,p[1]],[p[0],low+3.8,p[1]],[end[0],low+3.8,end[1]],[end[0],low-.3,end[1]]];
     for(let i=0;i<4;i++){
      const points=[corners[i],corners[(i+1)%4],[q[0],low+1.8,q[1]]];
-     const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(points.flat(),3));g.setAttribute('uv',new THREE.Float32BufferAttribute([0,0,1,0,.5,1],2));g.setIndex([0,1,2]);g.computeVertexNormals();put(g,walnut);
+     const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(points.flat(),3));g.setAttribute('uv',new THREE.Float32BufferAttribute([0,0,1,0,.5,1],2));g.setIndex([0,1,2]);g.computeVertexNormals();put(g,auditoriumTimber);
     }
     const lines:[[number,number,number],[number,number,number]][]=[[[p[0],low,p[1]],[q[0],low+1.8,q[1]]],[[q[0],low+1.8,q[1]],[r[0],low+3.5,r[1]]]];
     for(const [a,b] of lines){const start=new THREE.Vector3(...a),end=new THREE.Vector3(...b),g=new THREE.CylinderGeometry(.035,.035,start.distanceTo(end),6);g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),end.clone().sub(start).normalize()));g.translate(...start.add(end).multiplyScalar(.5).toArray());put(g,warmLight);}
    }
-   for(const y of [175,275,375]){const p=groundPlan(x,y);cylinder(p[0],top-.035,p[1],.12,.025,warmLight);}
   }
+  if(antonov)buildAntonovCeiling({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},auditoriumTimber);
  }
  function office(room:InteriorRoom){
-  const edge=room.exteriorEdges?.[0]??0,a=room.polygon[edge],b=room.polygon[(edge+1)%room.polygon.length];
-  const len=Math.hypot(b[0]-a[0],b[1]-a[1]),ux=(b[0]-a[0])/len,uz=(b[1]-a[1])/len;
-  const mx=(a[0]+b[0])/2,mz=(a[1]+b[1])/2;let nx=-uz,nz=ux;
-  if(!pointInPolygon([mx+nx*.3,mz+nz*.3],room.polygon)){nx=-nx;nz=-nz;}
-  const angle=-Math.atan2(uz,ux),inset=room.officeDeskInset??.95,x=mx+nx*inset,z=mz+nz*inset,width=Math.min(1.5,len-.65);
+  const f=officeFurniture(room),{desk:[x,z],u:[ux,uz],n:[nx,nz],angle,width}=f;
   surface(room.polygon,.01,classroomFloor);surface(room.polygon,3.15,ceilingPanel);
   box(x,.75,z,width,.065,.7,white,angle);
   for(const side of [-1,1])box(x+ux*side*(width/2-.1),.36,z+uz*side*(width/2-.1),.05,.72,.55,metal,angle);
   const corners:Point[]=[[-width/2,-.35],[width/2,-.35],[width/2,.35],[-width/2,.35]].map(([u,v])=>[x+ux*u+nx*v,z+uz*u+nz*v]);
   corners.forEach((a,i)=>barriers.push({a,b:corners[(i+1)%4]}));
   box(x-nx*.15,1.04,z-nz*.15,.48,.32,.04,black,angle);box(x-nx*.15,.84,z-nz*.15,.04,.18,.04,metal);
-  chair(x+nx*.78,z+nz*.78,Math.atan2(nx,nz),black,true);
-  const meeting:Point=[mx+nx*3.4,mz+nz*3.4];
-  if(room.officeMeeting&&clearInside(room,meeting,.93)&&Math.hypot(meeting[0]-room.door[0],meeting[1]-room.door[1])>1.5){
-   const radius=room.officeMeetingRadius??.43,offset=room.officeMeetingRadius===undefined?.73:radius+.2;
-   table(meeting[0],meeting[1],radius,white);
-   for(const side of [-1,1]){
-    const cx=room.officeMeetingAlongDepth?nx:ux,cz=room.officeMeetingAlongDepth?nz:uz;
-    chair(meeting[0]+cx*offset*side,meeting[1]+cz*offset*side,Math.atan2(cx*side,cz*side),blue);
-    if(room.officeMeetingSeats===4)chair(meeting[0]+nx*offset*side,meeting[1]+nz*offset*side,Math.atan2(nx*side,nz*side),blue);
-   }
-  }
-  box(mx+nx*2.4,3.09,mz+nz*2.4,1.8,.04,.13,light,angle+Math.PI/2);
+  for(const seat of f.chairs)chair(seat.point[0],seat.point[1],seat.angle,seat.swivel?black:blue,seat.swivel);
+  if(f.meeting)table(f.meeting.point[0],f.meeting.point[1],f.meeting.radius,white);
+  const lamp=f.at(0,2.4);box(lamp[0],3.09,lamp[1],1.8,.04,.13,light,angle+Math.PI/2);
  }
  function workroom(room:InteriorRoom){
   const f=roomFrame(room);surface(room.polygon,.01,classroomFloor);surface(room.polygon,3.2,ceilingPanel);
@@ -355,19 +355,22 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    box(center[0],3.14,center[1],length-.15,.04,.13,light,angle);
   }
  }
- function resetZone(room:InteriorRoom){
-  const fitted=meetingTable(room);if(!fitted)return;
-  const {center:[x,z],u,v,angle}=fitted,length=Math.min(5.4,fitted.length),width=Math.min(1.1,fitted.width);
-  box(x,.75,z,length,.065,width,white,angle);
-  for(const offset of [-length*.38,length*.38])box(x+u[0]*offset,.36,z+u[1]*offset,.07,.72,.65,metal,angle);
-  const corners:Point[]=[[-length/2,-width/2],[length/2,-width/2],[length/2,width/2],[-length/2,width/2]].map(([a,b])=>[x+u[0]*a+v[0]*b,z+u[1]*a+v[1]*b]);
-  corners.forEach((a,i)=>barriers.push({a,b:corners[(i+1)%4]}));
-  for(const side of [-1,1])for(let i=0;i<4;i++){
-   const a=(i-1.5)*1.05,b=side*(width/2+.38),cx=x+u[0]*a+v[0]*b,cz=z+u[1]*a+v[1]*b;
-   if(clearInside(room,[cx,cz],.4))chair(cx,cz,Math.atan2(v[0]*side,v[1]*side),side===1?lime:blue);
+ function resetZone(){
+  for(const fitted of [FOURTH_LOUNGE_TABLE,FOURTH_LOUNGE_COUNTER]){
+   const [a,b,c]=fitted.polygon,dx=b[0]-a[0],dz=b[1]-a[1],length=Math.hypot(dx,dz),u:Point=[dx/length,dz/length],angle=-Math.atan2(dz,dx),width=Math.hypot(c[0]-b[0],c[1]-b[1]),[x,z]=fitted.center;
+   const top=new THREE.ExtrudeGeometry(new THREE.Shape(fitted.polygon.map(([x,z])=>new THREE.Vector2(x,-z))),{depth:.06,bevelEnabled:false});
+   top.rotateX(-Math.PI/2);top.translate(0,.70,0);put(top,white);
+   for(const offset of [-length*.38,length*.38])box(x+u[0]*offset,.38,z+u[1]*offset,.07,.76,Math.max(.25,width-.15),metal,angle);
+   fitted.polygon.forEach((a,i)=>barriers.push({a,b:fitted.polygon[(i+1)%4],minY:0,maxY:.8}));
+   for(const [i,seat] of fitted.chairs.entries())chair(seat.point[0],seat.point[1],seat.angle,i%2?blue:lime);
+  }
+  for(const fitted of FOURTH_LOUNGE_ROUND_TABLES){
+   table(fitted.center[0],fitted.center[1],fitted.radius,white);
+   for(const [i,seat] of fitted.chairs.entries())chair(seat.point[0],seat.point[1],seat.angle,i%2?blue:lime);
   }
   // Exposed services and broken linear pendant runs visible in HDR's reset-zone
   // photographs. Furniture positions remain approximate between viewpoints.
+  const {center:[x,z],polygon:[a,b]}=FOURTH_LOUNGE_TABLE,length=Math.hypot(b[0]-a[0],b[1]-a[1]),u:Point=[(b[0]-a[0])/length,(b[1]-a[1])/length],angle=-Math.atan2(u[1],u[0]);
   for(const offset of [-2,0,2]){
    const cx=x+u[0]*offset,cz=z+u[1]*offset;
    box(cx,3.65,cz,2.6,.08,.1,light,angle+(offset===0?-.55:.55));
@@ -379,7 +382,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   if(room.id==='1231'){batches=detailBatches;buildSandbox(room.id,sandboxBuilder());return;}
   if(room.id==='north-collaboration'){batches=detailBatches;buildHatchery(room.id,sandboxBuilder());return;}
   if(room.kind==='garden'||room.kind==='cafe'||room.id==='lobby-lounge'||room.id==='amphitheater')return;
-  if(room.id==='north-reset-zone'){resetZone(room);return;}
+  if(room.id==='north-reset-zone'){resetZone();return;}
   if(room.id==='west-reset-zone'){
    const center=westFourthPlan(270,96);table(center[0],center[1],.6,white);
    for(let i=0;i<4;i++){const a=i*Math.PI/2,p:Point=[center[0]+Math.sin(a)*.93,center[1]+Math.cos(a)*.93];if(clearInside(room,p,.3))chair(p[0],p[1],a,lime);}
@@ -388,14 +391,19 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    return;
   }
   batches=shellBatches;
-  const wallHeight=room.id==='0324'?10.5:room.id==='0318'?3.3:room.kind==='classroom'?3.25:ceiling;
-  const defaultWallMaterial=room.kind==='auditorium'?walnut:room.kind==='lab'?glass:white;
+  const roomBase=room.id==='0318'?GANNON_FRONT_HEIGHT:0;
+  const wallHeight=room.id==='0324'?10.5:room.id==='0318'?3.3-roomBase:room.kind==='classroom'?3.25:ceiling;
+  const defaultWallMaterial=room.id==='0324'?auditoriumTimber:room.kind==='auditorium'?walnut:room.kind==='lab'?glass:white;
   const nearestEdge=(p:Point)=>room.polygon.reduce((best,a,i)=>distanceToSegment(p,a,room.polygon[(i+1)%room.polygon.length])<distanceToSegment(p,room.polygon[best],room.polygon[(best+1)%room.polygon.length])?i:best,0);
   const nearest=nearestEdge(room.door),doors=[room.door,...(room.additionalDoors??[])];
-  room.polygon.forEach((a,i)=>{
+  if(room.id!=='0324')room.polygon.forEach((a,i)=>{
    if(room.exteriorEdges?.includes(i))return;
    const wallMaterial=room.glazedEdges?.includes(i)?glass:room.timberEdges?.includes(i)?oak:['0102','0108','0110','0116'].includes(room.id)&&(i===1||i===3)?white:defaultWallMaterial;
    const solidWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
+    if(room.id==='0318'&&base===roomBase){
+     for(const part of gannonWallSections(start,end))wall(part.a,part.b,part.top-base,material,collision,base);
+     return;
+    }
     wall(start,end,height,material,collision,base);
     if(room.id!=='0324')return;
     const length=Math.hypot(end[0]-start[0],end[1]-start[1]);if(length<.01)return;
@@ -406,7 +414,12 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
     for(let v=0;v<uv.count;v++)uv.setXY(v,uv.getX(v)*length/.48,uv.getY(v)*height/.15+base/.15);
     g.rotateY(-Math.atan2(end[1]-start[1],end[0]-start[0]));g.translate(mx+nx*.078,base+height/2,mz+nz*.078);put(g,brick);
    };
-   const shellWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
+   const shellWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=roomBase)=>{
+    // These two east edges belong to the upper Antonov enclosure. Ground's
+    // source shows Gannon's paired doors and the open corridor beneath that
+    // projection, not an opaque wall through their thresholds. The interface
+    // height is provisional until a measured auditorium section is available.
+    if(room.id==='0324'&&[3,4].includes(i)&&base===0){solidWall(start,end,height-3.3,material,collision,3.3);return;}
     const length=Math.hypot(end[0]-start[0],end[1]-start[1]);
     if(room.id!=='0324'||![5,7,8,9].includes(i)||height<10||base!==0||length<3.4){solidWall(start,end,height,material,collision,base);return;}
     // The garden photos show broad glazed bays in this brick elevation.
@@ -458,6 +471,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   else if(room.id==='4-west-support-counter'||room.id==='4-west-support-long')buildWestSupport(room.id,sandboxBuilder());
   else if(room.id==='1127'||room.id.startsWith('1-west-meeting-')){surface(room.polygon,.01,classroomFloor);buildFirstWestMeeting(room,{...sandboxBuilder(),chair});}
   else if(room.kind==='huddle')buildWestHuddle(room,{...sandboxBuilder(),chair});
+  else if(firstWestOfficeDesk(room)){surface(room.polygon,.01,classroomFloor);buildFirstWestOffice(room,{...sandboxBuilder(),chair});}
   else if(room.kind==='office')office(room);
   else if(room.kind==='workroom')workroom(room);
   else if(room.kind==='restroom')buildRestroom(room,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
@@ -491,6 +505,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  batches=shellBatches;
  if(floor==='5')FIFTH_SERVICE_SHAFT.forEach((a,i)=>wall(a,FIFTH_SERVICE_SHAFT[(i+1)%FIFTH_SERVICE_SHAFT.length],4.2,white));
  if(floor==='4')buildWestLift({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+ buildSouthStair(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},concrete);
  buildWestStair(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  batches=detailBatches;
  if(floor==='4'){
@@ -526,18 +541,30 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  batches=shellBatches;
  // White structural columns follow the public circulation edges.
- for(const [x,z] of structuralColumns(floor)) {
-  cylinder(x,ceiling/2,z,.3,ceiling,white);
+ for(const {center:[x,z],radius} of structuralColumnLayout(floor)) {
+  // Ground includes the sunken entrance court. Extend its source columns to
+  // the local floor, rather than leaving their bases suspended at lobby level.
+  const base=floor==='G'?(amphitheaterHeight([x,z])??0):0;
+  cylinder(x,(ceiling+base)/2,z,radius,ceiling-base,white);
   for(let i=0;i<16;i++) {
    const a=i/16*Math.PI*2,b=(i+1)/16*Math.PI*2;
-   barriers.push({a:[x+Math.cos(a)*.3,z+Math.sin(a)*.3],b:[x+Math.cos(b)*.3,z+Math.sin(b)*.3],minY:0,maxY:ceiling});
+   barriers.push({a:[x+Math.cos(a)*radius,z+Math.sin(a)*radius],b:[x+Math.cos(b)*radius,z+Math.sin(b)*radius],minY:base,maxY:ceiling});
   }
  }
  if(communicating)buildCommunicatingStair(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
  if(floor==='1')buildFamilyGarden({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+ if(floor==='G')buildAntonovExterior({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},concrete,brick);
  if(floor==='G'||floor==='1')buildAtrium(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+ const lift=buildLiftLanding(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+ if(lift){for(const car of [0,1] as const)lift.setDoorProgress(car,0);group.add(lift.doors);}
  // Public atrium furniture and material cues from HDR photographs.
  if(floor==='G') {
+  buildCanopyEntrance({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},brick);
+  buildCanopyStructure({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  buildCanopyBenches({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  buildSouthEntrance({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},brick);
+  buildGroundNorthCorner({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  buildCourtyardEntrance({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   buildAmphitheater({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   buildLobbyCeiling({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   batches=detailBatches;
@@ -548,9 +575,21 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  batches=detailBatches;
  // Irregular suspended luminous strips, spaced along the curved building spine.
  const spine:Point[]=[plan(633,580),plan(640,900),plan(642,1130),plan(630,1310),plan(470,1510),plan(379,1660)];
- for(let i=0;floor!=='R'&&i<spine.length-1;i++){const a=spine[i],b=spine[i+1],len=Math.hypot(b[0]-a[0],b[1]-a[1]);for(let j=0;j<len;j+=3){const t=j/len,x=a[0]+(b[0]-a[0])*t,z=a[1]+(b[1]-a[1])*t;if(pointInPolygon([x,z],footprint)){if(floor==='G'){if(!pointInPolygon([x,z],ATRIUM_VOID))cylinder(x,ceiling-.012,z,.105,.025,light);}else box(x,ceiling-.4,z,3.3,.055,.09,light,(j%2?1:-1)*.7);}}}
+ // Keep the complete fixture clear of voids and the enclosed stair's own
+ // lighting. Testing its enclosing radius also catches a strip whose center
+ // is outside the shaft but whose end would pierce the wall.
+ const lightExclusions=[...ceilingHoles,...(westStair?[westStair.shaft]:[]),...(lift?[lift.layout.core]:[])];
+ for(let i=0;floor!=='R'&&i<spine.length-1;i++){
+  const a=spine[i],b=spine[i+1],len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+  for(let j=0;j<len;j+=3){
+   const t=j/len,p:Point=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t],radius=floor==='G'?.11:1.66;
+   if(!pointInPolygon(p,footprint)||lightExclusions.some(hole=>pointInPolygon(p,hole)||hole.some((v,k)=>distanceToSegment(p,v,hole[(k+1)%hole.length])<radius)))continue;
+   if(floor==='G')cylinder(p[0],ceiling-.012,p[1],.105,.025,light);
+   else box(p[0],ceiling-.4,p[1],3.3,.055,.09,light,(j%2?1:-1)*.7);
+  }
+ }
  chairBackTemplate.dispose();
  const details:THREE.Mesh[]=[];
- for(const batch of [shellBatches,detailBatches])for(const [m,geometries] of batch){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(!merged)continue;const mesh=new THREE.Mesh(merged,m);mesh.castShadow=false;mesh.receiveShadow=true;mesh.userData.interiorLayer=batch===shellBatches?'shell':'detail';if(batch===detailBatches)details.push(mesh);group.add(mesh);}
- return {group,barriers,footprint,setDetailsVisible(visible){details.forEach(mesh=>{mesh.visible=visible;});},dispose(){group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}};
+ for(const batch of [shellBatches,detailBatches])for(const [m,geometries] of batch){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(!merged)continue;const mesh=new THREE.Mesh(merged,m);mesh.castShadow=!m.transparent&&!(m instanceof THREE.MeshBasicMaterial);mesh.receiveShadow=true;mesh.userData.interiorLayer=batch===shellBatches?'shell':'detail';if(batch===detailBatches)details.push(mesh);group.add(mesh);}
+ return {group,barriers,footprint,lift,setDetailsVisible(visible){details.forEach(mesh=>{mesh.visible=visible;});},dispose(){group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}};
 }

@@ -1,3 +1,20 @@
+import { ANTONOV_NATIVE_FOOTPRINT, ANTONOV_WORLD_FOOTPRINT, ANTONOV_SOURCE_DOOR, ANTONOV_SOURCE_DOOR_WIDTH, ANTONOV_THRESHOLD_EDGE, ANTONOV_GARDEN_FACE } from './antonov-shell-layout';
+import { PLAN_SCALE, plan, groundPlan } from './plan-frame';
+import { firstGuidePlan } from './first-guide-layout';
+import { groundGuidePlan } from './ground-guide-layout';
+import { ATRIUM_SOURCE_SLAB_MASK } from './atrium-opening-layout';
+import { FIRST_WEST_FACADE } from './first-facade-layout';
+import { SECOND_SOURCE_FOOTPRINT } from './second-facade-layout';
+import { FOURTH_SOURCE_FOOTPRINT, fourthFacadeRoom } from './fourth-facade-layout';
+import { fourthGuidePlan } from './fourth-guide-layout';
+import { secondGuidePlan } from './second-guide-layout';
+import { CANOPY_SHELL_CHAIN } from './lobby-canopy-layout';
+import { COURTYARD_SHELL_CHAIN } from './lobby-entrance-layout';
+import { SOUTH_SHELL_CHAIN } from './lobby-south-layout';
+import { NORTH_CORNER_SHELL_CHAIN } from './ground-north-corner-layout';
+import { GANNON_WORLD_FOOTPRINT, GANNON_PAIR_THRESHOLDS, GANNON_OPEN_EDGES, GANNON_STEP_EDGE } from './gannon-ground-layout';
+export { PLAN_SCALE, plan, groundPlan } from './plan-frame';
+
 /** Plan coordinates trace UMD wayfinding's first-floor sheet (1080 × 1920).
  * Positive Z is down that sheet. All floors share this local building frame.
  * Scale is an estimate pending dimensioned drawings; topology follows the plans.
@@ -6,11 +23,14 @@ export type Point = readonly [number, number];
 export type Polygon = readonly Point[];
 export type FloorId = 'G' | '1' | '2' | '3' | '4' | '5' | 'R';
 export type RoomKind = 'classroom' | 'huddle' | 'seminar' | 'lounge' | 'lab' | 'conference' | 'cafe' | 'auditorium' | 'service' | 'garden' | 'office' | 'workroom' | 'restroom';
-export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; glazedEdges?: readonly number[]; timberEdges?: readonly number[]; doorWidth?: number; arrivalFocus?:Point; arrivalPitch?:number; additionalDoors?: Point[]; officeMeeting?: boolean; officeDeskInset?:number; officeMeetingRadius?:number; officeMeetingAlongDepth?:boolean; officeMeetingSeats?:2|4; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
-export const PLAN_SCALE = .085;
-export const plan = (x: number, y: number): Point => [(x - 660) * PLAN_SCALE, (y - 1100) * PLAN_SCALE];
+export interface InteriorRoom { id: string; name: string; floor: FloorId; polygon: Polygon; door: Point; kind: RoomKind; evidence: 'plan' | 'photo'; listed?: boolean; exteriorEdges?: readonly number[]; glazedEdges?: readonly number[]; timberEdges?: readonly number[]; doorWidth?: number; arrivalFocus?:Point; arrivalPitch?:number; additionalDoors?: Point[]; officeMeeting?: boolean; officeDeskInset?:number; officeMeetingRadius?:number; officeMeetingAlongDepth?:boolean; officeMeetingSeats?:2|3|4; deskBanks?: readonly { from:Point; to:Point; seatsPerSide:number }[]; }
 const trace = (points: Polygon): Polygon => points.map(([x,y]) => plan(x,y));
 export const MAIN_FOOTPRINT = trace([[515,449],[740,449],[827,1230],[835,1320],[819,1400],[787,1463],[750,1508],[408,1760],[220,1620],[380,1414],[432,1340],[470,1250],[497,1155],[505,1090]]);
+// Source panes replace the fitted west tip and cafe curve on Level 1. The
+// south join and north straight continuation still connect to a fitted shell.
+export const FIRST_FOOTPRINT:Polygon=[...MAIN_FOOTPRINT.slice(0,8),...FIRST_WEST_FACADE];
+export const SECOND_FOOTPRINT:Polygon=SECOND_SOURCE_FOOTPRINT;
+export const FOURTH_FOOTPRINT:Polygon=FOURTH_SOURCE_FOOTPRINT;
 export const FLOOR_HEIGHT: Record<FloorId,number> = {G:0,'1':6.5,'2':10.9,'3':15.3,'4':19.7,'5':24.1,R:28.5};
 export const FLOOR_LABEL: Record<FloorId,string> = {G:'Ground floor','1':'Level 1','2':'Level 2','3':'Level 3','4':'Level 4','5':'Level 5',R:'Rooftop'};
 function room(floor:FloorId,id:string,name:string,kind:RoomKind,points:Polygon,door:Point): InteriorRoom {
@@ -49,20 +69,28 @@ export function distanceToSegment(p:Point,a:Point,b:Point):number {
 
 // Align the ground-floor wayfinding sheet to the Level 1 sheet using the
 // western tip and central elevator core as reference points.
-export const groundPlan = (x:number,y:number):Point => plan(640 + .832*(y-810) - .069*(x-1080),1120 - .832*(x-1080) - .069*(y-810));
 const groundTrace = (p:Polygon):Polygon => p.map(([x,y])=>groundPlan(x,y));
-export const GROUND_FOOTPRINT = groundTrace([[550,240],[390,413],[385,448],[430,547],[535,734],[605,838],[690,907],[802,954],[895,970],[1218,970],[1212,998],[1350,998],[1352,970],[1375,969],[1625,160],[1602,149],[1560,145],[1562,128],[1535,126],[1520,94],[1490,66],[1430,44],[1360,39],[1300,42],[1250,56],[1230,97],[1167,62],[1145,157],[1136,252],[1140,365],[1178,465],[1160,485],[1137,451],[1060,510],[1080,535],[992,605],[921,574],[837,511]]);
+const groundSchematic = groundTrace([[550,240],[390,413],[385,448],[430,547],[535,734],[605,838],[690,907],[802,954],[895,970],[1218,970],[1212,998],[1350,998],[1352,970],[1375,969],[1625,160],[1602,149],[1560,145],[1562,128],[1535,126],[1520,94],[1490,66],[1430,44],[1360,39],[1300,42],[1250,56],[1230,97],[1167,62],[1145,157],[1136,252],[1140,365],[1178,465],[1160,485],[1137,451],[1060,510],[1080,535],[992,605],[921,574],[837,511]]);
+const groundSouthWestShell:Polygon=[...groundSchematic.slice(0,9),...SOUTH_SHELL_CHAIN];
+const groundNorthWestShell:Polygon=[...NORTH_CORNER_SHELL_CHAIN,...groundSchematic.slice(15,30),...COURTYARD_SHELL_CHAIN,...groundSchematic.slice(35)];
+export const GROUND_FOOTPRINT:Polygon=[...groundSouthWestShell,...CANOPY_SHELL_CHAIN,...groundNorthWestShell];
 const gRoom=(id:string,name:string,kind:RoomKind,p:Polygon,door:Point):InteriorRoom=>({id,name,kind,floor:'G',polygon:groundTrace(p),door:groundPlan(...door),evidence:'plan'});
-export const ANTONOV_PLAN:Polygon=[[1394,65],[1460,67],[1497,89],[1515,118],[1520,206],[1520,341],[1510,430],[1480,468],[1394,480],[1344,480],[1290,480],[1249,467],[1216,436],[1188,380],[1173,307],[1179,235],[1200,166],[1240,102],[1288,78],[1340,65]];
-export const ANTONOV_FOOTPRINT=groundTrace(ANTONOV_PLAN);
+// Compatibility drawing coordinates for photo-derived details. The actual
+// enclosure, furniture and outdoor stair now share the original guide frame.
+export const ANTONOV_PLAN:Polygon=ANTONOV_NATIVE_FOOTPRINT.map(([x,y])=>[1173+(x-254.462)*2.45,274+(y-175.5)*2.45]);
+export const ANTONOV_FOOTPRINT=ANTONOV_WORLD_FOOTPRINT;
 ROOMS.push(
- gRoom('lobby-lounge','Lobby lounge','lounge',[[1060,620],[1360,620],[1360,795],[1110,795]],[1360,705]),
+ // Open seating zone in the shared Ground drawing. The notch leaves the
+ // enclosed north stair out of the lounge shortcut; no new room walls.
+ {id:'lobby-lounge',name:'Lobby lounge',kind:'lounge',floor:'G',evidence:'plan',
+  polygon:[[229,299],[368,299],[368,360],[285,360],[285,390],[229,390]].map(([x,y])=>groundGuidePlan(x,y)),
+  door:groundGuidePlan(280,370),arrivalFocus:groundGuidePlan(299,335)},
  gRoom('0116','Robotics Manipulator Lab','lab',[[648,691],[746,775],[661,875],[586,756]],[699,746]),
  gRoom('0110','Immersive Media Design Lab','lab',[[748,779],[852,834],[797,949],[665,882]],[800,807]),
  gRoom('0108','Brin Family Aerial Robotics Lab','lab',[[858,839],[973,884],[949,963],[803,954]],[917,864]),
  gRoom('0102','Small Artifacts Lab','lab',[[977,887],[1104,907],[1091,964],[955,964]],[1035,897]),
- gRoom('0324','Michael Antonov Auditorium','auditorium',ANTONOV_PLAN,[1216,436]),
- gRoom('0318','Gannon Auditorium','auditorium',[[1405,66],[1460,67],[1497,89],[1515,118],[1520,206],[1520,341],[1510,373],[1406,373]],[1416,373]),
+ {id:'0324',name:'Michael Antonov Auditorium',kind:'auditorium',floor:'G',evidence:'plan',polygon:ANTONOV_FOOTPRINT,door:ANTONOV_SOURCE_DOOR,doorWidth:ANTONOV_SOURCE_DOOR_WIDTH,exteriorEdges:[ANTONOV_THRESHOLD_EDGE]},
+ {id:'0318',name:'Gannon Auditorium',kind:'auditorium',floor:'G',evidence:'plan',polygon:GANNON_WORLD_FOOTPRINT,door:GANNON_PAIR_THRESHOLDS[0].center,additionalDoors:[GANNON_PAIR_THRESHOLDS[1].center],exteriorEdges:[...GANNON_OPEN_EDGES,GANNON_STEP_EDGE]},
 );
 ROOMS.push(
  room('5','5237','Conference room','conference',[[560,500],[718,500],[724,588],[558,588]],[640,588]),
@@ -87,9 +115,19 @@ export const ELEVATOR = plan(657,1114);
 export const ENTRY = groundPlan(1380,850);
 // The HDR guide shows the central elevator enclosure and two-flight stair.
 // The opening is fitted to that topology; metric dimensions remain estimated.
-export const ATRIUM_CENTER=plan(665,1120);
-export const atriumPoint=(x:number,z:number):Point=>[ATRIUM_CENTER[0]+x,ATRIUM_CENTER[1]+z];
-export const ATRIUM_VOID:Polygon=[[-4.7,-6.1],[-3.6,-6.4],[4.7,-4.55],[4.7,.4],[4.2,3],[2.7,4.8],[0,5.1],[-2.7,4.8],[-4.7,2]].map(([x,z])=>atriumPoint(x,z));
+// Retain the stair's fitted local topology, now consistently registered to the
+// Ground architectural sheet instead of an independent rotated core fit.
+// Local dimensions and floor heights are still estimates.
+export const atriumPoint=(x:number,z:number):Point=>{
+ const dx=(x-1.85)/.13,dz=z/.13;
+ return groundGuidePlan(222.394+.99186*dx-.12734*dz,432.6+.12734*dx+.99186*dz);
+};
+export const ATRIUM_CENTER=atriumPoint(0,0);
+const atriumUnit=atriumPoint(1,0);
+export const ATRIUM_FRAME_SCALE=Math.hypot(atriumUnit[0]-ATRIUM_CENTER[0],atriumUnit[1]-ATRIUM_CENTER[1]);
+// Two unresolved closure segments are estimated in the source-based slab mask;
+// the broad guard and north stair edge retain their original plan curves.
+export const ATRIUM_VOID:Polygon=ATRIUM_SOURCE_SLAB_MASK;
 
 // Align the rooftop spread to the same building frame using the northern
 // exterior corners and western stair. Preserve handedness: guide +Y is building
@@ -100,29 +138,19 @@ export const ROOF_GALLERY:InteriorRoom={floor:'R',id:'6217',name:'Andre Reisse G
 export const ROOF_LAWN_PLAN:Polygon=[[827,850],[870,842],[960,846],[994,857],[1010,898],[977,925],[895,954],[866,947],[838,916]];
 export const ROOF_PARK:InteriorRoom={floor:'R',id:'reisse-park',name:'Reisse Park terrace',kind:'garden',evidence:'plan',polygon:ROOF_LAWN_PLAN.map(([x,y])=>roofPlan(x,y)),door:roofPlan(865,933)};
 ROOMS.push(ROOF_GALLERY,ROOF_PARK);
-export const footprintForFloor=(floor:FloorId):Polygon=>floor==='G'?GROUND_FOOTPRINT:floor==='R'?ROOF_PUBLIC_FOOTPRINT:MAIN_FOOTPRINT;
+export const footprintForFloor=(floor:FloorId):Polygon=>floor==='G'?GROUND_FOOTPRINT:floor==='1'?FIRST_FOOTPRINT:floor==='2'?SECOND_FOOTPRINT:floor==='4'?FOURTH_FOOTPRINT:floor==='R'?ROOF_PUBLIC_FOOTPRINT:MAIN_FOOTPRINT;
 
 
-// HDR Level 4 sheet, aligned independently by its north corners and north-west
-// stair. The public wayfinding sheets are schematic, so this is not a survey.
-const fourthNorthPlan=(x:number,y:number):Point=>plan(-.10140141*x+.92056662*y-96.11915764,-.759457617*x-.097689569*y+1374.95531);
-// The public diagrams stretch the west wing differently. Two affine triangles
-// align its exterior corners while preserving the north-wing stair connection.
-// This is registration of undimensioned diagrams, not a measured floor survey.
-const fourthSeamA:Point=[650,727],fourthSeamB:Point=[619,1027];
-const fourthWestA:Point=[-137,310],fourthWestB:Point=[-314,497];
 const barycentric=(p:Point,a:Point,b:Point,c:Point):Point=>{
  const ux=b[0]-a[0],uy=b[1]-a[1],vx=c[0]-a[0],vy=c[1]-a[1],dx=p[0]-a[0],dy=p[1]-a[1],det=ux*vy-uy*vx;
  return [(dx*vy-dy*vx)/det,(ux*dy-uy*dx)/det];
 };
 const blendTriangle=(u:number,v:number,a:Point,b:Point,c:Point):Point=>[a[0]+u*(b[0]-a[0])+v*(c[0]-a[0]),a[1]+u*(b[1]-a[1])+v*(c[1]-a[1])];
 export function fourthPlan(x:number,y:number):Point{
- const p:Point=[x,y],[u,v]=barycentric(p,fourthSeamA,fourthSeamB,fourthWestA);
- if(v<=0)return fourthNorthPlan(x,y);
- const a=fourthNorthPlan(...fourthSeamA),b=fourthNorthPlan(...fourthSeamB),c=plan(220,1620),d=plan(408,1760);
- if(u+v<=1)return blendTriangle(u,v,a,b,c);
- const [w,t]=barycentric(p,fourthSeamB,fourthWestB,fourthWestA);
- return blendTriangle(w,t,b,d,c);
+ // Existing room traces use a 2x rendering of original page 12. Register its
+ // native coordinates through the same reviewed twenty-column similarity as
+ // the facade and structural markers, without stretching the west wing.
+ return fourthGuidePlan(x/2,y/2);
 }
 const fourthTrace=(p:Polygon):Polygon=>p.map(([x,y])=>fourthPlan(x,y));
 ROOMS.push(
@@ -145,16 +173,16 @@ const officeTop=(x:number)=>727.5+(x-650)*.132;
 const officeMeetingIndices=new Set([0,1,4,7,8,9]);
 for(let i=0;i<westOfficeBreaks.length-1;i++){
  const a=westOfficeBreaks[i],b=westOfficeBreaks[i+1];
- const points:Polygon=[upperWindow(fourthPlan(a,officeTop(a)),'west'),upperWindow(fourthPlan(b,officeTop(b)),'west'),fourthPlan(b-6,officeTop(b)+62),fourthPlan(a-6,officeTop(a)+62)];
+ const points:Polygon=[onEnvelope(fourthPlan(a,officeTop(a)),FOURTH_FOOTPRINT),onEnvelope(fourthPlan(b,officeTop(b)),FOURTH_FOOTPRINT),fourthPlan(b-6,officeTop(b)+62),fourthPlan(a-6,officeTop(a)+62)];
  const t=i%2?.23:.77,door:Point=[points[3][0]+(points[2][0]-points[3][0])*t,points[3][1]+(points[2][1]-points[3][1])*t];
- ROOMS.push({floor:'4',id:`4-west-office-${i+1}`,name:'Office',kind:'office',polygon:points,door,doorWidth:.9,exteriorEdges:[0],officeMeeting:officeMeetingIndices.has(i),evidence:'plan',listed:false});
+ ROOMS.push({floor:'4',id:`4-west-office-${i+1}`,name:'Office',kind:'office',...fourthFacadeRoom(points,[0]),door,doorWidth:.9,officeMeeting:officeMeetingIndices.has(i),evidence:'plan',listed:false});
 }
 const eastOfficeBreaks=[619.5,654,691.5,731,770.5,809.5,847.5,886.5,926,965,1005,1044];
 for(let i=0;i<eastOfficeBreaks.length-1;i++){
  const a=eastOfficeBreaks[i],b=eastOfficeBreaks[i+1];
- const points:Polygon=[fourthPlan(a,966),fourthPlan(b,966),upperWindow(fourthPlan(b,1027),'east'),upperWindow(fourthPlan(a,1027),'east')];
+ const points:Polygon=[fourthPlan(a,966),fourthPlan(b,966),onEnvelope(fourthPlan(b,1027),FOURTH_FOOTPRINT),onEnvelope(fourthPlan(a,1027),FOURTH_FOOTPRINT)];
  const t=i%2?.77:.23,door:Point=[points[0][0]+(points[1][0]-points[0][0])*t,points[0][1]+(points[1][1]-points[0][1])*t];
- ROOMS.push({floor:'4',id:`4-east-office-${i+1}`,name:'Office',kind:'office',polygon:points,door,doorWidth:.9,exteriorEdges:[2],officeMeeting:officeMeetingIndices.has(i),evidence:'plan',listed:false});
+ ROOMS.push({floor:'4',id:`4-east-office-${i+1}`,name:'Office',kind:'office',...fourthFacadeRoom(points,[2]),door,doorWidth:.9,officeMeeting:officeMeetingIndices.has(i),evidence:'plan',listed:false});
 }
 ROOMS.push(
  {floor:'4',id:'4-north-workroom-west',name:'Shared workroom (west)',kind:'workroom',evidence:'plan',polygon:fourthTrace([[817,834],[903,845],[891,941],[808,941]]),door:fourthPlan(829,835.535),doorWidth:.95},
@@ -164,23 +192,23 @@ ROOMS.push(
 // West-wing partitions traced across HDR's two-page spread. These coordinates
 // use the joined reference crop (left-page origin 820,300, scaled 1.5).
 export const westFourthPlan=(x:number,y:number):Point=>fourthPlan(x/1.5-332,y/1.5+300);
-const onEnvelope=(p:Point):Point=>{
+function onEnvelope(p:Point,footprint:Polygon=MAIN_FOOTPRINT):Point{
  let best:Point=p,distance=Infinity;
- MAIN_FOOTPRINT.forEach((a,i)=>{
-  const b=MAIN_FOOTPRINT[(i+1)%MAIN_FOOTPRINT.length],dx=b[0]-a[0],dz=b[1]-a[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dz)/(dx*dx+dz*dz)));
+ footprint.forEach((a,i)=>{
+  const b=footprint[(i+1)%footprint.length],dx=b[0]-a[0],dz=b[1]-a[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dz)/(dx*dx+dz*dz)));
   const q:Point=[a[0]+t*dx,a[1]+t*dz],d=Math.hypot(q[0]-p[0],q[1]-p[1]);if(d<distance){best=q;distance=d;}
  });
  return best;
-};
+}
 const westUpperFacade:Polygon=[[336,60],[380,101],[421,142],[465,182],[507,221],[551,264],[592,299],[634,340],[675,381],[723,422],[774,463],[828,494],[884,530],[944,549],[1008,580]];
 const westUpperInside:Polygon=[[274,127],[314,166],[357,208],[400,249],[439,288],[485,329],[529,368],[570,408],[611,447],[662,491],[720,536],[785,574],[847,608],[909,633],[978,658]];
 const westLowerFacade:Polygon=[[62,356],[91,408],[120,460],[150,512],[180,566],[210,618]];
 const westLowerInside:Polygon=[[118,320],[170,360],[203,411],[235,463],[269,516],[305,569]];
 for(const [side,facade,inside] of [['upper',westUpperFacade,westUpperInside],['lower',westLowerFacade,westLowerInside]] as const){
  for(let i=0;i<facade.length-1;i++){
-  const points:Polygon=[onEnvelope(westFourthPlan(...facade[i])),onEnvelope(westFourthPlan(...facade[i+1])),westFourthPlan(...inside[i+1]),westFourthPlan(...inside[i])];
+  const points:Polygon=[onEnvelope(westFourthPlan(...facade[i]),FOURTH_FOOTPRINT),onEnvelope(westFourthPlan(...facade[i+1]),FOURTH_FOOTPRINT),westFourthPlan(...inside[i+1]),westFourthPlan(...inside[i])];
   const t=i%2?.22:.78,door:Point=[points[3][0]+(points[2][0]-points[3][0])*t,points[3][1]+(points[2][1]-points[3][1])*t];
-  ROOMS.push({floor:'4',id:`4-far-west-${side}-office-${i+1}`,name:'Office',kind:'office',evidence:'plan',listed:false,polygon:points,door,doorWidth:.9,exteriorEdges:[0],officeMeeting:side==='lower'||i===3||i>=8});
+  ROOMS.push({floor:'4',id:`4-far-west-${side}-office-${i+1}`,name:'Office',kind:'office',evidence:'plan',listed:false,...fourthFacadeRoom(points,[0]),door,doorWidth:.9,officeMeeting:side==='lower'||i===3||i>=8});
  }
 }
 ROOMS.push({floor:'4',id:'west-reset-zone',name:'West study lounge',kind:'lounge',evidence:'plan',polygon:[[294,22],[331,61],[270,129],[235,177],[161,247],[120,316],[27,298]].map(([x,y])=>westFourthPlan(x,y)),door:westFourthPlan(240,174)});
@@ -198,7 +226,9 @@ const westWorkrooms:readonly {id:string;name:string;outline:Polygon;door:Point;f
 ];
 for(const r of westWorkrooms){
  const lastExterior=r.outline.length-3;
- ROOMS.push({floor:'4',id:r.id,name:r.name,kind:'workroom',evidence:'plan',polygon:r.outline.map((p,i)=>r.facade&&i<=lastExterior?onEnvelope(westFourthPlan(...p)):westFourthPlan(...p)),door:westFourthPlan(...r.door),doorWidth:1.05,exteriorEdges:r.facade?Array.from({length:lastExterior},(_,i)=>i):undefined,deskBanks:r.banks.map(([a,b,seatsPerSide])=>({from:westFourthPlan(...a),to:westFourthPlan(...b),seatsPerSide}))});
+ const outline=r.outline.map((p,i)=>r.facade&&i<=lastExterior?onEnvelope(westFourthPlan(...p),FOURTH_FOOTPRINT):westFourthPlan(...p));
+ const shape=r.facade?fourthFacadeRoom(outline,Array.from({length:lastExterior},(_,i)=>i)):{polygon:outline};
+ ROOMS.push({floor:'4',id:r.id,name:r.name,kind:'workroom',evidence:'plan',...shape,door:westFourthPlan(...r.door),doorWidth:1.05,deskBanks:r.banks.map(([a,b,seatsPerSide])=>({from:westFourthPlan(...a),to:westFourthPlan(...b),seatsPerSide}))});
 }
 
 // Shared orthogonal registration keeps the stair and adjoining room walls aligned.
@@ -245,16 +275,17 @@ export const WEST_SUPPORT_ROOMS:InteriorRoom[]=[
 ROOMS.push(...WEST_SUPPORT_ROOMS);
 
 // The public Level 5 wayfinding image retains faint architectural linework
-// under its annotations. Contrast inspection reveals this four-office island
-// below 5237. Room numbers are unreadable; door widths and positions are estimated.
+// under its annotations. These four enclosures below 5237 carry studio/editing
+// and general lab storage labels, not office labels. Current uses, room numbers
+// and equipment are unverified; doorway dimensions and registration are estimated.
 export const FIFTH_NORTH_OFFICE_ENTRY=plan(610,597);
-export const FIFTH_NORTH_OFFICES:InteriorRoom[]=[
- {id:'5-north-inner-west-1',outline:[[632,648],[590,648],[590,605],[632,605]],door:[624,605],meeting:false},
- {id:'5-north-inner-east-1',outline:[[690,648],[632,648],[632,605],[686,605]],door:[648,605],meeting:false},
- {id:'5-north-inner-west-2',outline:[[590,648],[636,648],[636,711],[590,711]],door:[602,711],meeting:true},
- {id:'5-north-inner-east-2',outline:[[636,648],[690,648],[690,711],[636,711]],door:[679,711],meeting:true},
-].map(r=>({floor:'5',id:r.id,name:'Office',kind:'office',listed:false,evidence:'plan',polygon:r.outline.map(([x,y])=>plan(x,y)),door:plan(...r.door as [number,number]),doorWidth:.95,officeMeeting:r.meeting}));
-ROOMS.push(...FIFTH_NORTH_OFFICES);
+export const FIFTH_NORTH_SUPPORT_ROOMS:InteriorRoom[]=[
+ {id:'5-north-lab-storage-a',name:'General lab storage A (plan)',outline:[[632,648],[590,648],[590,605],[632,605]],door:[624,605]},
+ {id:'5-north-lab-storage-b',name:'General lab storage B (plan)',outline:[[690,648],[632,648],[632,605],[686,605]],door:[648,605]},
+ {id:'5-north-video-editing',name:'Video editing room (plan)',outline:[[590,648],[636,648],[636,711],[590,711]],door:[602,711]},
+ {id:'5-north-production-studio',name:'Production studio (plan)',outline:[[636,648],[690,648],[690,711],[636,711]],door:[679,711]},
+].map(r=>({floor:'5',id:r.id,name:r.name,kind:'service',listed:false,evidence:'plan',polygon:r.outline.map(([x,y])=>plan(x,y)),door:plan(...r.door as [number,number]),doorWidth:.95}));
+ROOMS.push(...FIFTH_NORTH_SUPPORT_ROOMS);
 
 // Visible perimeter partitions on the same Level 5 drawing, below the 5237
 // annotation. Covered walls above this range are not extrapolated.
@@ -338,23 +369,40 @@ export const AMPH_U:Point=[AMPH_V[1],-AMPH_V[0]];
 export const AMPH_WIDTH=4.44,AMPH_DROP=1.8,AMPH_SOUTH_AISLE=1.6,AMPH_NORTH_RUN=3;
 export const amphPoint=(u:number,v:number):Point=>[AMPH_ORIGIN[0]+AMPH_U[0]*u+AMPH_V[0]*v,AMPH_ORIGIN[1]+AMPH_U[1]*u+AMPH_V[1]*v];
 export const amphLocal=(p:Point):Point=>[(p[0]-AMPH_ORIGIN[0])*AMPH_U[0]+(p[1]-AMPH_ORIGIN[1])*AMPH_U[1],(p[0]-AMPH_ORIGIN[0])*AMPH_V[0]+(p[1]-AMPH_ORIGIN[1])*AMPH_V[1]];
-const amphFacadeA=amphLocal(groundPlan(1625,160)),amphFacadeB=amphLocal(groundPlan(1375,969));
-export const amphFacade=(v:number)=>amphFacadeA[0]+(amphFacadeB[0]-amphFacadeA[0])*(v-amphFacadeA[1])/(amphFacadeB[1]-amphFacadeA[1])-.025;
-// A 25 mm inset leaves a valid hole inside the curtain-wall floor outline.
-export const AMPH_LOWER:Polygon=[[0,0],[amphFacade(0),0],[amphFacade(AMPH_DEPTH+AMPH_SOUTH_AISLE),AMPH_DEPTH+AMPH_SOUTH_AISLE],[0,AMPH_DEPTH+AMPH_SOUTH_AISLE]].map(([u,v])=>amphPoint(u,v));
+const amphFacadePoints=[NORTH_CORNER_SHELL_CHAIN[0],...CANOPY_SHELL_CHAIN.slice().reverse(),SOUTH_SHELL_CHAIN.at(-1)!].map(amphLocal).sort((a,b)=>a[1]-b[1]);
+/** Follow the corrected facade rather than leaving a strip of upper floor
+ * across the native canopy doors. The remaining north/south joins are fitted. */
+export const amphFacade=(v:number)=>{
+ const index=amphFacadePoints.findIndex((p,i)=>i>0&&p[1]>=v),i=index<0?amphFacadePoints.length-1:index;
+ const a=amphFacadePoints[Math.max(0,i-1)],b=amphFacadePoints[Math.max(1,i)];
+ return a[0]+(b[0]-a[0])*(v-a[1])/(b[1]-a[1]);
+};
+export const AMPH_FACADE:Polygon=[[amphFacade(0),0],...amphFacadePoints.filter(p=>p[1]>0&&p[1]<AMPH_DEPTH+AMPH_SOUTH_AISLE),[amphFacade(AMPH_DEPTH+AMPH_SOUTH_AISLE),AMPH_DEPTH+AMPH_SOUTH_AISLE]].map(([u,v])=>amphPoint(u,v));
+export const AMPH_LOWER:Polygon=[amphPoint(0,0),...AMPH_FACADE,amphPoint(0,AMPH_DEPTH+AMPH_SOUTH_AISLE)];
+/** A sunken court is an open notch in the slab, not a hole inset from the
+ * facade. Splice its inner boundary into the outer ring so triangulation
+ * leaves no upper-floor ledge hanging across the entrance at head height. */
+export const GROUND_LOBBY_SLAB:Polygon=[
+ ...groundSouthWestShell,AMPH_FACADE.at(-1)!,amphPoint(0,AMPH_DEPTH+AMPH_SOUTH_AISLE),amphPoint(0,0),AMPH_FACADE[0],...groundNorthWestShell,
+];
 export const AMPH_SPACE:InteriorRoom={id:'amphitheater',name:'Amphitheater',floor:'G',kind:'lounge',evidence:'photo',polygon:AMPH_LOWER,door:amphPoint(6.2,AMPH_DEPTH*.55)};
 ROOMS.push(AMPH_SPACE);
 
-// Level 1 garden: register the HDR spread at its corridor doorway and the
-// auditorium's south/east wall. Dimensions are interpreted from the diagram.
-export const FAMILY_GARDEN_DOOR=onEnvelope(plan(508.3849737,927.4092956));
-const gardenGuide:Polygon=[[302,670],[490,542],[644,595],[793,493],[805,265],[886,262],[737,745],[537,718]];
-const gardenWorld:Polygon=[onEnvelope(plan(488.4218,1123.7397)),groundPlan(1216,436),groundPlan(1344,480),groundPlan(1480,468),groundPlan(1520,206),[groundPlan(1520,206)[0],groundPlan(1520,206)[1]-6.5],onEnvelope(plan(511.9475,761.2109)),FAMILY_GARDEN_DOOR];
+// Level 1 garden: original guide page 8 paths 85396/85395 give the two
+// door hinges [259.457886,357.853607] / [271.299194,359.371216]. Their
+// midpoint shares the native stair/Antonov frame. The remaining straight
+// facade continuation is estimated: project its threshold by 0.231 m onto
+// that existing baseline. Landscape outlines and elevations remain estimates.
+export const FAMILY_GARDEN_NATIVE_DOOR=firstGuidePlan(265.3785400390625,358.61241149902344);
+export const FAMILY_GARDEN_DOOR=onEnvelope(FAMILY_GARDEN_NATIVE_DOOR,FIRST_FOOTPRINT);
+const gardenGuide:Polygon=[[302,670],[490,542],[644,595],[793,493],[805,265],[886,262],[737,745],[530.757080078125,717.2248229980469]];
+const gardenWorld:Polygon=[onEnvelope(plan(488.4218,1123.7397),FIRST_FOOTPRINT),...gardenGuide.slice(1,6).map(([x,y])=>firstGuidePlan(x/2,y/2)),onEnvelope(plan(511.9475,761.2109),FIRST_FOOTPRINT),FAMILY_GARDEN_DOOR];
 const gardenTriangles=[[6,7,1],[7,0,1],[6,1,2],[6,2,3],[6,3,5],[3,4,5]] as const;
 export function familyGardenPlan(x:number,y:number):Point {
- // The public sheets disagree in their relative auditorium/corridor scale.
- // A continuous piecewise registration fixes both boundaries without folding
- // the terrace over the auditorium or placing planters inside the corridor.
+ // The door anchor uses the original drawn hinge midpoint; the retained
+ // outer terrace returns still connect to the fitted facade. Theater-side
+ // anchors remain in the shared native frame. This interpolation is an
+ // estimated model connection, not a measured landscape registration.
  let best:Point=[0,0],penalty=Infinity;
  for(const [a,b,c] of gardenTriangles){
   const [u,v]=barycentric([x,y],gardenGuide[a],gardenGuide[b],gardenGuide[c]);
@@ -367,17 +415,23 @@ const theaterCenter:Point=[ANTONOV_FOOTPRINT.reduce((s,p)=>s+p[0],0)/ANTONOV_FOO
 export function theaterOffset(p:Point,d:number):Point {
  const dx=p[0]-theaterCenter[0],dz=p[1]-theaterCenter[1],length=Math.hypot(dx,dz);return [p[0]+dx/length*d,p[1]+dz/length*d];
 }
-export const FAMILY_THEATER_EDGE:Polygon=ANTONOV_FOOTPRINT.slice(4,13).reverse().map(p=>theaterOffset(p,.19));
+export const FAMILY_THEATER_EDGE:Polygon=[...ANTONOV_GARDEN_FACE].reverse();
+const gardenSouthReturn=onEnvelope(familyGardenPlan(302,670),FIRST_FOOTPRINT),gardenSouthJoin=familyGardenPlan(490,542);
+const gardenNorthOuter=familyGardenPlan(886,262),gardenNorthReturn=onEnvelope(familyGardenPlan(739,746),FIRST_FOOTPRINT);
+export const FAMILY_GARDEN_GUARD_EDGES=[
+ {a:gardenSouthReturn,b:gardenSouthJoin},{a:gardenSouthJoin,b:FAMILY_THEATER_EDGE[0]},
+ {a:FAMILY_THEATER_EDGE.at(-1)!,b:gardenNorthOuter},{a:gardenNorthOuter,b:gardenNorthReturn},
+] as const;
 export const FAMILY_TERRACE:Polygon=[
- onEnvelope(familyGardenPlan(302,670)),...FAMILY_THEATER_EDGE,
- familyGardenPlan(886,262),onEnvelope(familyGardenPlan(739,746)),
- ...[[550,721],[537,718],[443,711],[361,693]].map(([x,y])=>onEnvelope(familyGardenPlan(x,y))),
+ gardenSouthReturn,gardenSouthJoin,...FAMILY_THEATER_EDGE,gardenNorthOuter,gardenNorthReturn,
+ ...[[550,721],gardenGuide[7],[443,711],[361,693]].map(([x,y])=>onEnvelope(familyGardenPlan(x,y),FIRST_FOOTPRINT)),
 ];
 export const FAMILY_GARDEN:InteriorRoom={floor:'1',id:'family-garden',name:'Margulis–Antonov Family Garden',kind:'garden',evidence:'plan',polygon:FAMILY_TERRACE,door:FAMILY_GARDEN_DOOR};
 ROOMS.push(FAMILY_GARDEN);
 
 // One registration for the Level 1 north wing: HDR page 9 rendered at 2×.
-// North facade corners, enclosed stair and central elevator anchor the drawing.
+// Legacy north facade and elevator fit. Its stair symbol is a registration
+// anchor only; the actual shaft uses the original guide's shared CAD frame.
 // The colored wayfinding blocks include surrounding support rooms and are
 // not classroom wall outlines. Metric dimensions remain estimates.
 const firstNorthDiagram:Point[]=[[607,760],[575,1023],[1115,794],[1086,1023],[392,859]];
@@ -404,7 +458,7 @@ export function sandboxPlan(x:number,y:number):Point {
 }
 const sandboxStudio=(id:string,name:string,outline:Polygon,door:Point,exterior?:number,kind:RoomKind='lab'):InteriorRoom=>({
  floor:'1',id,name,kind,evidence:'plan',door:sandboxPlan(...door),doorWidth:1.15,
- polygon:outline.map((p,i)=>exterior!==undefined&&(i===exterior||i===(exterior+1)%outline.length)?onEnvelope(sandboxPlan(...p)):sandboxPlan(...p)),
+ polygon:outline.map((p,i)=>exterior!==undefined&&(i===exterior||i===(exterior+1)%outline.length)?onEnvelope(sandboxPlan(...p),FIRST_FOOTPRINT):sandboxPlan(...p)),
  exteriorEdges:exterior===undefined?undefined:[exterior],
 });
 export const SANDBOX_STUDIOS:InteriorRoom[]=[
@@ -438,14 +492,18 @@ export const SANDBOX_SUPPORT:InteriorRoom[]=[
  {floor:'1',id:'1213',name:'Sandbox · Supply storage',kind:'service',evidence:'plan',polygon:firstCoreTrace([[48,287],[228,307],[214,459],[29,439]]),door:firstCorePlan(217.776316,418),doorWidth:1.05},
  {floor:'1',id:'1209',name:'Sandbox · Tool storage',kind:'service',evidence:'plan',polygon:firstCoreTrace([[28,455],[241,481],[221,631],[8,631]]),door:firstCorePlan(236.466667,515),doorWidth:1.05},
  {floor:'1',id:'1214',name:'Sandbox · Manager office',kind:'office',evidence:'plan',exteriorEdges:[0],doorWidth:1.05,
- polygon:[onEnvelope(firstNorthPlan(744,1023.25)),onEnvelope(firstNorthPlan(778.5,1023.25)),firstNorthPlan(778.5,962.5),firstNorthPlan(744,962.5)],door:firstNorthPlan(750,962.5)},
+ polygon:[onEnvelope(firstNorthPlan(744,1023.25),FIRST_FOOTPRINT),onEnvelope(firstNorthPlan(778.5,1023.25),FIRST_FOOTPRINT),firstNorthPlan(778.5,962.5),firstNorthPlan(744,962.5)],door:firstNorthPlan(750,962.5)},
 ];
 ROOMS.push(...SANDBOX_SUPPORT);
 
 // Perimeter rooms traced on HDR Level 1. Names below remain generic where the
 // small emergency-map labels do not provide a confident room-number reading.
 const firstOffice=(id:string,outline:Polygon,door:Point):InteriorRoom=>({floor:'1',id,name:'Office',kind:'office',listed:false,evidence:'plan',exteriorEdges:[0],doorWidth:1.05,
- polygon:outline.map(([x,y],i)=>i<2?onEnvelope(firstNorthPlan(x,y)):firstNorthPlan(x,y)),door:firstNorthPlan(...door)});
+ // The four offices beside the north shaft use the same original guide frame
+ // as its walls. Their raster-traced outlines remain approximate; don't warp
+ // these rooms to the legacy wayfinding facade or fitted stair symbol.
+ polygon:outline.map(([x,y],i)=>id.startsWith('1-north-')?firstGuidePlan(x/2,y/2):i<2?onEnvelope(firstNorthPlan(x,y),FIRST_FOOTPRINT):firstNorthPlan(x,y)),
+ door:id.startsWith('1-north-')?firstGuidePlan(door[0]/2,door[1]/2):firstNorthPlan(...door)});
 export const FIRST_OFFICES:InteriorRoom[]=[
  firstOffice('1-north-office-1',[[671,737.25],[700.5,740.75],[694.25,798.5],[664,794.5]],[688.5,797.7396694]),
  firstOffice('1-north-office-2',[[704,742],[738,745.25],[732.5,803.75],[698,799.25]],[703,799.9021739]),
@@ -467,11 +525,12 @@ export const SECOND_RESTROOMS:InteriorRoom[]=FIRST_RESTROOMS.map((room,i)=>({...
 ROOMS.push(...SECOND_RESTROOMS);
 
 // HDR Level 2 north-end crop (404,365)–(560,513), rendered at 8×.
-// North façade corners fix the orientation. The south registration is fitted
-// to the Level 2 wayfinding restroom block; dimensions remain estimates.
+// Convert that crop back to original PDF points, then use the same column-
+// based registration as the Level 2 shell. The former independent north-end
+// corner fit crowded its furniture against the corrected source columns.
+// Room/furniture trace precision and physical dimensions remain estimates.
 export function hatcheryPlan(x:number,y:number):Point {
- const [u,v]=barycentric([x,y],[1198,230],[1077,1158],[14,1158]);
- return blendTriangle(u,v,plan(515,449),plan(740,449),plan(768.5,705));
+ return secondGuidePlan(404+x/8,365+y/8);
 }
 const hatcheryTrace=(points:Polygon)=>points.map(([x,y])=>hatcheryPlan(x,y));
 export const HATCHERY_ROOMS:InteriorRoom[]=[
@@ -482,16 +541,16 @@ const hatcheryNorthOuter:Polygon=[[148,100],[298,117],[444,137],[590,157],[737,1
 const hatcheryNorthInner:Polygon=[[113,337],[272,359],[414,379],[562,398],[711,417],[857,435],[1002,454]];
 for(let i=0;i<6;i++){
  const a=hatcheryNorthOuter[i],b=hatcheryNorthOuter[i+1],c=hatcheryNorthInner[i+1],d=hatcheryNorthInner[i];
- HATCHERY_ROOMS.push({floor:'2',id:`2-north-west-office-${i+1}`,name:'Office',kind:'office',listed:false,evidence:'plan',exteriorEdges:[0],glazedEdges:[2],officeMeeting:[false,false,true,true,false,true][i],officeMeetingRadius:.36,officeMeetingSeats:4,
- polygon:[onEnvelope(hatcheryPlan(a[0]+6,a[1])),onEnvelope(hatcheryPlan(b[0]-6,b[1])),hatcheryPlan(c[0]-6,c[1]),hatcheryPlan(d[0]+6,d[1])],door:hatcheryPlan(d[0]+(c[0]-d[0])*.77,d[1]+(c[1]-d[1])*.77),doorWidth:1.05});
+ HATCHERY_ROOMS.push({floor:'2',id:`2-north-west-office-${i+1}`,name:'Office',kind:'office',listed:false,evidence:'plan',exteriorEdges:[0],glazedEdges:[2],officeMeeting:[false,false,true,true,false,true][i],officeMeetingRadius:.36,officeMeetingSeats:i===3?3:2,officeMeetingAlongDepth:i===2||i===5,
+ polygon:[onEnvelope(hatcheryPlan(a[0]+6,a[1]),SECOND_FOOTPRINT),onEnvelope(hatcheryPlan(b[0]-6,b[1]),SECOND_FOOTPRINT),hatcheryPlan(c[0]-6,c[1]),hatcheryPlan(d[0]+6,d[1])],door:hatcheryPlan(d[0]+(c[0]-d[0])*.77,d[1]+(c[1]-d[1])*.77),doorWidth:1.05});
 }
 const hatcherySouthCuts=[14,167,318,469,619,768,911];
 for(let i=0;i<6;i++){
  const a=hatcherySouthCuts[i]+6,b=hatcherySouthCuts[i+1]-6;
- HATCHERY_ROOMS.push({floor:'2',id:`2-north-east-office-${i+1}`,name:'Office',kind:'office',listed:false,evidence:'plan',exteriorEdges:[0],glazedEdges:[2],officeMeeting:i!==5,officeMeetingRadius:.36,officeMeetingSeats:4,
- polygon:[onEnvelope(hatcheryPlan(a,1158)),onEnvelope(hatcheryPlan(b,1158)),hatcheryPlan(b,917),hatcheryPlan(a,917)],door:hatcheryPlan(a+(b-a)*.24,917),doorWidth:1.05});
+ HATCHERY_ROOMS.push({floor:'2',id:`2-north-east-office-${i+1}`,name:'Office',kind:'office',listed:false,evidence:'plan',exteriorEdges:[0],glazedEdges:[2],officeMeeting:i!==5,officeMeetingRadius:.36,officeMeetingSeats:i===2?2:3,officeMeetingAlongDepth:i===2,
+ polygon:[onEnvelope(hatcheryPlan(a,1158),SECOND_FOOTPRINT),onEnvelope(hatcheryPlan(b,1158),SECOND_FOOTPRINT),hatcheryPlan(b,917),hatcheryPlan(a,917)],door:hatcheryPlan(a+(b-a)*.24,917),doorWidth:1.05});
 }
-export const HATCHERY_COMMON:InteriorRoom={floor:'2',id:'north-collaboration',name:'North collaboration area',kind:'lounge',evidence:'plan',polygon:hatcheryTrace([[125,355],[1005,458],[1037,227],[1190,235],[1072,1150],[919,1150],[919,906],[25,906],[25,844],[699,844],[735,504],[125,437]]),door:hatcheryPlan(750,870),arrivalFocus:hatcheryPlan(1020,690)};
+export const HATCHERY_COMMON:InteriorRoom={floor:'2',id:'north-collaboration',name:'North collaboration area',kind:'lounge',evidence:'plan',polygon:hatcheryTrace([[125,355],[1005,458],[1037,227],[1190,235],[1072,1150],[917,1150],[917,906],[25,906],[25,844],[699,844],[735,504],[125,437]]),door:hatcheryPlan(750,870),arrivalFocus:hatcheryPlan(1020,690)};
 ROOMS.push(HATCHERY_COMMON,...HATCHERY_ROOMS);
 
 // HDR Level 1 west wing, page 8. Crop coordinates use PDF (433,165) at 4x.
@@ -501,12 +560,22 @@ export function firstWestPlan(x:number,y:number):Point {
  const [u,v]=barycentric([-286+x/2,330+y/2],[-92,337],[-263,515],[3,632]);
  return blendTriangle(u,v,plan(220,1620),plan(408,1760),WEST_STAIR_FRAME.at(WEST_STAIR_FRAME.width/2,WEST_STAIR_FRAME.length/2));
 }
+export const FIRST_WEST_OFFICE_ENTRY=firstWestPlan(610,420);
 const firstWestOfficeOutlines:{id:string;outline:number[][];door:number[];exterior?:number[];meeting?:boolean}[]=[
  {id:'1-west-inner-office-1',outline:[[365,218],[430,279],[380,331],[322,274]],door:[341,249.26]},
  {id:'1-west-inner-office-2',outline:[[322,274],[380,331],[335,386],[271,328]],door:[288,310]},
  ...[
   {outline:[[445,68],[501,119],[435,185],[380,137]],door:[419,171.036]},
   {outline:[[501,119],[551,173],[490,239],[435,185]],door:[475,224.273]},
+  ...[
+   [[551,173],[608,222],[546,291],[490,239]],
+   [[608,222],[662,271],[598,340],[546,291]],
+   [[662,271],[710,328],[652,396],[598,340]],
+   [[710,328],[774,371],[704,446],[652,396]],
+   [[774,371],[825,424],[741,517],[704,446]],
+   [[825,424],[879,477],[797,563],[741,517]],
+   [[879,477],[940,530],[865,623],[797,563]],
+  ].map((outline,i)=>{const a=outline[3],b=outline[2];return {outline,door:[a[0]+(b[0]-a[0])*.23,a[1]+(b[1]-a[1])*.23],meeting:i===6};}),
  ].map((r,i)=>({...r,id:`1-west-upper-office-${i+1}`,exterior:[0]})),
  ...[
   [[86,447],[122,513],[231,456],[194,386]],
@@ -516,13 +585,13 @@ const firstWestOfficeOutlines:{id:string;outline:number[][];door:number[];exteri
   [[239,718],[283,784],[408,717],[359,652]],
  ].map((outline,i)=>{const a=outline[3],b=outline[2];return {id:`1-west-lower-office-${i+1}`,outline,door:[a[0]+(b[0]-a[0])*.78,a[1]+(b[1]-a[1])*.78],exterior:[0],meeting:i!==1};}),
 ];
-export const FIRST_WEST_OFFICES:InteriorRoom[]=firstWestOfficeOutlines.map(r=>({floor:'1',id:r.id,name:'Office',kind:'office',listed:false,evidence:'plan',polygon:r.outline.map(([x,y],i)=>r.exterior?.includes(i)||r.exterior?.includes(i-1)?onEnvelope(firstWestPlan(x,y)):firstWestPlan(x,y)),door:firstWestPlan(...r.door as [number,number]),doorWidth:.95,exteriorEdges:r.exterior,officeMeeting:r.meeting??false,officeDeskInset:r.id.startsWith('1-west-inner-')?.65:undefined}));
+export const FIRST_WEST_OFFICES:InteriorRoom[]=firstWestOfficeOutlines.map(r=>({floor:'1',id:r.id,name:'Office',kind:'office',listed:false,evidence:'plan',polygon:r.outline.map(([x,y],i)=>r.exterior?.includes(i)||r.exterior?.includes(i-1)?onEnvelope(firstWestPlan(x,y),FIRST_FOOTPRINT):firstWestPlan(x,y)),door:firstWestPlan(...r.door as [number,number]),doorWidth:.95,exteriorEdges:r.exterior,officeMeeting:r.meeting??false,officeDeskInset:r.id.startsWith('1-west-inner-')?.65:undefined}));
 ROOMS.push(...FIRST_WEST_OFFICES);
 
 // The west-tip conference room's architectural outline replaces the oversized
 // wayfinding block, which had crossed the neighboring perimeter office.
 const firstWestConference=ROOMS.find(r=>r.id==='1134')!;
-firstWestConference.polygon=[[46,370],[134,279],[194,386],[86,447]].map(([x,y],i)=>i<2||i===3?onEnvelope(firstWestPlan(x,y)):firstWestPlan(x,y));
+firstWestConference.polygon=[[46,370],[134,279],[194,386],[86,447]].map(([x,y],i)=>i<2||i===3?onEnvelope(firstWestPlan(x,y),FIRST_FOOTPRINT):firstWestPlan(x,y));
 firstWestConference.door=firstWestPlan(187,373.516667);
 firstWestConference.exteriorEdges=[0,3];firstWestConference.glazedEdges=[1];
 

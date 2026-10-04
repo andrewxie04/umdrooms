@@ -3,12 +3,14 @@ import * as THREE from 'three';
 import { westFourthPlan, type InteriorRoom, type Point } from './layout';
 import type { RoofBuilder } from './roof';
 
-// Table and chair symbols on the joined HDR Level 4 crop. These are furniture
-// centers; physical sizes and the neutral finish palette are estimates.
+// Table and chair symbols on the joined HDR Level 4 crop. A fresh inspection
+// of original page 12 confirms TWO chairs in each small room (north and east
+// of its table), not the former three-chair interpretation. These raster
+// centers, physical sizes and the neutral finish palette are estimates.
 const plans:Readonly<Record<string,{table:Point;chairs:readonly Point[]}>>={
- '4-west-huddle-1':{table:[636,549],chairs:[[636,536],[625,550],[646,557]]},
- '4-west-huddle-2':{table:[606,591],chairs:[[607,578],[595,591],[616,600]]},
- '4-west-huddle-3':{table:[576,635],chairs:[[577,622],[565,634],[586,644]]},
+ '4-west-huddle-1':{table:[634.2,552.4],chairs:[[633.3,538.8],[648,549.6]]},
+ '4-west-huddle-2':{table:[605,594.6],chairs:[[603.9,581.2],[618.9,592]]},
+ '4-west-huddle-3':{table:[575,635.4],chairs:[[573.2,621.4],[588,633.8]]},
 };
 export function westHuddleFurniture(room:InteriorRoom){
  if(room.id==='4-west-huddle-4'){

@@ -5,23 +5,10 @@ import type { RoofBuilder } from './roof';
 
 export function buildCommunicatingStair(floor:FloorId,b:RoofBuilder){
  const stair=communicatingStairForFloor(floor);if(!stair)return;
- const {core:COMMUNICATING_CORE,face:COMMUNICATING_CORE_FACE,edges:COMMUNICATING_EDGES,flights:COMMUNICATING_FLIGHTS,void:COMMUNICATING_VOID}=stair;
+ const {edges:COMMUNICATING_EDGES,flights:COMMUNICATING_FLIGHTS,void:COMMUNICATING_VOID}=stair;
  const {box,wall,surface,put,palette:m}=b;
  const structure=new THREE.MeshStandardMaterial({color:0xe5e5df,roughness:.75,side:THREE.DoubleSide});
- const timber=new THREE.MeshStandardMaterial({color:0xa7733a,roughness:.7});
- b.materials.push(structure,timber);
- const coreHeight=floor===stair.lower?FLOOR_HEIGHT[stair.upper]-FLOOR_HEIGHT[stair.lower]:4.2;
- surface(COMMUNICATING_CORE,coreHeight,timber);
- COMMUNICATING_CORE.forEach((a,i)=>{
-  const end=COMMUNICATING_CORE[(i+1)%COMMUNICATING_CORE.length];wall(a,end,coreHeight,timber);
- });
- // Two elevator-door panels on the straight face shown in the plan.
- const [a,end]=COMMUNICATING_CORE_FACE,dx=end[0]-a[0],dz=end[1]-a[1],length=Math.hypot(dx,dz),angle=-Math.atan2(dz,dx);
- for(const t of [.26,.74]){
-  const x=a[0]+dx*t,z=a[1]+dz*t,nx=dz/length,nz=-dx/length;
-  box(x+nx*.09,1.2,z+nz*.09,1.65,2.4,.035,m.metal,angle);
-  box(x+nx*.115,1.2,z+nz*.115,.012,2.4,.015,m.black,angle);
- }
+ b.materials.push(structure);
  // Thin metal pickets and handrails follow the continuous stair curve.
  // Exact upper-floor guard detailing is not resolved by the public plan.
  const rail=(a:Point,end:Point,ay:number,by:number)=>{

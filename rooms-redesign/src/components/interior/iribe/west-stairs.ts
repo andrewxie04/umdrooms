@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { WEST_STAIR as s } from './west-stair-layout';
+import { westStairForFloor } from './west-stair-layout';
 import { FLOOR_HEIGHT, type FloorId, type Point, type Polygon } from './layout';
 import type { RoofBuilder } from './roof';
 
 export function buildWestStair(floor:FloorId,b:RoofBuilder){
- if(floor!==s.lower&&floor!==s.upper)return;
+ const s=westStairForFloor(floor);if(!s)return;
  const m=b.palette,ceiling=floor===s.lower?FLOOR_HEIGHT[s.upper]-FLOOR_HEIGHT[s.lower]:4.2;
  const concrete=new THREE.MeshStandardMaterial({color:0xb7b9b6,roughness:.92,side:THREE.DoubleSide});b.materials.push(concrete);
  const wall=(a:Point,end:Point)=>b.wall(a,end,ceiling,m.white);
@@ -44,7 +44,13 @@ export function buildWestStair(floor:FloorId,b:RoofBuilder){
   const a=s.at(s.width/2,s.flightEnd),c=s.at(s.width-.1,s.flightEnd);
   b.wall(a,c,1.05,m.metal,true,0,.035);
  }
- for(const z of [s.turnZ,s.length-.7]){
-  const p=s.at(s.width/2,z);b.box(p[0],ceiling-.14,p[1],1.15,.06,.14,m.light,s.angle);
- }
+ // The turning landing has a floor opening above it. Mount its estimated
+ // fixture on the wall, rather than suspending it from that empty opening.
+ const fixture=(x:number,z:number,faceX:number,faceZ:number,y:number,angle:number)=>{
+  const body=s.at(x,z),face=s.at(faceX,faceZ);
+  b.box(body[0],y,body[1],1.22,.19,.09,m.metal,angle);
+  b.box(face[0],y,face[1],1.15,.11,.035,m.light,angle);
+ };
+ fixture(s.width/2,.105,s.width/2,.1725,floor===s.lower?ceiling/2+1.8:2.05,s.angle);
+ fixture(s.width-.105,s.doorZ,s.width-.1725,s.doorZ,2.05,s.angle+Math.PI/2);
 }
