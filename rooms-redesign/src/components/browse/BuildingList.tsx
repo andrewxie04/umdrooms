@@ -16,6 +16,7 @@ import type { BuildingEntry } from '@/types/campus';
 import {
   STATUS_DOT_CLASS,
   STATUS_LABEL,
+  STATUS_TEXT_CLASS,
   STATUS_RANK,
   buildingDataIssueLabel,
   buildingFavKey,
@@ -42,6 +43,10 @@ function BuildingRow({
   onOpen: (building: BuildingEntry) => void;
   onToggleFavorite: (code: string) => void;
 }) {
+  // "3/16 available" reads better as a short count plus a meter; other labels
+  // (room totals, data issues) stay as written.
+  const match = /^(\d+)\/(\d+) available$/.exec(roomCountLabel);
+  const counts = match ? { free: Number(match[1]), total: Number(match[2]) } : null;
   return (
     <div
       className="group relative flex w-full items-center gap-3 border-b border-border/60 px-3 py-3.5 text-left transition-colors hover:bg-muted/60"
@@ -52,16 +57,27 @@ function BuildingRow({
         aria-label={`Open ${building.name}. ${building.dataIssue ? 'Limited data' : STATUS_LABEL[building.status]}. ${roomCountLabel}`}
         className="absolute inset-0 cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       />
-      <span className="pointer-events-none flex size-9 shrink-0 items-center justify-center text-[10px] font-medium tracking-[0.08em] text-muted-foreground" aria-hidden>
+      <span className="pointer-events-none flex size-9 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/40 text-[10px] font-semibold tracking-[0.06em] text-muted-foreground transition-colors group-hover:border-foreground/20 group-hover:text-foreground" aria-hidden>
         {building.code.slice(0, 3)}
       </span>
       <span className="pointer-events-none min-w-0 flex-1">
         <span className="line-clamp-2 text-[13px] font-medium leading-snug text-foreground">{building.name}</span>
         <span className="mt-1 flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
           <span className={cn('size-1.5 shrink-0 rounded-full', STATUS_DOT_CLASS[building.status])} aria-hidden />
-          <span className="truncate">
-            {building.dataIssue ? 'Limited data' : STATUS_LABEL[building.status]} · {roomCountLabel}
+          <span className={cn('shrink-0 font-medium', !building.dataIssue && STATUS_TEXT_CLASS[building.status])}>
+            {building.dataIssue ? 'Limited data' : STATUS_LABEL[building.status]}
           </span>
+          {counts ? (
+            <>
+              <span aria-hidden className="text-muted-foreground/50">·</span>
+              <span className="shrink-0 tabular-nums">{counts.free} of {counts.total} free</span>
+              <span aria-hidden className="ml-1 h-1 w-10 shrink-0 overflow-hidden rounded-full bg-muted">
+                <span className={cn('block h-full rounded-full', STATUS_DOT_CLASS[building.status])} style={{ width: `${Math.round((counts.free / Math.max(1, counts.total)) * 100)}%` }} />
+              </span>
+            </>
+          ) : (
+            <span className="truncate"><span aria-hidden className="text-muted-foreground/50">· </span>{roomCountLabel}</span>
+          )}
         </span>
       </span>
       <button

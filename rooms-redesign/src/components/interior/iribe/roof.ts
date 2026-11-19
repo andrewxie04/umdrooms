@@ -10,6 +10,8 @@ export interface RoofBuilder {
  surface(p:Polygon,y:number,m:Material,holes?:Polygon[]):void;
  wall(a:Point,b:Point,h:number,m:Material,collision?:boolean,base?:number,thickness?:number):void;
  put(g:THREE.BufferGeometry,m:Material):void;
+ /** Optional: draw one template many times (detail layer). Takes ownership of `g`. */
+ instance?(g:THREE.BufferGeometry,m:Material,matrices:readonly THREE.Matrix4[]):void;
  label(text:string,x:number,y:number,z:number,angle?:number,width?:number):void;
  palette:{white:Material;oak:Material;metal:Material;glass:Material;black:Material;light:Material};
  materials:Material[];textures:THREE.Texture[];barriers:Barrier[];

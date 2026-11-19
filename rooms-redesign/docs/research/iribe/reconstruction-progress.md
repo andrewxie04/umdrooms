@@ -61,6 +61,10 @@ Last reviewed: 2026-10-04. **The full-building goal remains incomplete.** Source
 
 - Investigated the user’s possible missing Ground auditorium. Official UMD sources identify Antonov 0324 and Gannon 0318, both on Ground. Both already have modeled rooms; the actual Gannon shortcut shows its seating and shared desks. It remains part of the auditorium accuracy/connection backlog, rather than a newly added third room.
 
+- Rendering pass (2026-11-18): added screen-space ambient occlusion (`post.ts`: multisampled half-float composer → GTAO → tone mapping). See-through materials (glass, contact-shadow decals) are excluded from the occlusion buffer, and its normal pass is double-sided so single-plane slabs/ceilings are not dropped. Gannon gained one broad downward source under its lowest provisional soffit plus a weak upward bounce; upper exposed decks use their own charcoal (`#34393c`) instead of the shared near-black. These are lighting/finish estimates only — no source geometry, registration or walking surface changed. Measured overhead on one desktop browser was about 0.7 ms per frame at 2100×1350; no device benchmark exists.
+
+- Ground northwest service wing (2026-11-18): a plan/collision overlay showed the wing was open floor and the Ground tip followed the site wall. Traced 14 wall solids (restroom block, west core, corridor, west-facade rooms) from the guide's black fills and wall outlines, replaced the three fitted tip vertices with the native exterior wall line, and added an estimated 3.2 m dropped ceiling with downlights. The west stair approach and café were kept clear; all 492 circulation cases pass. Doors, restroom fixtures, room names and furniture remain. See `ground-west-wing-2026-11-18.md`.
+
 ## Information still needed
 
 The south vestibule-adjacent stair now has a modeled Ground-to-Level-1 connection, using native plan cross-sections and wall/door evidence with a provisional three-flight stack. Its actual vertical section, terminal bands, floor rise, intermediate elevations and enclosure finishes still need independent evidence.

@@ -90,16 +90,25 @@ const RETAIL_ROW_TO_VENUE_ID = {
   Engage: 'engage',
 };
 
-function json(statusCode, body) {
+function json(statusCode, body, extraHeaders = {}) {
   return {
     statusCode,
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
+      ...extraHeaders,
     },
     body: JSON.stringify(body),
   };
 }
+
+// Menus change a few times a day; GETs are shared through Netlify's CDN so
+// only the first visitor in ten minutes waits on the nutrition site (~6 s).
+const CACHEABLE_HEADERS = {
+  'Cache-Control': 'public, max-age=120',
+  'Netlify-CDN-Cache-Control': 'public, s-maxage=600, stale-while-revalidate=1800',
+  'Netlify-Vary': 'query=date|fresh',
+};
 
 function badRequest(message) {
   return json(400, { error: message });
@@ -257,16 +266,21 @@ function parseRetailDiningVenues(payload, dateKey) {
 }
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
+  if (event.httpMethod !== 'POST' && event.httpMethod !== 'GET') {
     return json(405, { error: 'Method not allowed' });
   }
 
   let payload;
-  try {
-    payload = JSON.parse(event.body || '{}');
-  } catch (_) {
-    return badRequest('Invalid JSON body');
+  if (event.httpMethod === 'GET') {
+    payload = { date: event.queryStringParameters?.date };
+  } else {
+    try {
+      payload = JSON.parse(event.body || '{}');
+    } catch (_) {
+      return badRequest('Invalid JSON body');
+    }
   }
+  const cacheHeaders = event.httpMethod === 'GET' ? CACHEABLE_HEADERS : {};
 
   const dateKey = String(payload?.date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
@@ -302,7 +316,7 @@ exports.handler = async (event) => {
     const retailSheetText = await retailSheetResponse.text();
     const retailVenues = parseRetailDiningVenues(parseGvizPayload(retailSheetText), dateKey);
 
-    return json(200, { halls, retailVenues, date: dateKey });
+    return json(200, { halls, retailVenues, date: dateKey }, cacheHeaders);
   } catch (error) {
     return json(502, {
       error: 'Failed to fetch dining hall information',

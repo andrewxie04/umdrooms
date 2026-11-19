@@ -29,6 +29,10 @@ import { FAMILY_GARDEN,FAMILY_GARDEN_DOOR,FAMILY_GARDEN_GUARD_EDGES,FAMILY_TERRA
 import { amphitheaterHeight, AMPH_NORTH_AISLE } from './amphitheater';
 import { AMPH_DEPTH, AMPH_DROP, AMPH_WIDTH, AMPH_V, amphPoint } from './layout';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// Route searches over the full building are CPU-heavy; under a parallel full-suite
+// run several exceed vitest's 5 s default even though each passes on its own.
+vi.setConfig({ testTimeout: 60_000 });
 import { buildInteriorFloor, type InteriorModel } from './model';
 import { plan, fourthPlan, westFourthPlan, footprintForFloor, roofPlan, ROOF_GALLERY, ROOF_PUBLIC_FOOTPRINT, type Point, type FloorId } from './layout';
 import { ROOF_BEDS, ROOF_LAWN, ROOF_POOL, ROOF_DOORS, ROOF_FACADE, ROOF_FOYER, ROOF_OUTDOOR } from './roof-layout';

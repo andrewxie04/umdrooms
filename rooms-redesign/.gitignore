@@ -29,3 +29,6 @@ dist-ssr
 
 # Dev-iteration screenshots (83MB) — kept local, not in git history
 docs/screenshots
+
+# Generated per-day availability shards (scripts/build-room-inventory.mjs)
+public/availability-days/

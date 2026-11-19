@@ -3,6 +3,8 @@ import { SOUTH_STAIR_GROUND_APPROACH, SOUTH_STAIR_FIRST_INNER, SOUTH_STAIR_RUNS 
 import { CANOPY_APPROACH, CANOPY_VIEW_TARGET } from './lobby-canopy-layout';
 import { SOUTH_APPROACH, SOUTH_VIEW_TARGET } from './lobby-south-layout';
 import { groundGuidePlan } from './ground-guide-layout';
+import { gannonCeilingHeight } from './gannon-section';
+import { GROUND_WEST_WING_CEILING_HEIGHT } from './ground-west-wing';
 import { loadDaylight } from './daylight';
 import { COURTYARD_APPROACH, COURTYARD_VIEW_TARGET } from './lobby-entrance-layout';
 import { westStairForFloor } from './west-stair-layout';
@@ -21,6 +23,7 @@ import { buildInteriorFloor, type InteriorModel } from './model';
 import { FLOOR_ORDER, floorAtPosition, stairEntry, ATRIUM_FLIGHTS, ATRIUM_LANDING } from './circulation';
 import { ENTRY, FIRST_WEST_OFFICE_ENTRY, firstWestPlan, FIFTH_NORTH_OFFICE_ENTRY, plan, FLOOR_HEIGHT, ROOMS, type FloorId } from './layout';
 import { WalkControls } from './walk';
+import { createInteriorPost } from './post';
 import { LiftController, type LiftPhase } from './lift-controller';
 import { insideLift, liftLanding, nearbyLift, liftDoorwayOccupied, type LiftCar } from './lift-layout';
 
@@ -38,6 +41,7 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
  const sky=new Sky();sky.scale.setScalar(10000);sky.frustumCulled=false;
  sky.material.uniforms.turbidity.value=3;sky.material.uniforms.rayleigh.value=1.5;sky.material.uniforms.sunPosition.value.set(25,40,-18);scene.add(sky);
  const camera=new THREE.PerspectiveCamera(68,1,.08,750);
+ const post=createInteriorPost(renderer,scene,camera);
  scene.add(new THREE.HemisphereLight(0xeaf2f8,0x817b72,.45));
  const sun=new THREE.DirectionalLight(0xfff5e7,1.75);sun.position.set(50,75,-35);sun.castShadow=true;
  Object.assign(sun.shadow.camera,{left:-65,right:65,top:65,bottom:-65,near:1,far:180});sun.shadow.camera.updateProjectionMatrix();
@@ -67,16 +71,45 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
   const p=antonovWayfinding(x,274),light=new THREE.RectAreaLight(0xffe8cf,1.5,18,6);
   light.position.set(p[0],height,p[1]);light.lookAt(p[0],0,p[1]);scene.add(light);
  }
+ // Gannon has no published fixture schedule; one broad source over its
+ // estimated downlight grid, plus a weak upward bounce, stand in for the room lighting. It sits just
+ // under the lowest provisional soffit so no ceiling step is lit from inside.
+ {
+  const centre=groundGuidePlan(375,152),across=groundGuidePlan(354,152),deep=groundGuidePlan(375,112);
+  const ux=centre[0]-across[0],uz=centre[1]-across[1],width=Math.hypot(ux,uz)*2+2.5,depth=Math.hypot(centre[0]-deep[0],centre[1]-deep[1])*2+2.5;
+  let soffit=Infinity;for(const x of [354,375,397])for(const y of [112,152,192])soffit=Math.min(soffit,gannonCeilingHeight(groundGuidePlan(x,y)));
+  const light=new THREE.RectAreaLight(0xfff1e0,2.2,width,depth);
+  light.rotation.order='YXZ';light.rotation.set(-Math.PI/2,Math.atan2(-uz,ux),0);
+  light.position.set(centre[0],soffit-.08,centre[1]);scene.add(light);
+  // Floor/desk bounce onto the soffit, as for the lobby ceiling.
+  const bounce=new THREE.RectAreaLight(0xf3e6d6,.7,width,depth);
+  bounce.rotation.order='YXZ';bounce.rotation.set(Math.PI/2,Math.atan2(-uz,ux),0);
+  bounce.position.set(centre[0],.35,centre[1]);scene.add(bounce);
+ }
+ // Northwest service wing: one broad source just under its estimated dropped
+ // ceiling, aligned with the wing's walls. Output is illustrative.
+ {
+  const corner=groundGuidePlan(2.28,202.62),along=groundGuidePlan(-77.66,287.29),centre=groundGuidePlan(30,290);
+  const ux=along[0]-corner[0],uz=along[1]-corner[1];
+  const light=new THREE.RectAreaLight(0xfff4e6,2.4,Math.hypot(ux,uz)*1.05,17);
+  light.rotation.order='YXZ';light.rotation.set(-Math.PI/2,Math.atan2(-uz,ux),0);
+  light.position.set(centre[0],GROUND_WEST_WING_CEILING_HEIGHT-.06,centre[1]);scene.add(light);
+ }
  const models=new Map<FloorId,InteriorModel>();
  const atrium = ATRIUM_CENTER;
  const entranceYaw = Math.atan2(ENTRY[0]-atrium[0],ENTRY[1]-atrium[1]);
  let activeFloor:FloorId='G';
  const showFloor=(f:FloorId)=>{activeFloor=f;const index=FLOOR_ORDER.indexOf(f);models.forEach((m,id)=>{m.setDetailsVisible(Math.abs(FLOOR_ORDER.indexOf(id)-index)<=1);});renderer.shadowMap.needsUpdate=true;};showFloor('G');
+ // Floors not needed for the first view are built after the interior opens;
+ // anything that needs one sooner (walking onto it, the floor picker, a lift
+ // ride, a room shortcut) builds it on the spot.
+ const addFloor=(floor:FloorId,model:InteriorModel)=>{model.group.position.y=FLOOR_HEIGHT[floor];models.set(floor,model);scene.add(model.group);model.setDetailsVisible(Math.abs(FLOOR_ORDER.indexOf(floor)-FLOOR_ORDER.indexOf(activeFloor))<=1);renderer.shadowMap.needsUpdate=true;dirty=true;};
+ const ensureFloor=(floor:FloorId):InteriorModel=>{let model=models.get(floor);if(!model){model=buildInteriorFloor(floor);addFloor(floor,model);}return model;};
  let dirty=true,reportPending=true,disposed=false,ready=false,paused=false,startupReported=false,frame=0,last=performance.now(),reportAt=0;
  let startupFrame=0,startupTimer:number|undefined,resumeStartup:(()=>void)|undefined;
  const contextAbort=new AbortController();let surroundings:Awaited<ReturnType<typeof loadSurroundings>>|null=null;
  void loadSurroundings(contextAbort.signal).then(context=>{if(disposed){context.dispose();return;}surroundings=context;scene.add(context.group);renderer.shadowMap.needsUpdate=true;dirty=true;onSurroundings?.('ready');}).catch(()=>{if(!disposed)onSurroundings?.('unavailable');});
- const controls=new WalkControls(camera,renderer.domElement,floor=>models.get(floor)?.barriers??[],()=>{dirty=true;});controls.setPose(ENTRY,entranceYaw,'G',amphitheaterHeight(ENTRY)??0);controls.setPaused(true);
+ const controls=new WalkControls(camera,renderer.domElement,floor=>ready?ensureFloor(floor).barriers:models.get(floor)?.barriers??[],()=>{dirty=true;});controls.setPose(ENTRY,entranceYaw,'G',amphitheaterHeight(ENTRY)??0);controls.setPaused(true);
  const liftController=new LiftController();let riding=false,liftReportKey='';
  let ridePose={along:0,depth:.5,yaw:0};
  const syncLiftDoors=()=>models.forEach((model,floor)=>{for(const car of [0,1] as const)model.lift?.setDoorProgress(car,liftController.doorProgress(floor,car));});
@@ -86,7 +119,7 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
   const state:LiftUIState|null=cab?{floor:activeFloor,car:cab.car,inside:insideLift(activeFloor,p)?.car===cab.car,doorway:liftDoorwayOccupied(cab,p),phase:trip.floor===activeFloor&&trip.car===cab.car?trip.phase:'closed',destination:riding?trip.destination:null,riding}:null;
   const key=JSON.stringify(state);if(key!==liftReportKey){liftReportKey=key;onLift?.(state);}
  };
- const resize=()=>{const w=host.clientWidth,h=host.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/Math.max(1,h);camera.updateProjectionMatrix();dirty=true;};
+ const resize=()=>{const w=host.clientWidth,h=host.clientHeight;renderer.setSize(w,h,false);post.setSize(w,h);camera.aspect=w/Math.max(1,h);camera.updateProjectionMatrix();dirty=true;};
  const observer=new ResizeObserver(resize);observer.observe(host);resize();
  const render=(now:number)=>{
   if(disposed)return;frame=requestAnimationFrame(render);if(document.hidden||!ready){last=now;return;}
@@ -101,7 +134,7 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
    }
    if(riding&&liftController.trip.phase==='open'){riding=false;controls.setPaused(paused);renderer.shadowMap.needsUpdate=true;dirty=true;}
   }
-  if(dirty){reportLift();renderer.render(scene,camera);dirty=false;reportPending=true;if(!startupReported){startupReported=true;onStartup?.(null);}}
+  if(dirty){reportLift();post.render();dirty=false;reportPending=true;if(!startupReported){startupReported=true;onStartup?.(null);}}
   if(reportPending&&now-reportAt>150){onLocation(camera.position.x,camera.position.z,activeFloor);reportAt=now;reportPending=false;}
  };frame=requestAnimationFrame(render);
  const yieldToBrowser=()=>new Promise<void>(resolve=>{
@@ -128,25 +161,38 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
    finally{environment.dispose();pmrem.dispose();}
   }
   RectAreaLightUniformsLib.init();await yieldToBrowser();
-  for(let i=0;i<FLOOR_ORDER.length;i++){
+  // Ground and Level 1 (seen through the atrium) before the first view.
+  const firstFloors:FloorId[]=['G','1'];
+  for(let i=0;i<firstFloors.length;i++){
    if(disposed)return;
-   const floor=FLOOR_ORDER[i],model=buildInteriorFloor(floor);
-   model.group.position.y=FLOOR_HEIGHT[floor];models.set(floor,model);scene.add(model.group);
-   onStartup?.((i+1)/FLOOR_ORDER.length);await yieldToBrowser();
+   ensureFloor(firstFloors[i]);
+   onStartup?.((i+1)/firstFloors.length);await yieldToBrowser();
   }
   if(disposed)return;
   showFloor('G');await renderer.compileAsync(scene,camera);
   if(disposed)return;
   ready=true;controls.setPaused(paused);last=performance.now();dirty=true;
   // A first draw also completes startup when an embedded browser throttles RAF.
-  renderer.render(scene,camera);dirty=false;startupReported=true;onLocation(camera.position.x,camera.position.z,activeFloor);reportLift();onStartup?.(null);
+  post.render();dirty=false;startupReported=true;onLocation(camera.position.x,camera.position.z,activeFloor);reportLift();onStartup?.(null);
+  // The remaining floors, one idle slice each, shaders compiled before use.
+  for(const floor of FLOOR_ORDER){
+   if(models.has(floor))continue;
+   await yieldToBrowser();
+   if(disposed)return;
+   if(models.has(floor))continue;
+   const model=buildInteriorFloor(floor);
+   try{await renderer.compileAsync(model.group,camera,scene);}catch{/* compiles on first draw instead */}
+   if(disposed){model.dispose();return;}
+   if(models.has(floor)){model.dispose();continue;}
+   addFloor(floor,model);syncLiftDoors();
+  }
  })().catch(error=>{if(!disposed){ready=false;controls.setPaused(true);onStartupError?.(error instanceof Error?error.message:'Unable to prepare the interior.');}});
  return {
-  setFloor(floor:FloorId){if(!ready)return;cancelRide();showFloor(floor);const entry=stairEntry(floor);controls.setPose(floor==='G'?ENTRY:floor==='R'?plan(578,915):entry,floor==='G'?entranceYaw:floor==='R'?0:Math.atan2(NORTH_STAIR_FRAME.u[0],NORTH_STAIR_FRAME.u[1]),floor,floor==='G'?(amphitheaterHeight(ENTRY)??0):FLOOR_HEIGHT[floor]);dirty=true;},
+  setFloor(floor:FloorId){if(!ready)return;cancelRide();ensureFloor(floor);showFloor(floor);const entry=stairEntry(floor);controls.setPose(floor==='G'?ENTRY:floor==='R'?plan(578,915):entry,floor==='G'?entranceYaw:floor==='R'?0:Math.atan2(NORTH_STAIR_FRAME.u[0],NORTH_STAIR_FRAME.u[1]),floor,floor==='G'?(amphitheaterHeight(ENTRY)??0):FLOOR_HEIGHT[floor]);dirty=true;},
   visitRoom(floor:FloorId,id:string){
    if(!ready)return false;
    const room=ROOMS.find(r=>r.floor===floor&&r.id===id);if(!room)return false;
-   const arrival=roomArrival(room,models.get(floor)!.barriers);if(!arrival)return false;
+   const arrival=roomArrival(room,ensureFloor(floor).barriers);if(!arrival)return false;
    cancelRide();showFloor(floor);controls.setPose(arrival.point,arrival.yaw,floor,arrival.height,room.arrivalPitch??0);dirty=true;return true;
   },
  visitStair(){
@@ -233,6 +279,7 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
   },
   rideLift(destination:FloorId){
    if(!ready||paused||riding)return false;
+   ensureFloor(destination);
    const point=[camera.position.x,camera.position.z] as const,cab=insideLift(activeFloor,point),trip=liftController.trip;
    if(!cab||cab.car!==trip.car||activeFloor!==trip.floor||liftDoorwayOccupied(cab,point))return false;
    if(!liftController.travel(destination,true))return false;
@@ -242,7 +289,8 @@ export function createIribeScene(host:HTMLDivElement,onLocation:(x:number,z:numb
   },
   setPaused:(value:boolean)=>{paused=value;controls.setPaused(value||riding||!ready);dirty=true;},
   setMove:(x:number,z:number)=>controls.setMove(x,z),
+  setSprint:(on:boolean)=>controls.setSprint(on),
   reset(){if(!ready)return;cancelRide();showFloor('G');controls.setPose(ENTRY,entranceYaw,'G',amphitheaterHeight(ENTRY)??0);dirty=true;},
-  dispose(){disposed=true;ready=false;contextAbort.abort();surroundings?.dispose();cancelAnimationFrame(frame);cancelAnimationFrame(startupFrame);clearTimeout(startupTimer);resumeStartup?.();resumeStartup=undefined;observer.disconnect();controls.dispose();models.forEach(m=>m.dispose());sky.geometry.dispose();sky.material.dispose();daylight?.dispose();environmentTarget?.dispose();sun.shadow.map?.dispose();renderer.dispose();renderer.domElement.remove();},
+  dispose(){disposed=true;ready=false;contextAbort.abort();surroundings?.dispose();cancelAnimationFrame(frame);cancelAnimationFrame(startupFrame);clearTimeout(startupTimer);resumeStartup?.();resumeStartup=undefined;observer.disconnect();controls.dispose();models.forEach(m=>m.dispose());sky.geometry.dispose();sky.material.dispose();daylight?.dispose();environmentTarget?.dispose();sun.shadow.map?.dispose();post.dispose();renderer.dispose();renderer.domElement.remove();},
  };
 }

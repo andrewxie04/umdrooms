@@ -4,6 +4,8 @@ const DB_NAME = 'rooms-availability';
 const STORE_NAME = 'days';
 const LEGACY_PREFIX = 'dayCache.v1.';
 const TTL_MS = 60 * 60 * 1000;
+/** Older same-day snapshots are kept to show instantly while a refresh runs. */
+export const STALE_TTL_MS = 12 * 60 * 60 * 1000;
 
 export interface DayRecord<T> {
   at: number;
@@ -44,7 +46,7 @@ function clearLegacyEntries(): void {
   }
 }
 
-export async function readPersistedDay<T>(dateKey: string): Promise<DayRecord<T> | null> {
+export async function readPersistedDay<T>(dateKey: string, maxAgeMs = TTL_MS): Promise<DayRecord<T> | null> {
   const db = await database();
   if (!db) return null;
   return new Promise((resolve) => {
@@ -53,7 +55,7 @@ export async function readPersistedDay<T>(dateKey: string): Promise<DayRecord<T>
       request.onsuccess = () => {
         const record = request.result as DayRecord<T> | undefined;
         resolve(record && Array.isArray(record.buildings) &&
-          Date.now() - record.at < TTL_MS ? record : null);
+          Date.now() - record.at < maxAgeMs ? record : null);
       };
       request.onerror = () => resolve(null);
     } catch {
@@ -92,7 +94,7 @@ export async function persistDay<T>(dateKey: string, buildings: T[]): Promise<vo
         const row = cursor.result;
         if (!row) return;
         const record = row.value as DayRecord<T>;
-        if (row.key !== dateKey && now - record.at > TTL_MS) row.delete();
+        if (row.key !== dateKey && now - record.at > STALE_TTL_MS) row.delete();
         row.continue();
       };
       tx.oncomplete = () => { clearLegacyEntries(); resolve(); };

@@ -6,7 +6,7 @@ import { ANTONOV_EXTERIOR_PIECES } from './iribe/antonov-exterior-layout';
 import { COURTYARD_APRON } from './iribe/lobby-entrance-layout';
 import { communicatingStairForFloor } from './iribe/communicating-layout';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUp, ArrowDown, ArrowRight, BookOpen, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, ArrowDown, ArrowRight, BookOpen, Footprints, X } from 'lucide-react';
 import { useInteriorStore } from './store';
 import { createIribeScene, type LiftUIState } from './iribe/scene';
 import { LIFT_FLOORS } from './iribe/lift-layout';
@@ -24,6 +24,8 @@ export default function IribeInterior(){
  const [lift,setLift]=useState<LiftUIState|null>(null);
  const selectedSpace=useRef<InteriorRoom|null>(null);
  const [spaceName,setSpaceName]=useState<string|null>(null);
+ const [run,setRun]=useState(false);
+ useEffect(()=>{scene.current?.setSprint(run);},[run]);
  const [floor,setFloor]=useState<FloorId>('G');const [location,setLocation]=useState([0,0]);const [sources,setSources]=useState(false);const [error,setError]=useState<string|null>(null);
  useEffect(()=>{if(!host.current)return;try{scene.current=createIribeScene(host.current,(x,z,f)=>{setLocation([x,z]);setFloor(f);const room=selectedSpace.current;if(room&&(room.floor!==f||!pointInPolygon([x,z],room.polygon))){selectedSpace.current=null;setSpaceName(null);}},setSurroundings,setStartup,setError,setLift);}catch(e){queueMicrotask(()=>setError(e instanceof Error?e.message:'Unable to start the interior.'));}return()=>{scene.current?.dispose();scene.current=null;};},[]);
  useEffect(()=>{
@@ -93,9 +95,10 @@ export default function IribeInterior(){
     <circle cx={location[0]} cy={location[1]} r="1.8" fill="#b51c32" stroke="white" strokeWidth=".5"/>
    </svg>
   </div>
-  <p className="pointer-events-none absolute bottom-5 left-1/2 hidden -translate-x-1/2 rounded-full bg-[#faf7ee] px-4 py-2 text-xs md:block">Drag to look · WASD or arrow keys to walk</p>
+  <p className="pointer-events-none absolute bottom-5 left-1/2 hidden -translate-x-1/2 rounded-full bg-[#faf7ee] px-4 py-2 text-xs md:block">Drag to look · WASD or arrow keys to walk · hold Shift to run</p>
   <div className="absolute bottom-5 right-3 grid grid-cols-3 gap-1 rounded-xl bg-[#faf7ee] p-2 shadow-sm sm:right-5" aria-label="Walking controls">
    {([[0,-1,ArrowUp,'Walk forward'],[-1,0,ArrowLeft,'Step left'],[0,1,ArrowDown,'Walk backward'],[1,0,ArrowRight,'Step right']] as const).map(([x,z,Icon,label],i)=><button key={label} disabled={startup!==null||lift?.riding} aria-label={label} className={`flex size-11 touch-none items-center justify-center rounded-lg bg-black/5 active:bg-black/15 ${i===0?'col-start-2':''} ${i===1?'col-start-1':''}`} onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);scene.current?.setMove(x,z);}} onPointerUp={()=>scene.current?.setMove(0,0)} onPointerCancel={()=>scene.current?.setMove(0,0)} onLostPointerCapture={()=>scene.current?.setMove(0,0)}><Icon className="size-4"/></button>)}
+   <button disabled={startup!==null||lift?.riding} aria-label="Run" aria-pressed={run} title="Run (or hold Shift)" onClick={()=>setRun(v=>!v)} className={`col-start-3 row-start-1 flex size-11 items-center justify-center rounded-lg transition-colors disabled:opacity-40 ${run?'bg-[#282b29] text-[#faf7ee]':'bg-black/5 hover:bg-black/10'}`}><Footprints className="size-4"/></button>
   </div>
   {sources&&<dialog ref={sourcesDialog} onCancel={()=>setSources(false)} onClose={()=>setSources(false)} aria-label="Interior references" className="m-auto rounded-xl border-0 bg-[#faf7ee] p-0 text-[#282b29] shadow-xl backdrop:bg-black/40" style={{width:"min(32rem, calc(100vw - 2.5rem))"}}>
    <div className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-xl bg-[#faf7ee] p-5">

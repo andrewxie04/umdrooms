@@ -17,7 +17,8 @@ import { MapControls } from './controls';
 import { campusFrameInterval, campusPixelRatio, deferAmbientFrame } from './render-budget';
 import { uniqueBuildingFootprints } from './building-footprints';
 import type { CameraPose } from './controls';
-import { buildSceneGeometries, buildingSolidGeometry } from './geometry';
+import { buildSceneGeometriesOffThread, startGeometryWorker } from './geometry-transfer';
+import { buildingSolidGeometry } from './geometry';
 import { RESIDENCE_HALLS } from '@/lib/residenceHalls';
 import { extrudeFootprint, mergeAll, outsetRing, ringToShapePoints } from './geom-utils';
 import { buildDrivingCarGeometry } from './cars';
@@ -159,11 +160,16 @@ export async function createCampusScene(
   // Both datasets are needed before geometry can be built. Start the smaller
   // tree request while the campus response is still downloading/parsing.
   const campusPromise = fetch(DATA_URL);
+  // Load the geometry worker's script alongside the data it will process.
+  const geometryWorker = startGeometryWorker();
   const treesPromise = fetch(TREES_URL)
     .then((response) => response.ok ? response.json() as Promise<CampusData['trees']> : undefined)
     .catch(() => undefined);
   const res = await campusPromise;
-  if (!res.ok) throw new Error(`Failed to load campus-data.json (HTTP ${res.status})`);
+  if (!res.ok) {
+    geometryWorker?.terminate();
+    throw new Error(`Failed to load campus-data.json (HTTP ${res.status})`);
+  }
   const data = (await res.json()) as CampusData;
   data.buildings = uniqueBuildingFootprints(data.buildings);
   // The separate snapshot comes from UMD's campus plant inventory. If it is
@@ -268,7 +274,7 @@ export async function createCampusScene(
   scene.add(sun.target);
 
   // -- merged campus geometry ------------------------------------------------------
-  const geoms = buildSceneGeometries(data, proj);
+  const geoms = await buildSceneGeometriesOffThread(data, proj, geometryWorker);
   addWorldBuildingUV(geoms.buildings);
   addWorldSurfaceUV(geoms.roads);
   addWorldSurfaceUV(geoms.areas);
@@ -972,6 +978,7 @@ export async function createCampusScene(
     renderer,
     buildingMaterial: buildingMat,
     surfaceMaterial: flatMat,
+    foliageMaterial: foliageMat,
   });
 
   // Backward compat: callers that only pass darkMode get the equivalent
@@ -1605,6 +1612,13 @@ export async function createCampusScene(
     debug: easterEggs.debug,
   };
 
+  // Compile shaders before the first frame. With KHR_parallel_shader_compile
+  // the driver works in the background instead of stalling that frame.
+  try {
+    await renderer.compileAsync(scene, camera);
+  } catch {
+    // The first render compiles synchronously, as before.
+  }
   if (!document.hidden) rafId = requestAnimationFrame(renderFrame);
   return handle;
 }

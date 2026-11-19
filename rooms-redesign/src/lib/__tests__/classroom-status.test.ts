@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchAvailabilityForDate, fetchJsonWithProgress } from '../availabilityData.js';
 import { fetchLibCalAvailabilityForDate } from '../libcalData.js';
 import { fetchDiningHallsForDate } from '../diningData.js';
-import { invalidatePersistedDay, persistDay } from '../dayCachePersistence';
+import { invalidatePersistedDay, persistDay, readPersistedDay } from '../dayCachePersistence';
 
 vi.mock('../availabilityData.js', async (importOriginal) => ({
   ...await importOriginal<typeof import('../availabilityData.js')>(),
@@ -21,6 +21,7 @@ vi.mock('../dayCachePersistence', () => ({
   readPersistedDay: vi.fn().mockResolvedValue(null),
   invalidatePersistedDay: vi.fn().mockResolvedValue(undefined),
   persistDay: vi.fn().mockResolvedValue(undefined),
+  STALE_TTL_MS: 12 * 60 * 60 * 1000,
 }));
 
 describe('classroom availability failures', () => {
@@ -186,5 +187,86 @@ describe('classroom availability failures', () => {
 
     finishRefresh([building]);
     await vi.waitFor(() => expect(useCampusStore.getState().dayFetch.status).toBe('ready'));
+  });
+
+  it('shows an expired same-day snapshot while refreshing and keeps it if the refresh fails', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => null, setItem: () => undefined, removeItem: () => undefined,
+      key: () => null, length: 0,
+    });
+    vi.stubGlobal('window', { location: { search: '' } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => [] }));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const building = {
+      code: 'AJC', name: 'A. James Clark Hall', latitude: 38.99, longitude: -76.94,
+      classrooms: [{ id: 'AJC 2119', name: 'AJC 2119', availability_times: [] }],
+    };
+    vi.mocked(fetchJsonWithProgress).mockResolvedValue([building]);
+    vi.mocked(fetchLibCalAvailabilityForDate).mockResolvedValue(
+      ['MCK', 'ASY', 'PAC', 'KIR'].map((code) => ({ code, name: code, classrooms: [] }))
+    );
+    vi.mocked(fetchDiningHallsForDate).mockResolvedValue([]);
+    vi.mocked(readPersistedDay).mockResolvedValue({ at: Date.now() - 2 * 60 * 60 * 1000, buildings: [building] });
+    let finishRefresh!: () => void;
+    vi.mocked(fetchAvailabilityForDate).mockImplementation((buildings, _date, options) => new Promise((resolve) => {
+      finishRefresh = () => {
+        // The building's refresh fails; the fetch falls back to the bare inventory.
+        (options as { onProgress?: (p: object) => void }).onProgress?.({
+          index: 0, building: buildings[0], succeeded: false, completedRooms: 1, totalRooms: 1,
+        });
+        resolve(buildings);
+      };
+    }));
+
+    const { useCampusStore } = await import('../store');
+    const initialLoad = useCampusStore.getState().init();
+    await vi.waitFor(() => {
+      expect(useCampusStore.getState().dayFetch.status).toBe('loading');
+      const whileLoading = useCampusStore.getState().buildings.find((entry) => entry.code === 'AJC');
+      expect(whileLoading?.dataIssue).toBeUndefined();
+      expect(whileLoading?.rooms[0].status).not.toBe('unknown');
+    });
+
+    finishRefresh();
+    await initialLoad;
+    const afterFailure = useCampusStore.getState().buildings.find((entry) => entry.code === 'AJC');
+    expect(afterFailure?.dataIssue).toBeUndefined();
+    expect(useCampusStore.getState().dayFetch).toMatchObject({ status: 'error', error: '1 building is showing earlier data.' });
+    expect(afterFailure?.rooms[0].status).not.toBe('unknown');
+    expect(persistDay).not.toHaveBeenCalled();
+  });
+
+  it('shows saved dining menus immediately and keeps them if the refresh fails', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => null, setItem: () => undefined, removeItem: () => undefined,
+      key: () => null, length: 0,
+    });
+    vi.stubGlobal('window', { location: { search: '' } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => [] }));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const building = { code: 'AJC', name: 'AJC', classrooms: [] };
+    const hall = { id: 'south', name: 'South Campus Dining Hall', latitude: 38.98, longitude: -76.94, meals: [] };
+    vi.mocked(fetchJsonWithProgress).mockResolvedValue({ buildings: [building], coverage: null });
+    vi.mocked(fetchAvailabilityForDate).mockResolvedValue([building]);
+    vi.mocked(fetchLibCalAvailabilityForDate).mockResolvedValue(
+      ['MCK', 'ASY', 'PAC', 'KIR'].map((code) => ({ code, name: code, classrooms: [] }))
+    );
+    vi.mocked(readPersistedDay).mockImplementation(async (key: string) =>
+      key.startsWith('dining:') ? { at: Date.now() - 60 * 60 * 1000, buildings: [hall] } : null);
+    let failDining!: () => void;
+    vi.mocked(fetchDiningHallsForDate).mockReturnValue(new Promise((_, reject) => {
+      failDining = () => reject(new Error('nutrition site down'));
+    }));
+
+    const { useCampusStore } = await import('../store');
+    const initialLoad = useCampusStore.getState().init();
+    await vi.waitFor(() => expect(useCampusStore.getState().dining.map((d) => d.name)).toEqual(['South Campus Dining Hall']));
+
+    failDining();
+    await initialLoad;
+    expect(useCampusStore.getState().dining.map((d) => d.name)).toEqual(['South Campus Dining Hall']);
+    expect(vi.mocked(persistDay).mock.calls.some(([key]) => String(key).startsWith('dining:'))).toBe(false);
   });
 });

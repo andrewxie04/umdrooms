@@ -1,4 +1,5 @@
 import { useInteriorStore } from '@/components/interior/store';
+import { prefetchIribeInterior } from '@/components/interior/prefetch';
 // browse/BuildingDetail.tsx — detail view for a selected building (or a room
 // selection, which resolves to its building). Header with back / favorite /
 // navigate actions, then the building's full room list, available-first, each
@@ -55,6 +56,10 @@ export function BuildingDetail() {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [buildingCode]);
+  // Iribe's panel offers "Enter building"; warm the walk-through meanwhile.
+  useEffect(() => {
+    if (buildingCode === 'IRB') prefetchIribeInterior();
   }, [buildingCode]);
   const selectedRoomId = resolved?.room?.id ?? null;
 

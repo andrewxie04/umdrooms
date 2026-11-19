@@ -39,10 +39,11 @@ import {
 import { getBuildingRenderState } from './availability.js';
 import { boundedCacheSet } from './cache.js';
 import { safeStorageGet, safeStorageSet } from './storage.js';
-import { invalidatePersistedDay, persistDay, readPersistedDay } from './dayCachePersistence';
+import { invalidatePersistedDay, persistDay, readPersistedDay, STALE_TTL_MS } from './dayCachePersistence';
 import { computeSunPosition } from './solar';
 import type {
   CampusBuildingRecord,
+  CampusTimeBlock,
   CampusRoomRecord,
   BuildingEntry,
   CampusSelection,
@@ -208,6 +209,20 @@ interface AvailabilityProgress {
   totalBuildings?: number;
 }
 
+/** Building codes to fetch first: the open building, deep link, then favorites. */
+function priorityBuildingCodes(): string[] {
+  const { selected, pendingDeepLink, favorites } = useCampusStore.getState();
+  const codes: string[] = [];
+  if (selected?.kind === 'building') codes.push(selected.id);
+  if (selected?.kind === 'room' && selected.id.includes('/')) codes.push(selected.id.split('/')[0]);
+  if (pendingDeepLink?.building) codes.push(pendingDeepLink.building);
+  for (const key of favorites) {
+    if (key.startsWith('b:')) codes.push(key.slice(2));
+    else if (key.startsWith('r:')) codes.push(key.slice(2).split('/')[0]);
+  }
+  return [...new Set(codes.filter(Boolean))];
+}
+
 // The data pipeline is JavaScript and its inferred options omit `signal` and
 // progress details. This is the shape the function actually accepts/emits.
 const fetchLiveAvailability = fetchAvailabilityForDate as unknown as (
@@ -216,6 +231,8 @@ const fetchLiveAvailability = fetchAvailabilityForDate as unknown as (
   options: {
     signal?: AbortSignal;
     concurrency?: number;
+    priority?: string[];
+    fresh?: boolean;
     onProgress?: (progress: AvailabilityProgress) => void;
   }
 ) => Promise<CampusBuildingRecord[]>;
@@ -391,6 +408,36 @@ function loadBundledBuildings(): Promise<CampusBuildingRecord[]> {
       });
   }
   return bundledBuildingsPromise;
+}
+
+/** One baked day (public/availability-days/<date>.json, ~0.2 MB) merged onto
+ *  the room inventory. Falls back to the full archive if the shard is absent
+ *  (an older deploy, or a day the build did not emit). */
+// Started by runInit before the inventory arrives, so the day's download
+// overlaps the 3D scene build instead of waiting behind it.
+let earlyShard: { dateKey: string; response: Promise<Response> } | null = null;
+
+async function loadBundledDay(dateKey: string, signal?: AbortSignal, fallbackToArchive = true): Promise<CampusBuildingRecord[]> {
+  try {
+    const early = earlyShard?.dateKey === dateKey ? earlyShard.response : null;
+    earlyShard = null;
+    const response = await (early ?? fetch(`${BASE_URL}availability-days/${dateKey}.json`, { signal }));
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const shard = await response.json() as { date?: string; rooms?: Record<string, CampusTimeBlock[]> };
+    if (shard?.date !== dateKey || !shard.rooms) throw new Error('Malformed day shard');
+    const rooms = shard.rooms;
+    return inventorySkeleton.map((building) => ({
+      ...building,
+      classrooms: (building.classrooms || []).map((room) => ({
+        ...room,
+        availability_times: rooms[`${building.code}/${room.id}`] ?? [],
+      })),
+    }));
+  } catch (error) {
+    if (signal?.aborted || !fallbackToArchive) throw error;
+    console.warn(`Day shard ${dateKey} unavailable; loading the full archive:`, error);
+    return loadBundledBuildings();
+  }
 }
 
 // Ported verbatim from App.js: merges supplemental (LibCal) buildings into the
@@ -663,6 +710,8 @@ async function ensureDayData(dateKey: string, force = false): Promise<void> {
   // Fetch the historical archive only when the selected day is inside it.
   if (isDateCovered(dateKey, bundledCoverage)) {
     dayAbort?.abort();
+    const shardAbort = new AbortController();
+    dayAbort = shardAbort;
     const fetchId = ++activeFetchId;
     resolvedClassroomCodes.clear();
     failedClassroomCodes.clear();
@@ -677,8 +726,10 @@ async function ensureDayData(dateKey: string, force = false): Promise<void> {
     } });
     recomputeDerived();
     try {
-      const data = await loadBundledBuildings();
+      // Baked days only change on deploy, so a shard seen this session is reused.
+      const data = dayCache.get(dateKey) ?? await loadBundledDay(dateKey, shardAbort.signal);
       if (activeFetchId !== fetchId) return;
+      if (data !== bundledBuildings) cacheDay(dateKey, data);
       classroomRaw = data;
       useCampusStore.setState({ dayFetch: {
         ...EMPTY_DAY_FETCH_STATE,
@@ -706,15 +757,20 @@ async function ensureDayData(dateKey: string, force = false): Promise<void> {
     dayCacheAt.delete(dateKey);
     cached = undefined;
   }
+  // An expired snapshot of the same day is still mostly right: show it at
+  // once and let the live fetch replace it building by building.
+  let stale: CampusBuildingRecord[] | null = null;
   if (!cached && !force) {
     // Reload/revisit within the TTL: restore the persisted result instead of
     // re-running the full live fetch.
     const cacheReadId = ++activeFetchId;
-    const persisted = await readPersistedDay<CampusBuildingRecord>(dateKey);
+    const persisted = await readPersistedDay<CampusBuildingRecord>(dateKey, STALE_TTL_MS);
     if (cacheReadId !== activeFetchId) return;
     if (persisted && Date.now() - persisted.at < maxAge) {
       cached = persisted.buildings;
       cacheDay(dateKey, cached, persisted.at);
+    } else if (persisted) {
+      stale = persisted.buildings;
     }
   }
   if (cached) {
@@ -750,8 +806,14 @@ async function ensureDayData(dateKey: string, force = false): Promise<void> {
   resolvedClassroomCodes.clear();
   failedClassroomCodes.clear();
 
-  // Show the availability-stripped inventory while the day loads.
-  classroomRaw = inventorySkeleton.slice();
+  // Show the stale snapshot (or the availability-stripped inventory) while
+  // the day loads. Stale buildings count as resolved until replaced.
+  const staleByCode = new Map((stale ?? []).map((building) => [String(building.code ?? ''), building]));
+  classroomRaw = inventorySkeleton.map((building) => staleByCode.get(String(building.code ?? '')) ?? building);
+  for (const code of staleByCode.keys()) resolvedClassroomCodes.add(code);
+  // Buildings whose refresh failed but whose stale snapshot is still shown;
+  // the day is then neither cached nor persisted as fresh.
+  const staleRetained = new Set<string>();
   useCampusStore.setState({
     dayFetch: {
       status: 'loading',
@@ -774,13 +836,24 @@ async function ensureDayData(dateKey: string, force = false): Promise<void> {
     }
     const data = await fetchLiveAvailability(inventorySkeleton, dateKey, {
       signal: controller.signal,
+      priority: priorityBuildingCodes(),
+      fresh: force,
       onProgress: (progress: AvailabilityProgress) => {
         if (activeFetchId !== fetchId) return;
         if (typeof progress.index === 'number' && Number.isInteger(progress.index) && progress.building) {
           const code = String(inventorySkeleton[progress.index]?.code ?? progress.building.code ?? '');
-          classroomRaw[progress.index] = progress.building;
-          if (progress.succeeded) resolvedClassroomCodes.add(code);
-          else failedClassroomCodes.add(code);
+          const staleBuilding = staleByCode.get(code);
+          if (progress.succeeded) {
+            classroomRaw[progress.index] = progress.building;
+            resolvedClassroomCodes.add(code);
+            staleRetained.delete(code);
+          } else if (staleBuilding) {
+            classroomRaw[progress.index] = staleBuilding;
+            staleRetained.add(code);
+          } else {
+            classroomRaw[progress.index] = progress.building;
+            failedClassroomCodes.add(code);
+          }
         }
         useCampusStore.setState({
           dayFetch: {
@@ -799,22 +872,29 @@ async function ensureDayData(dateKey: string, force = false): Promise<void> {
       },
     });
     if (activeFetchId !== fetchId) return;
-    const sorted = sortBuildings(data);
-    if (failedClassroomCodes.size === 0) {
+    // Results are in inventory order; keep the stale snapshot where a refresh failed.
+    const sorted = sortBuildings(data.map((building, index) => {
+      const code = String(inventorySkeleton[index]?.code ?? building.code ?? '');
+      return staleRetained.has(code) ? staleByCode.get(code) ?? building : building;
+    }));
+    if (failedClassroomCodes.size === 0 && staleRetained.size === 0) {
       cacheDay(dateKey, sorted);
       void persistDay(dateKey, sorted);
     }
     classroomRaw = sorted;
-    const updatedAt = failedClassroomCodes.size ? undefined : Date.now();
+    const problem = failedClassroomCodes.size
+      ? `${failedClassroomCodes.size} building${failedClassroomCodes.size === 1 ? '' : 's'} could not load availability.`
+      : staleRetained.size
+        ? `${staleRetained.size} building${staleRetained.size === 1 ? ' is' : 's are'} showing earlier data.`
+        : null;
+    const updatedAt = problem ? undefined : Date.now();
     useCampusStore.setState({
       dayFetch: {
-        status: failedClassroomCodes.size ? 'error' : 'ready',
+        status: problem ? 'error' : 'ready',
         updatedAt,
         progress: 1,
         indeterminate: false,
-        error: failedClassroomCodes.size
-          ? `${failedClassroomCodes.size} building${failedClassroomCodes.size === 1 ? '' : 's'} could not load availability.`
-          : null,
+        error: problem,
         dateKey,
         completedRooms: roomTotal(sorted),
         totalRooms: roomTotal(sorted),
@@ -946,12 +1026,14 @@ function prefetchAdjacentDays(dateKey: string): void {
     const next = new Date(baseDate);
     next.setDate(baseDate.getDate() + offset);
     const key = getDateKey(next);
-    if (
-      key === dateKey ||
-      isDateCovered(key, bundledCoverage) ||
-      dayCache.has(key) ||
-      prefetchInFlight.has(key)
-    ) {
+    if (key === dateKey || dayCache.has(key) || prefetchInFlight.has(key)) continue;
+    if (isDateCovered(key, bundledCoverage)) {
+      // A baked neighbor is one small shard; never pull the archive for it.
+      prefetchInFlight.add(key);
+      loadBundledDay(key, undefined, false)
+        .then((data) => cacheDay(key, data))
+        .catch(() => undefined)
+        .finally(() => prefetchInFlight.delete(key));
       continue;
     }
     prefetchInFlight.add(key);
@@ -1031,15 +1113,30 @@ async function ensureDining(dateKey: string, force = false): Promise<void> {
   const controller = new AbortController();
   diningAbort = controller;
 
+  // The dining feed takes ~6–10 s upstream. Show this day's last saved menus
+  // at once (up to 12 h old) and replace them when the fresh copy arrives.
+  const persistKey = `dining:${dateKey}`;
+  let saved: DiningRecord[] | null = null;
+  if (!force) {
+    const persisted = await readPersistedDay<DiningRecord>(persistKey, STALE_TTL_MS);
+    if (controller.signal.aborted) return;
+    if (persisted?.buildings.length) {
+      saved = persisted.buildings;
+      diningRaw = saved;
+      recomputeDerived();
+    }
+  }
+
   try {
-    const data = await fetchDiningHallsForDate(dateKey, { signal: controller.signal });
+    const data = await fetchDiningHallsForDate(dateKey, { signal: controller.signal, fresh: force });
     const halls = Array.isArray(data) ? data : [];
     boundedCacheSet(diningCache, dateKey, halls, DAY_CACHE_LIMIT);
     diningRaw = halls;
+    if (halls.length) void persistDay(persistKey, halls);
   } catch (err: unknown) {
     if (controller.signal.aborted) return;
     console.error(`Error loading dining information for ${dateKey}:`, err);
-    diningRaw = [];
+    diningRaw = saved ?? [];
   }
   recomputeDerived();
 }
@@ -1101,6 +1198,13 @@ function syncNowTicker(): void {
 
 async function runInit(): Promise<void> {
   useCampusStore.setState({ loading: { status: 'loading', progress: 0, error: null } });
+
+  // Speculative: if the day turns out to be outside the baked range, the
+  // live path runs instead and this small request is simply unused.
+  const initialDateKey = useCampusStore.getState().activeDateKey;
+  const shardResponse = fetch(`${BASE_URL}availability-days/${initialDateKey}.json`);
+  shardResponse.catch(() => undefined);
+  earlyShard = { dateKey: initialDateKey, response: shardResponse };
 
   // Metadata skeleton (non-blocking): gives the map building positions even
   // before / if the big bundled dataset arrives.

@@ -411,8 +411,41 @@ export function getDiningHoursLabel(hall, referenceDateTime = new Date()) {
   return `${window.startLabel}–${window.endLabel}`;
 }
 
-export async function fetchDiningHallsForDate(dateKey, { signal } = {}) {
-  const payload = await postJson(DINING_ENDPOINT, { date: dateKey }, { signal });
+// Set once a deployment answers GET with 405 (it predates cacheable GETs).
+let diningGetUnsupported = false;
+
+async function getJson(url, { signal, fresh = false } = {}) {
+  const response = await fetch(url, { signal, ...(fresh ? { cache: 'no-store' } : {}) });
+  if (response.status === 405) return { unsupported: true };
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch (_) {
+    payload = null;
+  }
+  if (!response.ok) {
+    throw new Error(payload?.details || payload?.error || text || `HTTP ${response.status}`);
+  }
+  return { payload };
+}
+
+/**
+ * `fresh` (forced refresh) skips the browser cache and adds a per-minute CDN key.
+ * @param {string} dateKey
+ * @param {{ signal?: AbortSignal, fresh?: boolean }} [options]
+ */
+export async function fetchDiningHallsForDate(dateKey, { signal, fresh = false } = {}) {
+  let payload = null;
+  if (!diningGetUnsupported) {
+    // GET is shared through the CDN and browser cache.
+    const query = new URLSearchParams({ date: dateKey });
+    if (fresh) query.set('fresh', String(Math.floor(Date.now() / 60000)));
+    const result = await getJson(`${DINING_ENDPOINT}?${query}`, { signal, fresh });
+    if (result.unsupported) diningGetUnsupported = true;
+    else payload = result.payload;
+  }
+  if (diningGetUnsupported) payload = await postJson(DINING_ENDPOINT, { date: dateKey }, { signal });
   const halls = Array.isArray(payload?.halls) ? payload.halls : [];
   const retailVenues = Array.isArray(payload?.retailVenues) ? payload.retailVenues : [];
   return [...halls, ...retailVenues];

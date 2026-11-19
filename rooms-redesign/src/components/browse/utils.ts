@@ -34,6 +34,13 @@ export const STATUS_DOT_CLASS: Record<Status, string> = {
   unknown: 'bg-status-unknown',
 };
 
+export const STATUS_TEXT_CLASS: Record<Status, string> = {
+  available: 'text-status-available',
+  'opening-soon': 'text-status-opening-soon',
+  unavailable: 'text-muted-foreground',
+  unknown: 'text-muted-foreground',
+};
+
 export function buildingDataIssueLabel(building: BuildingEntry): string | null {
   if (!building.dataIssue) return null;
   const loading = building.dataIssue === 'loading';

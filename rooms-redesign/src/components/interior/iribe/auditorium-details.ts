@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { upholsteryFinish } from './finishes';
 import { antonovWayfindingCoordinates, antonovWayfinding, auditoriumStrip, auditoriumSidePoint, AUD_WIDTH, AUD_DEPTH, AUD_SCALE, type AuditoriumSeat } from './auditorium';
 import { type Point } from './layout';
@@ -41,9 +42,39 @@ export function buildAuditoriumChairs(seats:AuditoriumSeat[],b:RoofBuilder){
   }
   g.computeVertexNormals();
  }
+ // Index the templates once. put() indexes any non-indexed geometry it gets,
+ // and doing that per clone (~400 chairs × 2 extrusions) dominated the
+ // Ground floor build; the merged result is the same.
+ const seatIndexed=mergeVertices(seat),backIndexed=mergeVertices(back);
+ if(b.instance){
+  // One template per part, one transform per chair. Same parts and placement
+  // as the merged path below (yaw about the seat point, then translate).
+  const parts:{geometry:THREE.BufferGeometry;material:THREE.Material;offset:(s:AuditoriumSeat)=>[number,number,number];matrices:THREE.Matrix4[]}[]=[
+   {geometry:seatIndexed.clone(),material:cushion,offset:()=>[0,0,0],matrices:[]},
+   {geometry:backIndexed.clone(),material:frame,offset:()=>[0,0,0],matrices:[]},
+   {geometry:woven.clone(),material:mesh,offset:()=>[0,0,0],matrices:[]},
+   {geometry:new THREE.CylinderGeometry(.037,.037,.45,12),material:b.palette.metal,offset:()=>[0,.225,0],matrices:[]},
+   {geometry:new THREE.BoxGeometry(.39,.045,.29),material:b.palette.metal,offset:()=>[0,.028,0],matrices:[]},
+   {geometry:new THREE.BoxGeometry(.29,.055,.18),material:frame,offset:()=>[0,.414,0],matrices:[]},
+  ];
+  const arm=new THREE.BoxGeometry(.045,.046,.36),post=new THREE.BoxGeometry(.026,.22,.028);
+  for(const side of [-1,1]){
+   parts.push({geometry:arm.clone(),material:frame,offset:s=>[s.width[0]*side*.285,.69,s.width[1]*side*.285],matrices:[]});
+   parts.push({geometry:post.clone(),material:frame,offset:s=>[s.width[0]*side*.285+s.depth[0]*.07,.565,s.width[1]*side*.285+s.depth[1]*.07],matrices:[]});
+  }
+  arm.dispose();post.dispose();
+  const rotation=new THREE.Quaternion(),unit=new THREE.Vector3(1,1,1),up=new THREE.Vector3(0,1,0);
+  for(const s of seats){
+   const [x,z]=s.point,angle=Math.atan2(s.depth[0],s.depth[1]);rotation.setFromAxisAngle(up,angle);
+   for(const part of parts){const [ox,oy,oz]=part.offset(s);part.matrices.push(new THREE.Matrix4().compose(new THREE.Vector3(x+ox,s.height+oy,z+oz),rotation,unit));}
+  }
+  for(const part of parts)b.instance(part.geometry,part.material,part.matrices);
+  seat.dispose();back.dispose();woven.dispose();seatIndexed.dispose();backIndexed.dispose();
+  return;
+ }
  for(const s of seats){
   const [x,z]=s.point,y=s.height,angle=Math.atan2(s.depth[0],s.depth[1]);
-  for(const [g,m] of [[seat,cushion],[back,frame],[woven,mesh]] as const){const copy=g.clone();copy.rotateY(angle);copy.translate(x,y,z);b.put(copy,m);}
+  for(const [g,m] of [[seatIndexed,cushion],[backIndexed,frame],[woven,mesh]] as const){const copy=g.clone();copy.rotateY(angle);copy.translate(x,y,z);b.put(copy,m);}
   b.cylinder(x,y+.225,z,.037,.45,b.palette.metal);
   b.box(x,y+.028,z,.39,.045,.29,b.palette.metal,angle);
   b.box(x,y+.414,z,.29,.055,.18,frame,angle);
@@ -53,7 +84,7 @@ export function buildAuditoriumChairs(seats:AuditoriumSeat[],b:RoofBuilder){
    b.box(x+ox+s.depth[0]*.07,y+.565,z+oz+s.depth[1]*.07,.026,.22,.028,frame,angle);
   }
  }
- seat.dispose();back.dispose();woven.dispose();
+ seat.dispose();back.dispose();woven.dispose();seatIndexed.dispose();backIndexed.dispose();
 }
 
 export const ANTONOV_CEILING_HEIGHT=10.44;

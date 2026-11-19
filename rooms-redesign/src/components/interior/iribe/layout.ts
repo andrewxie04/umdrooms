@@ -2,6 +2,7 @@ import { ANTONOV_NATIVE_FOOTPRINT, ANTONOV_WORLD_FOOTPRINT, ANTONOV_SOURCE_DOOR,
 import { PLAN_SCALE, plan, groundPlan } from './plan-frame';
 import { firstGuidePlan } from './first-guide-layout';
 import { groundGuidePlan } from './ground-guide-layout';
+import { GROUND_NORTHWEST_TIP } from './ground-west-wing-source';
 import { ATRIUM_SOURCE_SLAB_MASK } from './atrium-opening-layout';
 import { FIRST_WEST_FACADE } from './first-facade-layout';
 import { SECOND_SOURCE_FOOTPRINT } from './second-facade-layout';
@@ -71,7 +72,11 @@ export function distanceToSegment(p:Point,a:Point,b:Point):number {
 // western tip and central elevator core as reference points.
 const groundTrace = (p:Polygon):Polygon => p.map(([x,y])=>groundPlan(x,y));
 const groundSchematic = groundTrace([[550,240],[390,413],[385,448],[430,547],[535,734],[605,838],[690,907],[802,954],[895,970],[1218,970],[1212,998],[1350,998],[1352,970],[1375,969],[1625,160],[1602,149],[1560,145],[1562,128],[1535,126],[1520,94],[1490,66],[1430,44],[1360,39],[1300,42],[1250,56],[1230,97],[1167,62],[1145,157],[1136,252],[1140,365],[1178,465],[1160,485],[1137,451],[1060,510],[1080,535],[992,605],[921,574],[837,511]]);
-const groundSouthWestShell:Polygon=[...groundSchematic.slice(0,9),...SOUTH_SHELL_CHAIN];
+// The wayfinding sheet's first three schematic vertices drew the northwest
+// tip out to the landscape wall. The HDR architectural plan places the
+// exterior wall on the native line in GROUND_NORTHWEST_TIP; the stippled wedge
+// beyond it is outdoor planting, not floor.
+const groundSouthWestShell:Polygon=[...GROUND_NORTHWEST_TIP.map(p=>groundGuidePlan(...p)),...groundSchematic.slice(3,9),...SOUTH_SHELL_CHAIN];
 const groundNorthWestShell:Polygon=[...NORTH_CORNER_SHELL_CHAIN,...groundSchematic.slice(15,30),...COURTYARD_SHELL_CHAIN,...groundSchematic.slice(35)];
 export const GROUND_FOOTPRINT:Polygon=[...groundSouthWestShell,...CANOPY_SHELL_CHAIN,...groundNorthWestShell];
 const gRoom=(id:string,name:string,kind:RoomKind,p:Polygon,door:Point):InteriorRoom=>({id,name,kind,floor:'G',polygon:groundTrace(p),door:groundPlan(...door),evidence:'plan'});

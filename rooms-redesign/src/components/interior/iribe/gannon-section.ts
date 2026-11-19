@@ -50,6 +50,13 @@ export const GANNON_CEILING_PIECES=ShapeUtils.triangulateShape(GANNON_WORLD_FOOT
  return [...pieces,...remaining.map(polygon=>({polygon,height:3.3}))];
 });
 export function gannonCeilingHeight(point:Point){const upper=antonovHeight(point);return upper===null?3.3:Math.min(3.3,upper-.19);}
+/** Top of Gannon's enclosure walls. Under low Antonov tiers the wall meets the
+ * tier itself (closing the slab allowance); under higher tiers it meets the
+ * 3.3 m corridor soffit; with no tier overhead it rises to the 6.3 m lobby
+ * ceiling so no open plenum shows above the room. Estimated, like the section. */
+export function gannonEnclosureTop(point:Point){const upper=antonovHeight(point);return upper===null?6.3:Math.min(3.3,upper);}
+/** Antonov tiers high enough to need a flat soffit beneath them on Ground. */
+export const ANTONOV_SOFFIT_PIECES=upperPieces.filter(p=>p.height-.19>=3.3).map(p=>p.polygon);
 export function gannonWallSections(a:Point,b:Point){
  const dx=b[0]-a[0],dy=b[1]-a[1],cuts=[0,1];
  for(const {polygon} of upperPieces)polygon.forEach((c,i)=>{
@@ -61,6 +68,7 @@ export function gannonWallSections(a:Point,b:Point){
  const ordered=[...new Set(cuts)].sort((x,y)=>x-y),point=(t:number):Point=>[a[0]+dx*t,a[1]+dy*t];
  return ordered.slice(0,-1).map((from,i)=>{
   const to=ordered[i+1];
-  return {a:point(from),b:point(to),top:gannonCeilingHeight(point((from+to)/2))};
+  const mid=point((from+to)/2);
+  return {a:point(from),b:point(to),top:gannonCeilingHeight(mid),closure:gannonEnclosureTop(mid)};
  });
 }

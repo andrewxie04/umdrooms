@@ -26,8 +26,15 @@ export const SITE_SCALE=Math.hypot(SITE_A,SITE_B);
 export const SITE_OFFSET:Point=[target[0]-SITE_A*source[0]+SITE_B*source[1],target[1]-SITE_B*source[0]-SITE_A*source[1]];
 export const campusToInterior=([x,z]:Point):Point=>[SITE_A*x-SITE_B*z+SITE_OFFSET[0],SITE_B*x+SITE_A*z+SITE_OFFSET[1]];
 export const geoToInterior=([lng,lat]:readonly[number,number]):Point=>{const p=siteProjection.toLocal(lng,lat);return campusToInterior([p.x,p.z]);};
+// Bounding boxes let the many far-away samples (roads, footprints, trees)
+// skip the exact edge tests: a point beyond a ring's box expanded by `margin`
+// can be neither inside that ring nor within `margin` of any of its edges.
+const INTERIOR_RINGS=[GROUND_FOOTPRINT,MAIN_FOOTPRINT,FAMILY_TERRACE].map(ring=>({ring,
+ minX:Math.min(...ring.map(p=>p[0])),maxX:Math.max(...ring.map(p=>p[0])),minZ:Math.min(...ring.map(p=>p[1])),maxZ:Math.max(...ring.map(p=>p[1]))}));
 export function outsideInterior(p:Point,margin=0):boolean {
- return [GROUND_FOOTPRINT,MAIN_FOOTPRINT,FAMILY_TERRACE].every(r=>!pointInPolygon(p,r)&&r.every((a,i)=>distanceToSegment(p,a,r[(i+1)%r.length])>=margin));
+ return INTERIOR_RINGS.every(({ring:r,minX,maxX,minZ,maxZ})=>
+  p[0]<minX-margin||p[0]>maxX+margin||p[1]<minZ-margin||p[1]>maxZ+margin||
+  (!pointInPolygon(p,r)&&r.every((a,i)=>distanceToSegment(p,a,r[(i+1)%r.length])>=margin)));
 }
 const projected=(geo:readonly[number,number]):Point=>{const p=siteProjection.toLocal(...geo);return [p.x,p.z];};
 function nearby(ring:readonly (readonly[number,number])[],closed=false):boolean {

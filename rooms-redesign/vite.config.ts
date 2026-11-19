@@ -2,11 +2,12 @@ import path from "path"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 import { inspectAttr } from 'kimi-plugin-inspect-react'
+import { localFunctions } from './vite-local-functions'
 
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
-  plugins: [inspectAttr(), react()],
+  plugins: [inspectAttr(), react(), localFunctions((process.env.LOCAL_FUNCTIONS || '').split(',').filter(Boolean))],
   server: {
     port: 3000,
     // Dev-only: real room/schedule data. The Netlify functions don't exist in

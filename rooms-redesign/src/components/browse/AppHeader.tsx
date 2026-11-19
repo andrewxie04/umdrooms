@@ -108,7 +108,7 @@ export function AppHeader() {
         </div>
       </div>
 
-      <div className={cn('mt-3 flex flex-wrap gap-1 min-[360px]:mt-4 sm:gap-1.5 min-[900px]:max-[1023px]:grid min-[900px]:max-[1023px]:grid-cols-4 min-[900px]:max-[1023px]:gap-1', !hasSidePanel && '!mt-2', isLandscapeSidePanel && '!mt-1 !gap-1')} role="group" aria-label="Map layers">
+      <div className={cn('-mx-1 mt-3 flex flex-nowrap gap-1 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] min-[360px]:mt-4 sm:gap-1.5 [&::-webkit-scrollbar]:hidden min-[900px]:max-[1023px]:grid min-[900px]:max-[1023px]:grid-cols-4 min-[900px]:max-[1023px]:gap-1', !hasSidePanel && '!mt-2', isLandscapeSidePanel && '!mt-1 !gap-1')} role="group" aria-label="Map layers">
         {OVERLAY_CHIPS.map(({ key, label, icon: Icon }) => {
           const active = activeOverlays.includes(key);
           return (
@@ -118,12 +118,12 @@ export function AppHeader() {
               onClick={() => toggleOverlay(key)}
               aria-pressed={active}
               className={cn(
-                'inline-flex items-center gap-0.5 rounded-none border-b-2 px-1.5 py-1 text-[10px] font-semibold transition-colors min-[360px]:gap-1 min-[360px]:px-2 min-[360px]:text-[11px] sm:gap-1.5 sm:px-2.5 min-[900px]:max-[1023px]:gap-0.5 min-[900px]:max-[1023px]:px-1.5 min-[900px]:max-[1023px]:text-[10px]',
-                compactPointerControls ? 'min-h-10' : 'min-h-11',
+                'inline-flex shrink-0 items-center justify-center gap-0.5 whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-semibold transition-[background-color,border-color,color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[360px]:gap-1 min-[360px]:px-2.5 min-[360px]:text-[11px] sm:gap-1.5 sm:px-3 min-[900px]:max-[1023px]:gap-0.5 min-[900px]:max-[1023px]:px-1.5 min-[900px]:max-[1023px]:text-[10px]',
+                compactPointerControls ? 'min-h-9' : 'min-h-10',
                 isLandscapeSidePanel && '!gap-0.5 !px-1.5 !text-[10px]',
                 active
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:border-foreground/25 hover:bg-muted/50 hover:text-foreground'
+                  ? 'border-primary/50 bg-primary/15 text-foreground'
+                  : 'border-border text-muted-foreground hover:border-foreground/30 hover:bg-muted/60 hover:text-foreground'
               )}
             >
               <Icon className="size-3.5" />

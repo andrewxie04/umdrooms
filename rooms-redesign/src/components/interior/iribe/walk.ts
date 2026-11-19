@@ -32,11 +32,17 @@ export function walkStep3(position:Position,delta:Point,barriers:(floor:FloorId)
  }
  return [x,y,z];
 }
+/** Walking pace and the sprint multiplier, in metres per second. */
+export const WALK_SPEED=2.8, SPRINT_FACTOR=2.2;
+/** Seconds to reach most of a new pace, so sprint starts and stops without a jolt. */
+const PACE_EASE=.18;
 export class WalkControls {
  private keys=new Set<string>(); private yaw=0;private pitch=0;private dragPointerId:number|null=null;private lastX=0;private lastY=0;
  private abort=new AbortController();
  private touchMove:Point=[0,0];
  private paused=false;
+ private sprintToggle=false;
+ private pace=WALK_SPEED;
  private camera:THREE.PerspectiveCamera;
  private canvas:HTMLCanvasElement;
  private geometry:(floor:FloorId)=>Barrier[];
@@ -44,7 +50,7 @@ export class WalkControls {
  constructor(camera:THREE.PerspectiveCamera,canvas:HTMLCanvasElement,geometry:(floor:FloorId)=>Barrier[],dirty:()=>void){
   this.camera=camera;this.canvas=canvas;this.geometry=geometry;this.dirty=dirty;
   const opts={signal:this.abort.signal};
-  window.addEventListener('keydown',e=>{if(this.paused)return;if(e.target instanceof HTMLElement && e.target.closest('input,select,textarea,button,a,[contenteditable=true],[role=dialog],dialog'))return;if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)){e.preventDefault();this.keys.add(e.code);this.dirty();}},opts);
+  window.addEventListener('keydown',e=>{if(this.paused)return;if(e.target instanceof HTMLElement && e.target.closest('input,select,textarea,button,a,[contenteditable=true],[role=dialog],dialog'))return;if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight'].includes(e.code)){if(!e.code.startsWith('Shift'))e.preventDefault();this.keys.add(e.code);this.dirty();}},opts);
   window.addEventListener('keyup',e=>this.keys.delete(e.code),opts);
   window.addEventListener('blur',()=>this.resetInput(),opts);
   document.addEventListener('visibilitychange',()=>this.resetInput(),opts);
@@ -62,7 +68,10 @@ export class WalkControls {
   this.dragPointerId=null;
   if(pointerId!==null&&this.canvas.hasPointerCapture(pointerId))this.canvas.releasePointerCapture(pointerId);
  }
- resetInput(){this.keys.clear();this.touchMove=[0,0];this.endDrag();}
+ resetInput(){this.keys.clear();this.touchMove=[0,0];this.pace=WALK_SPEED;this.endDrag();}
+ /** Touch/pointer users have no Shift key; the on-screen Run toggle sets this. */
+ setSprint(on:boolean){this.sprintToggle=on;}
+ get sprinting(){return this.sprintToggle||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight');}
  setPose(point:Point,yaw=0,floor:FloorId='G',height=FLOOR_HEIGHT[floor],pitch=0){this.camera.position.set(point[0],height+1.65,point[1]);this.yaw=yaw;this.pitch=THREE.MathUtils.clamp(pitch,-1.35,1.35);this.orient();this.resetInput();this.dirty();}
  setPaused(paused:boolean){this.paused=paused;this.resetInput();}
  setMove(x:number,z:number){if(this.paused)return;this.touchMove=[x,z];this.dirty();}
@@ -70,8 +79,10 @@ export class WalkControls {
   if(this.paused)return false;
   let x=Number(this.keys.has('KeyD')||this.keys.has('ArrowRight'))-Number(this.keys.has('KeyA')||this.keys.has('ArrowLeft'))+this.touchMove[0];
   let z=Number(this.keys.has('KeyS')||this.keys.has('ArrowDown'))-Number(this.keys.has('KeyW')||this.keys.has('ArrowUp'))+this.touchMove[1];
-  if(!x&&!z)return false;
-  const len=Math.max(1,Math.hypot(x,z));x=x/len*dt*2.8;z=z/len*dt*2.8;
+  if(!x&&!z){this.pace=WALK_SPEED;return false;}
+  const target=this.sprinting?WALK_SPEED*SPRINT_FACTOR:WALK_SPEED;
+  this.pace+=(target-this.pace)*(1-Math.exp(-dt/PACE_EASE));
+  const len=Math.max(1,Math.hypot(x,z)),step=this.pace*dt;x=x/len*step;z=z/len*step;
   const delta:Point=[Math.cos(this.yaw)*x+Math.sin(this.yaw)*z,-Math.sin(this.yaw)*x+Math.cos(this.yaw)*z];
   const next=walkStep3([this.camera.position.x,this.camera.position.y-1.65,this.camera.position.z],delta,this.geometry);
   this.camera.position.set(next[0],next[1]+1.65,next[2]);return true;

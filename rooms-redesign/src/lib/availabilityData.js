@@ -2,10 +2,16 @@ import { formatInTimeZone } from 'date-fns-tz';
 
 export const CAMPUS_TIME_ZONE = 'America/New_York';
 const FUNCTION_ENDPOINT = '/.netlify/functions/availability-building';
-// 43 buildings total; 12-way keeps wall time to ~4 waves instead of ~8.
-// Each request is one Netlify function invocation (they scale out), and the
-// function itself throttles its own 25live room fetches (ROOM_CONCURRENCY).
-const DEFAULT_BUILDING_FETCH_CONCURRENCY = 12;
+// 43 buildings total. The function now answers each building with a single
+// one-day 25Live request (~1–3 s), so the whole campus fits in two waves. The
+// older deployment fans out one 25Live request per room; keep it at 12-way.
+const DEFAULT_BUILDING_FETCH_CONCURRENCY = 24;
+const LEGACY_BUILDING_FETCH_CONCURRENCY = 12;
+// Set once a deployment answers GET with 405 (it predates cacheable GETs).
+let getUnsupported = false;
+// The first GET doubles as a probe; concurrent requests wait for its answer
+// instead of each discovering a 405 on an older deployment.
+let getProbe = null;
 const BUILDING_FETCH_TIMEOUT_MS = 25000;
 
 export function getDateKey(date) {
@@ -93,7 +99,7 @@ export async function fetchJsonWithProgress(url, { signal, onProgress } = {}) {
   return JSON.parse(text);
 }
 
-async function fetchBuildingAvailability(building, dateKey, signal) {
+async function fetchBuildingAvailability(building, dateKey, signal, fresh = false) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), BUILDING_FETCH_TIMEOUT_MS);
   const abortFromParent = () => controller.abort();
@@ -107,17 +113,36 @@ async function fetchBuildingAvailability(building, dateKey, signal) {
   }
 
   try {
-    const response = await fetch(FUNCTION_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        date: dateKey,
-        building,
-      }),
-      signal: controller.signal,
-    });
+    let response = null;
+    if (getProbe) await getProbe.catch(() => undefined);
+    if (!getUnsupported) {
+      // A GET is shared through the CDN and the browser cache.
+      const query = new URLSearchParams({ date: dateKey, code: String(building.code || '') });
+      // A forced refresh must not get a cached copy: a per-minute token is part
+      // of the CDN cache key, and the browser cache is skipped.
+      if (fresh) query.set('fresh', String(Math.floor(Date.now() / 60000)));
+      const request = fetch(`${FUNCTION_ENDPOINT}?${query}`, { signal: controller.signal, ...(fresh ? { cache: 'no-store' } : {}) });
+      const probing = !getProbe;
+      if (probing) getProbe = request.then((r) => { if (r.status === 405) getUnsupported = true; });
+      response = await request;
+      if (response.status === 405) {
+        getUnsupported = true;
+        response = null;
+      }
+    }
+    if (!response) {
+      response = await fetch(FUNCTION_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          date: dateKey,
+          building,
+        }),
+        signal: controller.signal,
+      });
+    }
 
     if (!response.ok) {
       const text = await response.text();
@@ -131,17 +156,27 @@ async function fetchBuildingAvailability(building, dateKey, signal) {
   }
 }
 
+/**
+ * @param {any[]} buildings
+ * @param {Date | string} date
+ * @param {{ signal?: AbortSignal, onProgress?: (progress: any) => void, concurrency?: number, priority?: string[], fresh?: boolean }} [options]
+ */
 export async function fetchAvailabilityForDate(
   buildings,
   date,
-  { signal, onProgress, concurrency = DEFAULT_BUILDING_FETCH_CONCURRENCY } = {}
+  { signal, onProgress, concurrency, priority = [], fresh = false } = {}
 ) {
   const dateKey = typeof date === 'string' ? date : getDateKey(date);
+  // Buildings the person is looking at (favorites, the open building) first,
+  // then the largest: they take longest, so starting them early keeps the last
+  // wave short. Results still land at their original index.
+  const rank = new Map(priority.map((code, i) => [String(code), i]));
   const tasks = (buildings || []).map((building, index) => ({
     index,
     roomCount: (building.classrooms || []).length,
+    rank: rank.get(String(building.code ?? '')) ?? Infinity,
     building,
-  }));
+  })).sort((a, b) => (a.rank - b.rank) || (b.roomCount - a.roomCount));
   const totalRooms = tasks.reduce((sum, task) => sum + task.roomCount, 0);
   const totalBuildings = tasks.length;
   const results = new Array(totalBuildings);
@@ -167,7 +202,7 @@ export async function fetchAvailabilityForDate(
       const task = tasks[cursor++];
       let succeeded = false;
       try {
-        const result = await fetchBuildingAvailability(task.building, dateKey, signal);
+        const result = await fetchBuildingAvailability(task.building, dateKey, signal, fresh);
         results[task.index] = result;
         succeeded = true;
       } catch (error) {
@@ -194,7 +229,8 @@ export async function fetchAvailabilityForDate(
     }
   }
 
-  const poolSize = Math.max(1, Math.min(concurrency, tasks.length || 1));
+  const limit = concurrency ?? (getUnsupported ? LEGACY_BUILDING_FETCH_CONCURRENCY : DEFAULT_BUILDING_FETCH_CONCURRENCY);
+  const poolSize = Math.max(1, Math.min(limit, tasks.length || 1));
   await Promise.all(Array.from({ length: poolSize }, () => worker()));
 
   return results.map((building, index) => building || tasks[index].building);

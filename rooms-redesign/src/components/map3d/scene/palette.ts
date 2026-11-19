@@ -20,6 +20,9 @@ export interface PaletteRefs {
   renderer: THREE.WebGLRenderer;
   buildingMaterial: THREE.MeshStandardMaterial;
   surfaceMaterial: THREE.MeshStandardMaterial;
+  /** Tree canopies: fully rough and unlit by the window glow, so without a
+   * faint night lift they read as pure black blobs. */
+  foliageMaterial?: THREE.MeshStandardMaterial;
 }
 
 interface PaletteStop {
@@ -37,6 +40,7 @@ interface PaletteStop {
   buildingEmissive: THREE.Color;
   buildingEmissiveIntensity: number;
   surfaceTint: THREE.Color;
+  foliageEmissive: THREE.Color;
 }
 
 /** Elevation (degrees) at which each stop is fully reached. Between pivots
@@ -60,6 +64,7 @@ const DAY: PaletteStop = {
   buildingEmissive: new THREE.Color(0x000000),
   buildingEmissiveIntensity: 0,
   surfaceTint: new THREE.Color(0xffffff),
+  foliageEmissive: new THREE.Color(0x000000),
 };
 
 const GOLDEN: PaletteStop = {
@@ -77,6 +82,7 @@ const GOLDEN: PaletteStop = {
   buildingEmissive: new THREE.Color(0xffad69),
   buildingEmissiveIntensity: 0.07,
   surfaceTint: new THREE.Color(0xf6ebe1),
+  foliageEmissive: new THREE.Color(0x0a0907),
 };
 
 const NIGHT: PaletteStop = {
@@ -94,6 +100,8 @@ const NIGHT: PaletteStop = {
   buildingEmissive: new THREE.Color(0x8fa7ca),
   buildingEmissiveIntensity: 0.06,
   surfaceTint: new THREE.Color(0xd5deea),
+  // Cool moonlit fill, about the brightness of the lawns around the trees.
+  foliageEmissive: new THREE.Color(0x1d2a2c),
 };
 
 /** Applied-state epsilon in degrees of elevation. Solar drift is ~0.004°/s
@@ -140,7 +148,7 @@ export class PaletteController {
       t = 0;
     }
 
-    const { scene, fog, hemi, sun, renderer, buildingMaterial, surfaceMaterial } = this.refs;
+    const { scene, fog, hemi, sun, renderer, buildingMaterial, surfaceMaterial, foliageMaterial } = this.refs;
     (scene.background as THREE.Color).lerpColors(a.background, b.background, t);
     fog.color.lerpColors(a.fog, b.fog, t);
     fog.near = THREE.MathUtils.lerp(a.fogNear, b.fogNear, t);
@@ -159,5 +167,6 @@ export class PaletteController {
       t,
     );
     surfaceMaterial.color.lerpColors(a.surfaceTint, b.surfaceTint, t);
+    foliageMaterial?.emissive.lerpColors(a.foliageEmissive, b.foliageEmissive, t);
   }
 }

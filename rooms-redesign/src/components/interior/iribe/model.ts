@@ -54,10 +54,11 @@ import { buildAmphitheater, amphitheaterHeight } from './amphitheater';
 import { audCoordinates, antonovWayfinding, ANTONOV_TABLES, antonovHeight, antonovFloorPieces, GANNON_FRONT_HEIGHT, AUD_DEPTH, AUD_WIDTH, AUD_SCALE, auditoriumSeats, auditoriumSidePoint } from './auditorium';
 import { GANNON_WORLD_FOOTPRINT, GANNON_DOOR_LEAVES, GANNON_PAIR_THRESHOLDS } from './gannon-ground-layout';
 import { GANNON_FLOOR_PIECES, GANNON_TABLES } from './gannon-seating-layout';
-import { GANNON_CEILING_PIECES, gannonWallSections, gannonCeilingHeight } from './gannon-section';
+import { GANNON_CEILING_PIECES, gannonWallSections, gannonCeilingHeight, ANTONOV_SOFFIT_PIECES } from './gannon-section';
 import { groundGuidePlan } from './ground-guide-layout';
 import { officeFurniture, clearInside, meetingTable, meetingSeats, roomFrame, teachingTables } from './furniture';
 import { STAIR_HOLE } from './circulation';
+import { buildGroundWestWing } from './ground-west-wing';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { footprintForFloor, fourthPlan, westFourthPlan, roomTitle, ROOF_GALLERY, ANTONOV_FOOTPRINT, ATRIUM_VOID, ROOMS, plan, groundPlan, type FloorId, type Point, type Polygon, type InteriorRoom, distanceToSegment, pointInPolygon } from './layout';
 
@@ -95,6 +96,10 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  const galleryFabric=mat(0x283d47,.95),galleryCeiling=mat(0x737773);galleryCeiling.side=THREE.DoubleSide;
  const classroomFloor=mat(0x444b4c,.42), ceilingPanel=mat(0xd3d5d1);ceilingPanel.side=THREE.DoubleSide;
+ // UMD/HDR photographs show a dark painted exposed deck on the upper floors.
+ // The shared near-black reads as a void under downward-only lighting, so the
+ // deck gets its own charcoal; the exact paint value is an estimate.
+ const exposedCeiling=mat(0x34393c,.9);exposedCeiling.side=THREE.DoubleSide;exposedCeiling.name='Exposed ceiling deck';
  const shadowPixels=new Uint8Array(64*64*4);
  for(let y=0;y<64;y++)for(let x=0;x<64;x++){
   const i=(y*64+x)*4,r=Math.hypot((x-31.5)/31.5,(y-31.5)/31.5);
@@ -102,7 +107,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  }
  const shadowMap=new THREE.DataTexture(shadowPixels,64,64);shadowMap.needsUpdate=true;shadowMap.magFilter=THREE.LinearFilter;textures.push(shadowMap);
  const contactShadow=new THREE.MeshBasicMaterial({map:shadowMap,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
- const materials=[white,concrete,black,oak,metal,blue,yellow,lime,red,glass,gardenGlazing,light,screen,classroomFloor,ceilingPanel,contactShadow,walnut,auditoriumTimber,warmLight,galleryFabric,galleryCeiling,lobbySoffit];
+ const materials=[exposedCeiling,white,concrete,black,oak,metal,blue,yellow,lime,red,glass,gardenGlazing,light,screen,classroomFloor,ceilingPanel,contactShadow,walnut,auditoriumTimber,warmLight,galleryFabric,galleryCeiling,lobbySoffit];
  const brick=mat(0xffffff,.87);brick.side=THREE.DoubleSide;brick.name='Iribe brick masonry';materials.push(brick);
  const brickPixels=new Uint8Array(128*64*4),brickHeight=new Uint8Array(brickPixels.length);
  for(let y=0;y<64;y++)for(let x=0;x<128;x++){
@@ -118,6 +123,16 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  // replace the color pixels with gray height data on every masonry surface.
  const brickBump=new THREE.DataTexture(brickHeight,128,64);brickBump.wrapS=brickBump.wrapT=THREE.RepeatWrapping;brickBump.generateMipmaps=true;brickBump.minFilter=THREE.LinearMipmapLinearFilter;brickBump.magFilter=THREE.LinearFilter;brickBump.anisotropy=4;brickBump.needsUpdate=true;brick.bumpMap=brickBump;brick.bumpScale=.004;textures.push(brickBump);
  const put=(geo:THREE.BufferGeometry,m:THREE.Material)=>{const list=batches.get(m)||[];const indexed=geo.index?geo:mergeVertices(geo);if(indexed!==geo)geo.dispose();list.push(indexed);batches.set(m,list);};
+ // Repeated furniture (auditorium chairs) is drawn instanced instead of being
+ // merged copy by copy: far less work to build and far fewer vertices.
+ const instanced:THREE.InstancedMesh[]=[];
+ const instance=(template:THREE.BufferGeometry,m:THREE.Material,matrices:readonly THREE.Matrix4[])=>{
+  if(!matrices.length){template.dispose();return;}
+  const mesh=new THREE.InstancedMesh(template,m,matrices.length);
+  matrices.forEach((matrix,i)=>mesh.setMatrixAt(i,matrix));mesh.instanceMatrix.needsUpdate=true;mesh.computeBoundingSphere();
+  mesh.castShadow=!m.transparent&&!(m instanceof THREE.MeshBasicMaterial);mesh.receiveShadow=true;mesh.userData.interiorLayer='detail';
+  instanced.push(mesh);
+ };
  const box=(x:number,y:number,z:number,w:number,h:number,d:number,m:THREE.Material,angle=0)=>{const g=new THREE.BoxGeometry(w,h,d);g.rotateY(angle);g.translate(x,y,z);put(g,m);};
  const cylinder=(x:number,y:number,z:number,r:number,h:number,m:THREE.Material)=>{const g=new THREE.CylinderGeometry(r,r,h,32);g.translate(x,y,z);put(g,m);};
  const surface=(poly:Polygon,y:number,m:THREE.Material,holes:Polygon[]=[])=>{const shape=new THREE.Shape(poly.map(([x,z])=>new THREE.Vector2(x,-z)));for(const hole of holes)shape.holes.push(new THREE.Path(hole.map(([x,z])=>new THREE.Vector2(x,-z))));const geo=new THREE.ShapeGeometry(shape);geo.rotateX(-Math.PI/2);geo.translate(0,y,0);put(geo,m);};
@@ -150,11 +165,18 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
 
  const ceilingHoles=floor==='G'?[STAIR_HOLE,ATRIUM_VOID,ANTONOV_FOOTPRINT,ANTONOV_EXTERIOR_ENVELOPE,SOUTH_STAIR_OPENING]:communicating?.lower===floor?[STAIR_HOLE,communicating.void]:[STAIR_HOLE];
  if(westStair&&floor===westStair.lower)ceilingHoles.push(westStair.opening);
- if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:black,ceilingHoles);
+ if(floor!=='R') surface(footprint,ceiling,floor==='G'?lobbySoffit:exposedCeiling,ceilingHoles);
+ // Flat soffit under Antonov's higher tiers, over Gannon's corridor side.
+ // The stepped tier undersides otherwise show from the lobby. Height estimated.
+ if(floor==='G')for(const polygon of ANTONOV_SOFFIT_PIECES)surface(polygon,3.31,lobbySoffit);
 
  // The native Ground curve closes the auditorium below its upper volume.
  // Without it, lounge sightlines pass through the exposed seating tiers.
  if(floor==='G')buildGroundAuditoriumEnclosure({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},brick,GROUND_AUDITORIUM_ENCLOSURE_SOLIDS);
+ // Traced restroom block, west core, corridor and perimeter rooms (native plan).
+ // Faint self-light stands in for floor bounce on the low wing ceiling.
+ const wingCeiling=ceilingPanel.clone();wingCeiling.emissive.setHex(0x8f8b80);wingCeiling.name='Wing dropped ceiling';materials.push(wingCeiling);
+ if(floor==='G')buildGroundWestWing({box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},white,wingCeiling,light);
 
  batches=detailBatches;
  buildNorthStair(floor,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers},brick);
@@ -289,7 +311,7 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
   }
   batches=detailBatches;
   const seats=auditoriumSeats(room.id),tableAngle=-Math.atan2(AUD_WIDTH[1],AUD_WIDTH[0]);
-  buildAuditoriumChairs(seats,{box,cylinder,surface,wall,put,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
+  buildAuditoriumChairs(seats,{box,cylinder,surface,wall,put,instance,label,palette:{white,oak,metal,glass,black,light},materials,textures,barriers});
   for(const seat of seats){
    circleBarrier(seat.point[0],seat.point[1],.29,seat.height,1.18);
   }
@@ -400,8 +422,10 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
    if(room.exteriorEdges?.includes(i))return;
    const wallMaterial=room.glazedEdges?.includes(i)?glass:room.timberEdges?.includes(i)?oak:['0102','0108','0110','0116'].includes(room.id)&&(i===1||i===3)?white:defaultWallMaterial;
    const solidWall=(start:Point,end:Point,height:number,material:THREE.Material,collision=true,base=0)=>{
-    if(room.id==='0318'&&base===roomBase){
-     for(const part of gannonWallSections(start,end))wall(part.a,part.b,part.top-base,material,collision,base);
+    if(room.id==='0318'){
+     // Walls and door headers both rise to the enclosure top, so the lobby
+     // never looks over Gannon into the space under Antonov's rake.
+     for(const part of gannonWallSections(start,end))if(part.closure>base)wall(part.a,part.b,part.closure-base,material,collision,base);
      return;
     }
     wall(start,end,height,material,collision,base);
@@ -591,5 +615,6 @@ export function buildInteriorFloor(floor:FloorId):InteriorModel {
  chairBackTemplate.dispose();
  const details:THREE.Mesh[]=[];
  for(const batch of [shellBatches,detailBatches])for(const [m,geometries] of batch){const merged=mergeGeometries(geometries);geometries.forEach(g=>g.dispose());if(!merged)continue;const mesh=new THREE.Mesh(merged,m);mesh.castShadow=!m.transparent&&!(m instanceof THREE.MeshBasicMaterial);mesh.receiveShadow=true;mesh.userData.interiorLayer=batch===shellBatches?'shell':'detail';if(batch===detailBatches)details.push(mesh);group.add(mesh);}
- return {group,barriers,footprint,lift,setDetailsVisible(visible){details.forEach(mesh=>{mesh.visible=visible;});},dispose(){group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}};
+ for(const mesh of instanced){details.push(mesh);group.add(mesh);}
+ return {group,barriers,footprint,lift,setDetailsVisible(visible){details.forEach(mesh=>{mesh.visible=visible;});},dispose(){group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});instanced.forEach(mesh=>mesh.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}};
 }

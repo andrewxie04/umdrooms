@@ -20,6 +20,7 @@ vi.mock('../dayCachePersistence', () => ({
   readPersistedDay: vi.fn().mockResolvedValue(null),
   invalidatePersistedDay: vi.fn().mockResolvedValue(undefined),
   persistDay: vi.fn().mockResolvedValue(undefined),
+  STALE_TTL_MS: 12 * 60 * 60 * 1000,
 }));
 
 function libraryResponse(roomName = 'Original study room') {
